@@ -1,0 +1,19 @@
+{
+  "_note": [
+    "Vendored from alex137/BestPractice (tools/routing_scope.json), trimmed to",
+    "just the closed gate vocabulary tools/precedent_gate.py needs -- the",
+    "source file's own `practices` key documents the routing reason for every",
+    "one of BestPractice's OWN practices, which has no meaning here. The gate",
+    "vocabulary itself (moments a practice can fire at, independent of which",
+    "catalogue it belongs to) is the same everywhere Precedent's loader runs."
+  ],
+  "gates": {
+    "_note": [
+      "The gate vocabulary is closed: tools/verify_harness.py refuses an unknown gate name, and refuses a gate with no practices. Each gate names a moment with a real invocation point in this repo."
+    ],
+    "merge": "merging a branch",
+    "review": "reviewing work, or a review finding a defect",
+    "push": "before pushing — the pre-push hook",
+    "reply": "ending a turn and writing the reply — the stop hook"
+  }
+}

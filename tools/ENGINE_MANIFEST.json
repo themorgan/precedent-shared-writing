@@ -1,0 +1,36 @@
+{
+  "format_version": 1,
+  "kind": "source",
+  "source_repo": "https://github.com/alex137/BestPractice",
+  "source_branch": "precedent-beta-v01",
+  "source_commit": "c16210ec1dd767475bd36cc9b8ba75c912eeefb6",
+  "files": [
+    "build_views.py",
+    "glossary_terms.json",
+    "build_codeowners.py",
+    "precedent_gate.py",
+    "precedent_paths.py",
+    "precedent_show.py",
+    "split_practices.py",
+    "precedent_migrate_status.py",
+    "precedent_decommission.py",
+    "precedent_check.py",
+    "precedent_vendor_engine.py",
+    "routing_scope.json"
+  ],
+  "sha256": {
+    "build_views.py": "e07ce4504cd2a634eeab8ec89b78cb093e6c33e807ec82638456019c57957aee",
+    "glossary_terms.json": "b241a97f63131c88b60c7025b434ce59a0fc3b6c76068a47827f44eeea06be1c",
+    "build_codeowners.py": "8a136c7f31303886b36d40faa2e106832a062d9ece6557a7d49b9598fa3bb819",
+    "precedent_gate.py": "d489b5f2b6e3fa984968b256bdfb0929fa40aa7e378051873965f252dfae7f2b",
+    "precedent_paths.py": "784de310cfb1035d2a550146dc04fbea8fe37f0c28c2094135993cde29d0dd90",
+    "precedent_show.py": "30496f3c8eb0feb0d7d9ee3afaa62f67053e12eec1f0add42f6960b4c94955c8",
+    "split_practices.py": "deca3156115d90af25def0bde23d8191cc5e6f5c8fd1854876810e8c3f7016f6",
+    "precedent_migrate_status.py": "715dc47486c5b791b6a99007ebfa5bb78a2bba48de4e1ea908a32be4798311b6",
+    "precedent_decommission.py": "71b0b4c556804e163f43eef9ba525e5269a03e3ec48c430b53466ee7cfeb2642",
+    "precedent_check.py": "2b930a7faabd8c21f4ebe1b114de32484ac34526ea4f1c0812e9b20c37b79749",
+    "precedent_vendor_engine.py": "b73c082f1c78e842578f7b7293294419034db9b461ecd5e1ed9a459fa756afd1",
+    "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"
+  },
+  "_note": "The vendored Precedent source-repo engine (see tools/precedent_vendor_engine.py's own docstring, and spec/BOOTSTRAP_NEW_SOURCES.md / INSTALL.md). Never hand-edit a file this manifest lists -- run 'python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>' instead (kind is read back from this manifest -- no --kind flag needed for status/refresh); a hand-edit is detected as drift (sha256 mismatch) and refused without --force."
+}

@@ -1,0 +1,12 @@
+# DERIVED from approvers.json (sha256 33a666943a33) -- a hash of that
+# file's own content, NOT a commit: an unchanged approver list
+# regenerates byte-identically, so --check has a stable answer.
+# Recipe: tools/build_codeowners.py
+# Regenerate with: python3 tools/build_codeowners.py
+# edits here are safe to make but not durable -- regeneration replaces this file;
+# to make a change stick, edit the source or the recipe.
+#
+# Every approver reviews every change to this practice set -- there is
+# no per-path split; the whole repo is the thing being approved.
+
+*  @themorgan
