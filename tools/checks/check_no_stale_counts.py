@@ -22,6 +22,13 @@ the practice's own Install text, and stays one.
 
 Exit 0 and print nothing when clean. Exit 1 and print the practice's own
 Rule text (never a paraphrase) plus the specific finding(s) on a violation.
+Exit 2, with a reason, when the check COULD NOT RUN -- the runner reports
+that as SKIPPED, and a skip is not a pass. Added 2026-09-10: the two
+could-not-run cases below (no practices/ tree to count, and a `git
+ls-files` that fails) used to reach exit 1 and an uncaught traceback
+respectively, so "I could not check" was reported as "I found a
+violation" and as "I broke". Both are lies a green or red run cannot be
+read through.
 """
 import json
 import os
@@ -70,8 +77,10 @@ COUNT_RE = re.compile(r"(?<![`\w])(\d+)\s+practices\b")
 #
 # Nothing is hardcoded. All three signals already exist and are already
 # authoritative in any repo that has them:
-#   1. process/manifest.json's upstream.vendored_at -- the mirror's own
-#      declared path.
+#   1. Which of this repo's trees are MIRRORS -- asked of the engine, via
+#      precedent_resolve.mirrored_prefixes(), never re-derived here. See
+#      _mirrored_prefixes() below for why that question moved out of this
+#      file.
 #   2. A "GENERATED FILE" / "do not hand-edit" / "DERIVED" marker in the
 #      file's opening lines (practice: derived-file-marker).
 #   3. MANIFEST.json's per-practice `level` -- practices/ is materialized
@@ -85,7 +94,13 @@ _GENERATED_RE = re.compile(
     r"generated file|do not hand[- ]edit|DERIVED from", re.I)
 
 
-def _mirrored_prefixes() -> tuple:
+def _mirrored_prefixes_from_manifest() -> tuple:
+    """The one signal this file used to read on its own: §1's bookkeeping.
+
+    Kept ONLY as the fallback for an environment with no engine to ask --
+    see _mirrored_prefixes(). It is the weaker answer, and the reason is
+    exactly that it reads a §1-only path.
+    """
     manifest = ROOT / "process" / "manifest.json"
     if not manifest.is_file():
         return ()
@@ -95,6 +110,78 @@ def _mirrored_prefixes() -> tuple:
         return ()
     at = str(upstream.get("vendored_at") or "").strip("/")
     return (at + "/",) if at else ()
+
+
+def _mirrored_prefixes() -> tuple:
+    """-> repo-relative POSIX prefixes whose contents ROOT mirrors from
+    somewhere else, and may therefore not hand-edit.
+
+    ASKED OF THE ENGINE, NOT RE-DERIVED HERE (2026-09-10, closing the
+    `precedent-team-writing` half of BestPractice's TODO item
+    `source-checks-adopt-engine-helpers`). This function used to BE
+    _mirrored_prefixes_from_manifest() above: it read
+    `process/manifest.json`'s `upstream.vendored_at` and nothing else.
+    That file is INSTALL.md §1's bookkeeping, and §0 step 5 says outright
+    to skip it -- so in a §0 install this returned () and the exclusion
+    the comment above argues for silently evaporated, putting the whole
+    vendored catalogue back in scope. A real §0 install on 2026-09-10
+    reported Precedent's own historical prose as stale ("states 34
+    practices, but practices currently holds 121"), none of it actionable:
+    editing a mirror is forbidden and the next sync would overwrite it.
+    The adopter's workaround was to hand-write a `process/manifest.json`
+    carrying nothing but an `upstream` block, purely to feed this signal --
+    a file the install had been told not to create.
+
+    precedent_resolve.mirrored_prefixes() reads three signals instead of
+    one: the manifest (kept), a `process/upstream/` tree with or without a
+    manifest naming it, and every source `path` declared in
+    `precedent.json` that resolves inside the repo -- which is the
+    authority that EXISTS in exactly the repos the manifest is missing
+    from. It never raises, and () is one of its valid answers.
+
+    WHY THE FALLBACK IS THE OLD BEHAVIOUR AND NOT `exit 2`. The engine
+    module is absent here by design: `precedent_resolve.py` is in
+    upstream's CONSUMER_ENGINE_FILES but not its ENGINE_FILES, because a
+    practice set resolves no catalogue -- so inside this very repo the
+    import fails every time. Reporting SKIPPED there would trade one
+    silent failure for a louder one: this check's actual job, auditing
+    this set's own count claims, needs no engine at all, and only the
+    mirror EXCLUSION degrades without it. In a source set the two answers
+    are identical anyway (no `sources`, no manifest, no `process/upstream/`
+    -- both return ()), which is what makes falling back honest rather
+    than merely convenient. Exit 2 is reserved for what genuinely cannot
+    run; see CannotRun below for the cases that earn it.
+    """
+    # ROOT before SOURCE_ROOT: in a materialized consuming repo they are
+    # the same directory, and where they differ the engine that belongs to
+    # the repo being AUDITED is the one to ask.
+    for candidate in (ROOT / "tools", SOURCE_ROOT / "tools"):
+        if str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+    try:
+        import precedent_resolve as pr
+    except Exception:
+        return _mirrored_prefixes_from_manifest()
+    try:
+        return tuple(pr.mirrored_prefixes(ROOT))
+    except Exception:
+        # Documented never to raise. Belt and braces anyway: a check that
+        # takes a whole run down over its own exclusion list is worse than
+        # one that excludes less than it should.
+        return _mirrored_prefixes_from_manifest()
+
+
+class CannotRun(Exception):
+    """This check could not run here. Reported as SKIPPED (exit 2), never as
+    a violation and never as a crash -- the engine's own rule, in
+    precedent_check.py's docstring: "A CHECK THAT CANNOT RUN REPORTS THAT
+    IT DID NOT RUN. Every graceful-failure path here ends in SKIPPED with a
+    reason, never in a pass."
+
+    Distinct from the fail-open exclusions above, which degrade the check's
+    PRECISION while leaving it able to answer. These are the cases where
+    there is no answer to give.
+    """
 
 
 def _is_generated(rel: str) -> bool:
@@ -146,10 +233,22 @@ def rule_text() -> str:
 
 
 def tracked_markdown() -> list[str]:
-    result = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "*.md"],
-        capture_output=True, text=True, check=True,
-    )
+    # `check=True` here used to raise CalledProcessError straight out of the
+    # scan -- reported as ERRORED, which is not what it means. This is a
+    # scope: tree check reading the index, so a `git ls-files` that fails
+    # (not a repository, git absent, an unreadable index) yields an EMPTY
+    # file list, and an empty input set is the shape that reads as "clean".
+    # The same trap as an under-fetched clone: nothing found is not nothing
+    # there.
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "*.md"],
+            capture_output=True, text=True, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise CannotRun(f"`git ls-files` could not list tracked files under "
+                        f"{ROOT} ({e}), so there is no file set to scan -- an "
+                        f"empty scan is not a clean one")
     return [line for line in result.stdout.splitlines()
             if line.strip() and not not_actionable_here(line.strip())]
 
@@ -165,9 +264,32 @@ def find_violations() -> list[str]:
     # that correct figure stale. A checker that contradicts the generator
     # it checks is worse than no checker: it teaches the next session that
     # the generated number is the unreliable one.
-    actual = sum(1 for f in PRACTICES_DIR.glob("*.md")
-                 if re.search(r"^status:\s+active\s*$",
-                              f.read_text(encoding="utf-8"), re.M))
+    #
+    # AND: no practices/ tree at all is NOT a count of zero. Every finding
+    # this check prints is a comparison against `actual`, so a repo that
+    # declares this source without materializing it -- or one whose
+    # catalogue lives at a path `precedent.json` names rather than at
+    # `practices/` -- would have every "<N> practices" sentence in it
+    # reported as "states N practices, but practices currently holds 0".
+    # That is shape 2 of the §1-assumption audit (2026-09-10): the absence
+    # of an optional tree read as a violation instead of as "not applicable
+    # here". A tree that EXISTS with no active practice in it is a real
+    # zero and still checked.
+    if not PRACTICES_DIR.is_dir():
+        raise CannotRun(f"{PRACTICES_DIR} does not exist, so this repo has no "
+                        f"practice count for a sentence to be stale against")
+    practice_files = sorted(PRACTICES_DIR.glob("*.md"))
+    if not practice_files:
+        raise CannotRun(f"{PRACTICES_DIR} holds no practice file, so nothing "
+                        f"here has been materialized to count")
+    actual = 0
+    for f in practice_files:
+        try:
+            body = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if re.search(r"^status:\s+active\s*$", body, re.M):
+            actual += 1
     findings = []
     for rel in tracked_markdown():
         path = ROOT / rel
@@ -192,7 +314,11 @@ def find_violations() -> list[str]:
 
 
 if __name__ == "__main__":
-    findings = find_violations()
+    try:
+        findings = find_violations()
+    except CannotRun as e:
+        print(f"SKIPPED: {e}")
+        sys.exit(2)
     if findings:
         print(f"VIOLATION: {PRACTICE_FILE.stem}")
         for f in findings:

@@ -33,6 +33,17 @@ maintenance addressed to somebody without the repo. Every one of them was
 a session being honest about where a decision came from or which rule it
 followed. Good instincts in a working note; wrong in the one artifact that
 leaves the building, which is why this is a check and not a reminder.
+
+Exit 0 when clean, 1 on a violation, and 2 -- reported as SKIPPED -- when
+the check could not run. The three could-not-run paths all returned 0
+until 2026-09-10, so "no document was in scope" reported as PASS: this
+file printed the word SKIPPED and then handed the runner a clean exit,
+which is the exact failure precedent_check.py's own docstring says has
+bitten this project four times ("a scan with an empty input set printing
+OK"). Found auditing this set's checks alongside the
+`source-checks-adopt-engine-helpers` fix; nothing had gone wrong yet
+because this repo declares no output_paths, so the wrong answer and the
+right one looked the same from here.
 """
 import json
 import os
@@ -93,12 +104,23 @@ def _manifest_slugs():
     return {e.get("slug") for e in entries if e.get("slug")}
 
 
+class CannotRun(Exception):
+    """This check could not run here. Reported as SKIPPED (exit 2), never as
+    a violation and never as a pass."""
+
+
 def _tracked_markdown():
+    # `except Exception: return []` swallowed a failing `git ls-files` into
+    # an empty file list, and an empty file list is what a clean tree looks
+    # like -- so a repo git could not read reported OK. The same trap as an
+    # under-fetched clone: nothing found is not nothing there.
     try:
         out = subprocess.run(["git", "ls-files", "*.md"], cwd=ROOT,
                              capture_output=True, text=True, check=True).stdout
-    except Exception:
-        return []
+    except Exception as e:
+        raise CannotRun(f"`git ls-files` could not list tracked files under "
+                        f"{ROOT} ({e}), so there is no file set to scan -- an "
+                        f"empty scan is not a clean one")
     return [p for p in out.splitlines() if p]
 
 
@@ -126,14 +148,17 @@ def _in_scope(rel, outputs, internals):
 def main():
     outputs = _declared("output_paths")
     if not outputs:
+        # Exit 2, not 0. This whole check is scoped by a declaration the
+        # repo may not have made, and "nobody has told me which documents
+        # face outward" is not "no document here leaks process".
         print("SKIPPED: this repo declares no output_paths, so no document "
               "here is marked as written for an outside reader")
-        return 0
+        return 2
     internals = _declared("internal_paths")
     slugs = _manifest_slugs()
 
     findings, scanned = [], 0
-    for rel in _tracked_markdown():
+    for rel in _tracked_markdown():   # raises CannotRun, never returns []
         if not _in_scope(rel, outputs, internals):
             continue
         scanned += 1
@@ -170,11 +195,37 @@ def main():
         for f in findings:
             print(f)
         return 1
+
+    # An empty scan is not a clean one. output_paths is declared, so
+    # documents are meant to be there; zero IN SCOPE means either the
+    # declaration and the tree disagree, or everything under those paths was
+    # exempt -- and in both cases nothing was examined. Reporting PASS on it
+    # is how a check that no longer looks at anything keeps looking green.
+    if not scanned:
+        print(f"SKIPPED: this repo declares {len(outputs)} output path(s) "
+              f"({', '.join(sorted(outputs))}) but no tracked markdown file "
+              f"under them was in scope -- either nothing is there, or every "
+              f"document found was exempt (a doc-recipes/ file, or one under "
+              f"a declared internal_path). Nothing was scanned")
+        return 2
+
+    # Say which halves actually ran. The slug half needs a committed
+    # MANIFEST.json and silently does nothing without one -- a partial skip
+    # the 0/1/2 protocol cannot express, so the message carries it instead
+    # of an OK line that overstates what was checked.
+    slug_half = (f"practice slugs (against {len(slugs)} in MANIFEST.json)"
+                 if slugs else
+                 "NOT practice slugs -- no MANIFEST.json here to tell a "
+                 "citation from an ordinary hyphenated word")
     print(f"OK: {scanned} output document(s) across {len(outputs)} declared "
-          f"output path(s); no attribution stamps, practice slugs or links "
-          f"into the practice layer")
+          f"output path(s); no attribution stamps, no links into the practice "
+          f"layer, and {slug_half}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except CannotRun as e:
+        print(f"SKIPPED: {e}")
+        sys.exit(2)

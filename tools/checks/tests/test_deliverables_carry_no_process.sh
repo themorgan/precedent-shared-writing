@@ -18,7 +18,17 @@
 #      that would get the check switched off, so it is tested, not assumed.
 #   G. a bare date with no name ("through 2026-09") and a name with no date
 #      -- must NOT fire.
-# Then: a repo declaring no output_paths at all must SKIP, not fail.
+# Then two could-not-run cases, which must SKIP -- exit 2, reported as
+# SKIPPED -- and not pass:
+#   H. a repo declaring no output_paths at all;
+#   I. a repo declaring output_paths that no tracked markdown resolves
+#      under. Both returned exit 0 until 2026-09-10 while PRINTING the word
+#      SKIPPED, so the runner recorded a PASS -- "a scan with an empty input
+#      set printing OK", which precedent_check.py's own docstring says has
+#      bitten this project four times. The exit code is asserted now, not
+#      just the message: the message was already right and the answer was
+#      still wrong. This test tolerated it too -- its `skipped` branch
+#      checked the text and never the status.
 #
 # The fixture creates precedent.json and MANIFEST.json because this source
 # repo has neither -- but it APPENDS to whatever it finds rather than
@@ -29,8 +39,27 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 ROOT="$(pwd)"
 
+overlay_check_under_test () {
+  # `git clone` carries COMMITTED state only, so without this every fixture
+  # runs whatever is on HEAD rather than the script being edited -- a test
+  # confidently exercising the wrong version of its own subject. Cost a real
+  # debugging detour in a sibling suite on 2026-09-10.
+  cp "$ROOT/tools/checks/check_deliverables_carry_no_process.py" tools/checks/
+}
+
 seed_repo () {
   mkdir -p deliverables doc-recipes-holder/doc-recipes internal-notes
+  # One CLEAN in-scope document, in every fixture. Since 2026-09-10 a scan
+  # that examined nothing reports SKIPPED rather than OK, so a fixture whose
+  # point is SCOPING -- D (a doc-recipes/ file is exempt) and E (a file
+  # outside every output path) -- has to give the check something real to
+  # scan, or "clean" and "did not look" are the same result again. It also
+  # makes each of those cases strictly stronger than before: the check
+  # provably ran and provably did not report the out-of-scope file.
+  cat > deliverables/index.md <<'CLEAN'
+# Index
+Plain prose with nothing in it that this check looks for.
+CLEAN
   python3 - <<'PY'
 import json, pathlib
 p = pathlib.Path('precedent.json')
@@ -177,14 +206,33 @@ MD
   git add -A >/dev/null
 }
 
+plant_output_paths_with_nothing_under_them () {
+  # output_paths declared, and no tracked markdown resolving under any of
+  # them -- the declaration and the tree disagree. The directory is created
+  # so the path is not merely a typo, and left EMPTY so nothing is in scope;
+  # git tracks no empty directory, which is exactly the point.
+  python3 - <<'DECLARE'
+import json, pathlib
+p = pathlib.Path('precedent.json')
+d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+d['output_paths'] = ['no-such-deliverables']
+p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+DECLARE
+  mkdir -p no-such-deliverables
+  git add -A >/dev/null
+}
+
 run () {
   local label="$1" expect="$2" fn="$3"
   local scratch; scratch="$(mktemp -d)"
   git clone -q "$ROOT" "$scratch"
   (
     cd "$scratch"
+    overlay_check_under_test
     "$fn"
-    out="$(python3 tools/checks/check_deliverables_carry_no_process.py 2>&1)" && got=clean || got=fires
+    code=0
+    out="$(python3 tools/checks/check_deliverables_carry_no_process.py 2>&1)" || code=$?
+    case "$code" in 0) got=clean ;; 2) got=skipped ;; *) got=fires ;; esac
     case "$expect" in
       # A non-zero exit is not evidence on its own: assert the message
       # (control-asserts-which-failure).
@@ -200,8 +248,14 @@ run () {
           echo "FAIL: $label -- expected clean, got: $out" >&2; exit 1
         fi ;;
       skipped)
-        if ! printf '%s' "$out" | grep -q '^SKIPPED: this repo declares no output_paths'; then
-          echo "FAIL: $label -- expected the no-output_paths skip, got: $out" >&2; exit 1
+        # Exit 2 AND the reason. Asserting only the message is what let the
+        # exit-0 silent pass stand: the text said SKIPPED and the runner
+        # read PASS.
+        if [ "$code" != 2 ]; then
+          echo "FAIL: $label -- expected exit 2 (SKIPPED), got $code: $out" >&2; exit 1
+        fi
+        if ! printf '%s' "$out" | grep -q '^SKIPPED: this repo declares'; then
+          echo "FAIL: $label -- exited 2 without a reason naming the declaration: $out" >&2; exit 1
         fi ;;
     esac
     echo "ok: $label ($got, as required)"
@@ -220,10 +274,17 @@ run "the same three tells inside doc-recipes/"         clean   plant_recipe
 run "the same tells outside every output path"         clean   plant_outside_output_path
 run "hyphenated English that is not in the manifest"   clean   plant_english_that_looks_like_a_slug
 run "a bare date, and names with no date"              clean   plant_innocent_dates_and_names
-run "a repo declaring no output_paths"                 skipped plant_no_output_paths
+run "H. a repo declaring no output_paths"               skipped plant_no_output_paths
+run "I. output_paths with no document under them"      skipped plant_output_paths_with_nothing_under_them
 
-if ! python3 tools/checks/check_deliverables_carry_no_process.py > /dev/null; then
-  echo "FAIL: check_deliverables_carry_no_process.py is not clean on the real, current repo" >&2
+# The real, current repo. It declares no output_paths, so the honest answer
+# here is SKIPPED (exit 2), not a pass -- asserted as exit 2 specifically,
+# because exit 0 is precisely the bug fixed on 2026-09-10 and the `! cmd`
+# guard this replaces would accept it again.
+code=0
+out="$(python3 tools/checks/check_deliverables_carry_no_process.py 2>&1)" || code=$?
+if [ "$code" != 2 ]; then
+  echo "FAIL: on the real, current repo -- expected exit 2 (this repo declares no output_paths), got $code: $out" >&2
   exit 1
 fi
-echo "ok: clean on real content"
+echo "ok: reports SKIPPED, not a pass, on the real repo (no output_paths declared)"

@@ -18,7 +18,10 @@ real document prose counts.
 
 Exit 0 and print nothing when clean. Exit 1 and print the practice's own
 Rule text (never a paraphrase) plus the specific finding(s) on a violation.
+Exit 2, with a reason, when the check COULD NOT RUN -- reported as SKIPPED,
+and a skip is not a pass.
 """
+import json
 import os
 import pathlib
 import re
@@ -47,6 +50,84 @@ CODE_SPAN_RE = re.compile(r"`[^`]*`")
 MARKER_RE = re.compile(r"\*\*\s*➡️.*?⬅️\s*\*\*")
 
 
+class CannotRun(Exception):
+    """This check could not run here. Reported as SKIPPED (exit 2), never as
+    a violation and never as a crash."""
+
+
+# --- Findings this repo cannot act on where they are reported -------------
+#
+# THE SAME EXCLUSION check_no_stale_counts.py carries, and this file was
+# missing it entirely (found 2026-09-10, auditing the rest of this set's
+# checks alongside the `source-checks-adopt-engine-helpers` fix). Both
+# checks scan the identical file set -- every tracked `*.md` in ROOT -- so
+# both reach a consuming repo's vendored copy of somebody else's
+# catalogue, and a leftover draft marker inside a mirror is real but not
+# actionable HERE: editing the mirror is forbidden and the next sync would
+# overwrite it. `no-stale-counts` got the exclusion because it FIRED; this
+# one had simply never been pointed at a repo with a mirror in it, which is
+# precisely the gap the audit exists to close.
+#
+# Narrower than no-stale-counts' version on purpose: only mirrors. That
+# check also skips generated files and foreign practices, both of which
+# turn on a count of THIS repo's practices/ tree; a draft marker in a
+# generated file means the recipe that generates it still carries one,
+# which is worth reporting where a reader can see it.
+
+
+def _mirrored_prefixes_from_manifest() -> tuple:
+    """The §1-only signal, kept only as the fallback -- see below."""
+    manifest = ROOT / "process" / "manifest.json"
+    if not manifest.is_file():
+        return ()
+    try:
+        upstream = json.loads(
+            manifest.read_text(encoding="utf-8")).get("upstream", {})
+    except (ValueError, OSError):
+        return ()
+    at = str(upstream.get("vendored_at") or "").strip("/")
+    return (at + "/",) if at else ()
+
+
+def _mirrored_prefixes() -> tuple:
+    """-> repo-relative POSIX prefixes ROOT mirrors from somewhere else.
+
+    Asked of precedent_resolve.mirrored_prefixes(), which reads three
+    signals -- `process/manifest.json`'s `upstream.vendored_at`, a
+    `process/upstream/` tree, and every source `path` in `precedent.json`
+    that resolves inside the repo -- and deliberately does NOT treat the
+    repo root, `local/`, an out-of-repo source, or the materialized
+    `practices/` tree as mirrors. Over-excluding would blind this check to a
+    practice set's own content, which is a worse failure than the one being
+    fixed.
+
+    DUPLICATED from check_no_stale_counts.py rather than shared through a
+    sibling module, deliberately: a check script is copied ALONE into
+    fixtures that carry no sibling tools (precedent_check.py's own
+    `_open_item_disposition` comment records the ModuleNotFoundError that
+    taught this), so an import of a neighbour takes those fixtures down.
+    The same reason rule_text() is duplicated across every check in the
+    catalogue.
+
+    Falls back to the manifest-only answer when the engine is absent --
+    `precedent_resolve.py` is in upstream's CONSUMER_ENGINE_FILES but not
+    its ENGINE_FILES, so it does not exist inside a practice set. Not exit
+    2: scanning for a leftover marker needs no engine, and only the
+    exclusion degrades without one.
+    """
+    for candidate in (ROOT / "tools", SOURCE_ROOT / "tools"):
+        if str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+    try:
+        import precedent_resolve as pr
+    except Exception:
+        return _mirrored_prefixes_from_manifest()
+    try:
+        return tuple(pr.mirrored_prefixes(ROOT))
+    except Exception:
+        return _mirrored_prefixes_from_manifest()
+
+
 def rule_text() -> str:
     # A materialized check runs in whatever repo its source was resolved
     # into, and the practice file it quotes is not guaranteed to be there:
@@ -65,13 +146,25 @@ def rule_text() -> str:
 
 
 def tracked_md_files() -> list[str]:
-    result = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "*.md"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return [line for line in result.stdout.splitlines() if line.strip()]
+    # A `git ls-files` that fails used to raise CalledProcessError straight
+    # out of the scan (ERRORED, which is not what it means) -- and an empty
+    # file list is the shape that reads as a clean tree, so it must not be
+    # reached by accident either.
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "*.md"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise CannotRun(f"`git ls-files` could not list tracked files under "
+                        f"{ROOT} ({e}), so there is no file set to scan -- an "
+                        f"empty scan is not a clean one")
+    mirrored = _mirrored_prefixes()
+    return [line for line in result.stdout.splitlines()
+            if line.strip()
+            and not (mirrored and line.strip().startswith(mirrored))]
 
 
 def find_violations() -> list[str]:
@@ -97,7 +190,11 @@ def find_violations() -> list[str]:
 
 
 if __name__ == "__main__":
-    findings = find_violations()
+    try:
+        findings = find_violations()
+    except CannotRun as e:
+        print(f"SKIPPED: {e}")
+        sys.exit(2)
     if findings:
         print(f"VIOLATION: {PRACTICE_FILE.stem}")
         for f in findings:
