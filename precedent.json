@@ -1,0 +1,40 @@
+{
+  "format_version": 1,
+  "base_branch": "main",
+  "visibility": "private",
+  "_visibility_comment": [
+    "Declared OUTRIGHT, and this key is why this file is safe to add at all.",
+    "build_views.repo_is_public() reads an ABSENT precedent.json as private --",
+    "no config, not a Precedent repo -- but a PRESENT one with no 'visibility'",
+    "key as PUBLIC, on the reasoning that omitting the field is how a public",
+    "repo publishes private practice text by accident. This repo is private",
+    "and was relying on the absent-file path. Adding this file for the",
+    "timezone alone would therefore have flipped it to public and silently",
+    "dropped team- and individual-level practices from the tracked loader",
+    "block and the materialized tree. Verified before and after: repo_is_public",
+    "stays False and AGENTS.md regenerates byte-identically."
+  ],
+  "fallback_timezone": "America/New_York",
+  "_fallback_timezone_comment": [
+    "The zone for stamping commits and generated dates in THIS repo when",
+    "nobody's own zone resolves -- no PRECEDENT_COMMIT_TZ, no identity.json",
+    "reachable, no TZ in the environment. It is rung 5 of the ladder in",
+    "tools/precedent_time.py: a person's zone is person-level and lives in",
+    "their identity.json, while the answer for a person this project could",
+    "not identify is the repository's to choose.",
+    "",
+    "New York, not Buenos Aires. This is a TEAM set: shared by level, and consumed by repositories with more than one member. Buenos Aires is Morgan's own zone and belongs in his individual source, not in a set an unidentified committer could be anyone in. Morgan, 2026-09-10: the Buenos Aires fallback is just for him personally; a shared set defaults to New York. Sibling declarations the same day: precedent-team-maintainers, precedent-team-working-style, and the nomen-omen consuming repo.",
+    "",
+    "APPLIED, NEVER ENFORCED, exactly as the engine-level rung below it is.",
+    "Applied, because the alternative is not 'no zone' but the container's",
+    "silent UTC, and a record stamped +0000 by somebody who is not in UTC",
+    "cannot be ordered against anyone else's. Never enforced, because",
+    "refusing somebody's commit over a zone THEY never declared blocks real",
+    "work on a value they never saw. Declaring a zone in your own",
+    "identity.json is what makes it yours and checked.",
+    "",
+    "Set here rather than by editing the vendored hook (practice:",
+    "layered-practice-packs, registry-source-of-truth). Morgan's instruction,",
+    "2026-09-10. practice: timestamps-carry-offset."
+  ]
+}
