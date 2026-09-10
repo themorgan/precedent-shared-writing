@@ -146,7 +146,23 @@ def _mirrored_prefixes() -> tuple:
     import fails every time. Reporting SKIPPED there would trade one
     silent failure for a louder one: this check's actual job, auditing
     this set's own count claims, needs no engine at all, and only the
-    mirror EXCLUSION degrades without it. In a source set the two answers
+    mirror EXCLUSION degrades without it.
+
+    WHICH WAY A DEGRADED ANSWER COSTS is the whole test, and it is worth
+    stating as a rule rather than re-deriving per check. An exclusion list
+    that comes back SHORT costs extra findings, never missed ones, so
+    failing open is the honest degradation here: the worst case is noise a
+    reader can see and dismiss. Contrast an unresolvable IDENTITY, where
+    failing open would mean judging a commit against nothing -- there the
+    honest answer is `raise NotApplicable`, and
+    `precedent_identity.NoDeclaredIdentity` is the cue for it. (Identity
+    moved out of the resolver into upstream's `tools/precedent_identity.py`,
+    which IS in ENGINE_FILES, so a practice set vendors it; a check here
+    that ever needs identity imports it from there, not from
+    precedent_resolve. `mirrored_prefixes()` stayed in the resolver,
+    because it genuinely is catalogue resolution.)
+
+    In a source set the two answers
     are identical anyway (no `sources`, no manifest, no `process/upstream/`
     -- both return ()), which is what makes falling back honest rather
     than merely convenient. Exit 2 is reserved for what genuinely cannot

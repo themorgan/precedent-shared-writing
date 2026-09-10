@@ -45,12 +45,17 @@ yet. A stamp with a fabricated name is worse than no stamp.
    `tools/precedent_show.py` reads as ordinary content. That direction is a
    false negative — a leak this check quietly permits — not a false
    positive, which is why it was recorded rather than guessed at.
-   **Blocked-on:** deciding what counts as "the practice layer" in a §0
-   install is a question for the engine, the way `mirrored_prefixes()`
-   answered the mirror question; matching more path shapes here would
-   re-create exactly the private re-derivation that
+   **The fix belongs upstream, not here,** and is recorded in
+   BestPractice's own follow-ups next to
+   [`mirrored_prefixes()`](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/tools/precedent_resolve.py).
+   Deciding what counts as "the practice layer" in a §0 install is the same
+   kind of question `mirrored_prefixes()` answered for mirrors; matching
+   more path shapes *here* would re-create exactly the private
+   re-derivation that
    [BestPractice's `source-checks-adopt-engine-helpers` item](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/TODO.md#source-checks-adopt-engine-helpers)
-   exists to remove.
+   exists to remove. So this item stays open as a pointer: it is closed by
+   an engine helper arriving, not by work in this repo.
+   **Blocked-on:** that upstream helper.
 3. <a id="mirrored-prefixes-helper-duplicated"></a>**The `_mirrored_prefixes()` wrapper is duplicated in two checks.**
    Both checks that scan every tracked markdown file carry their own copy
    of the same short wrapper: put the engine on `sys.path`, call

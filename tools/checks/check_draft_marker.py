@@ -114,6 +114,14 @@ def _mirrored_prefixes() -> tuple:
     its ENGINE_FILES, so it does not exist inside a practice set. Not exit
     2: scanning for a leftover marker needs no engine, and only the
     exclusion degrades without one.
+
+    The rule behind that, stated at length in
+    check_no_stale_counts.py's copy: an exclusion list that comes back
+    SHORT costs extra findings, never missed ones, so failing open is the
+    honest degradation. Where a degraded answer would cost missed findings
+    instead -- an unresolvable identity, judged against nothing -- the
+    honest answer is `raise NotApplicable`, from
+    `precedent_identity.NoDeclaredIdentity`.
     """
     for candidate in (ROOT / "tools", SOURCE_ROOT / "tools"):
         if str(candidate) not in sys.path:
