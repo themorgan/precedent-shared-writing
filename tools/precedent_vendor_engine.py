@@ -239,6 +239,35 @@ ENGINE_FILES = [
     # NotApplicable by name, so those report SKIPPED with the missing module
     # named -- never ERRORED, and never a silent pass.
     'precedent_check.py',
+    # Whether this environment can reach its PRIVATE sources at all, and the
+    # credential helper that lets a SessionStart hook clone one without
+    # add_repo (added 2026-09-09). In the shared engine rather than the
+    # consumer half because a source set is itself a repo somebody works in:
+    # a session rooted in precedent-team-writing needs the person's
+    # individual set exactly as much as a consumer does, and had the same
+    # silent absence. precedent_source_bootstrap.py imports it by name and
+    # says so out loud when it is missing, so a tree vendored before this
+    # date degrades visibly rather than ignoring a token that is set.
+    'precedent_source_credentials.py',
+    # precedent_check.py imports it at module scope, so a vendored engine
+    # without it does not degrade -- it raises ModuleNotFoundError and takes
+    # the whole check run down. Found 2026-09-09 by verify_harness the moment
+    # the import landed: thirteen fixtures that build a scratch engine tree
+    # from this list failed at once. Every repo that stamps a date needs it
+    # anyway (practice: timestamps-carry-offset); it has no dependencies of
+    # its own beyond the standard library.
+    'precedent_time.py',
+    # WHO this repo's commits belong to, resolved the way commit-identity.sh
+    # already resolves it. In ENGINE_FILES rather than CONSUMER-only,
+    # unlike precedent_resolve.py which it was carved out of: a practice
+    # SET is the repository that most certainly HAS an identity -- a root
+    # identity.json is what declares one -- so a set that could not import
+    # this had its own commit-author and buenos-aires-dates checks degrade
+    # from enforcing to SKIPPED (2026-09-10, reported by the set that
+    # adopted the helper). Identity is about a person; the resolver is
+    # about a catalogue, and only the second reason keeps a file out of a
+    # set.
+    'precedent_identity.py',
     'precedent_vendor_engine.py',
 ]
 
@@ -1192,6 +1221,31 @@ def fresh():
     return 0
 
 
+def _credential_reminder(where):
+    """Print, at the vendor-update moment, whether this environment can
+    reach its private practice sources at all.
+
+    WHY HERE (asked for by Morgan, 2026-09-09). An update to the vendored
+    engine is the one moment somebody is deliberately looking at how a repo
+    gets its practices -- and it is also when a new engine file arrives that
+    the environment may not be configured for. A credential that was never
+    set produces no error at any other time: the sources simply are not
+    there, and a session reads the universal catalogue believing it has
+    them all. See tools/precedent_source_credentials.py for what that costs
+    and what was measured about the fix.
+
+    Never gates. A vendor update is not the place to refuse work over an
+    environment setting (practice: fail-gracefully)."""
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import precedent_source_credentials as psc
+    except ImportError:
+        return
+    line = psc.remind(where, prefix='precedent_vendor_engine')
+    if line:
+        print(f"\n{line}")
+
+
 def main():
     args = sys.argv[1:]
     if args and args[0] == 'fresh':
@@ -1222,7 +1276,9 @@ def main():
         return 0
     clone = _clone_or_die(args[1])
     if args[0] == 'status':
-        return status(clone)
+        rc = status(clone)
+        _credential_reminder(ROOT)
+        return rc
     rest = args[2:]
     ref = None
     if '--from-ref' in rest:
@@ -1242,7 +1298,9 @@ def main():
             sys.exit(f"precedent_vendor_engine FAIL: --from-ref {ref!r} does "
                      f"not resolve in {clone}.")
         ref = resolved
-    return refresh(clone, force='--force' in args, ref=ref)
+    rc = refresh(clone, force='--force' in args, ref=ref)
+    _credential_reminder(ROOT)
+    return rc
 
 
 if __name__ == '__main__':
@@ -1250,7 +1308,7 @@ if __name__ == '__main__':
     # split three ways on it: a hard "unknown option" FAIL, a silent
     # fall-through that ran the whole audit as if nothing had been asked, or
     # the docstring printed with a non-zero exit. All three are wrong, and
-    # documentation/HOW_TO_USE_THIS_TECHNICAL.md points readers straight at
+    # documentation/HOW_TO_USE_THIS_DEVELOPERS.md points readers straight at
     # these commands. The module docstring is the usage text.
     if any(a in ('--help', '-h') for a in sys.argv[1:]):
         print((__doc__ or '').strip())
