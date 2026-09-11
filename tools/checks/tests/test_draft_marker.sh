@@ -84,9 +84,22 @@ overlay_check_under_test () {
   cp "$ROOT/tools/checks/check_draft_marker.py" tools/checks/
 }
 
-install_engine () {
+install_engine () {   # copy the real engine in; caller has checked ENGINE
+  # The WHOLE engine directory's modules, not precedent_resolve.py alone.
+  # It imports siblings at module level (split_practices, build_views, and
+  # through them precedent_identity), so a lone copy raises
+  # ModuleNotFoundError on import -- and the check under test catches that
+  # and falls back to the manifest answer. In the D fixture there is no
+  # manifest, so the fallback returns an EMPTY exclusion and the planted
+  # violation fires: a case that exists to prove the mirror exclusion works
+  # instead proved it absent, and said so in the voice of the check being
+  # wrong rather than the fixture being short a file. Copying every
+  # top-level module means the next sibling this engine picks up does not
+  # break the case again. tools/checks/ is deliberately untouched --
+  # overlay_check_under_test() has already put the check under test there,
+  # and the engine directory has no checks/ of its own to clobber it with.
   mkdir -p tools
-  cp "$ENGINE" tools/precedent_resolve.py
+  cp "$(dirname "$ENGINE")"/*.py tools/
 }
 
 declare_source () {   # $1 = path to declare as a source
