@@ -38,6 +38,16 @@ has been bitten four times by the opposite -- a scan with an empty input set
 printing OK -- and the whole point of an enforced practice is that its check
 is the only thing standing where the prose used to be.
 
+A RULE THIS REPO HAS SAID DOES NOT BIND IT REPORTS **EXEMPT**, and reports
+it by name with the recorded reason. `not_binding` in precedent.json is
+where a consuming repo declares that a pair -- this repo, this rule -- has
+no relationship (precedent_resolve.load_not_binding). Until 2026-09-10 that
+declaration did nothing to this module's run: only the reachability check
+read it, so an exempted practice was still checked, still violated, still
+counted, and there was no way for a consuming repo to declare a practice
+non-binding and get a clean check. `severity: blocking` still cannot be
+exempted. See load_exemptions().
+
 Scopes, because a practice is not always a property of a file:
 
   tree      a property of the repository as it stands (an index exists, the
@@ -94,6 +104,37 @@ TOOLS = ROOT / 'tools'
 _HERE_TOOLS = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
 import split_practices as sp
+
+# practice: one-formatter-per-quantity -- every moment in time this project
+# writes down comes from ONE module, in the person's zone, carrying its
+# offset. Never a bare datetime.date.today(): that is the container's UTC.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import precedent_time  # noqa: E402
+
+
+# Which trees this repo MIRRORS from somewhere else, and therefore may not
+# edit. precedent_resolve.mirrored_prefixes() is the one place that question
+# is answered -- its own docstring carries the reasoning and the incident.
+# Several checks here need it, and each of them used to hardcode
+# 'process/upstream/', which is INSTALL.md §1's layout and invisible to a §0
+# install. Cached because it reads files and is asked once per check.
+#
+# It never raises, so the only thing guarded is the import: precedent_check.py
+# ships into source sets, which vendor it without precedent_resolve.py.
+_MIRRORED_CACHE = {}
+
+
+def _mirrored(repo):
+    """-> tuple of repo-relative prefixes this repo mirrors; () if none."""
+    key = str(repo)
+    if key not in _MIRRORED_CACHE:
+        try:
+            import precedent_resolve as pr
+            _MIRRORED_CACHE[key] = tuple(pr.mirrored_prefixes(repo))
+        except Exception:
+            _MIRRORED_CACHE[key] = ('process/upstream/',)
+    return _MIRRORED_CACHE[key]
+
 
 # --------------------------------------------------------------------------
 # The one code path: a failure message is the practice's own Rule.
@@ -595,6 +636,167 @@ def _catalogue_carries_stories(ctx):
     return out
 
 
+
+# ---- practice-links-travel -------------------------------------------------
+# A practice file is copied into every repository that adopts the catalogue,
+# so a relative link in one is only real if the target is copied too.
+# practice: practice-links-travel
+_MD_LINK_RE = re.compile(r'(?<!\!)\[[^\]]*\]\(([^)\s]+)\)')
+_BLOB_URL_RE = re.compile(
+    r'^https://github\.com/([^/]+/[^/]+)/blob/([^/]+)/(.+)$')
+# What precedent_materialize.py actually copies out of a source's
+# tools/checks/, and it is two globs rather than a subtree: `check_*.py`
+# beside the practices, and `tests/test_*.sh` under them. Both shapes are
+# spelled out, because the tests half was missed the first time -- run
+# against a real private set that version reported 12 correct links across
+# 6 practice files as violations, and the repair it printed for each was an
+# absolute URL into that private repository, i.e. the disclosure this very
+# rule exists to prevent (measured 2026-09-11 by the session that
+# deduplicated the individual copy). A loose "anything under tools/checks/"
+# would clear those 12 too, and would also clear a link to a file
+# materialize does not copy -- so the target must exist as well, below.
+_CHECK_SCRIPT_RE = re.compile(
+    r'\.\./tools/checks/(?:check_[^/]+\.py|tests/test_[^/]+\.sh)')
+
+
+def _markdown_links(text):
+    """[(lineno, target)] for every markdown link OUTSIDE fences and code
+    spans. A link written inside backticks is a value being documented, not
+    a reference -- same reading doc_lint.py's own link check uses, and the
+    reason it is duplicated here rather than imported is that this module
+    must keep working in a tree where cmark-gfm is absent and doc_lint
+    degrades."""
+    out, fence = [], False
+    for i, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith(('```', '~~~')):
+            fence = not fence
+            continue
+        if fence:
+            continue
+        clean = re.sub(r'`[^`]*`', lambda m: ' ' * len(m.group(0)), line)
+        for target in _MD_LINK_RE.findall(clean):
+            out.append((i, target))
+    return out
+
+
+def _travelling_engine_files():
+    """{'tools/<name>'} -- the engine files every consumer receives.
+
+    Asked of precedent_vendor_engine.py, which is the one place that answers
+    it, rather than kept as a second list here: the two would drift the first
+    time a file was added to the vendored set, and the drift would show up as
+    a false violation on a correct link (practice: registry-source-of-truth).
+    """
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import precedent_vendor_engine as _pve
+    return {'tools/' + n for n in _pve.CONSUMER_ENGINE_FILES}
+
+
+def _origin_slug():
+    """'owner/repo' for origin, or None. Used only to decide whether an
+    absolute URL points at THIS repository -- a URL naming some other
+    repository is somebody else's to keep working."""
+    r = _git('remote', 'get-url', 'origin')
+    if r.returncode != 0:
+        return None
+    m = re.search(r'github\.com[:/]+([^/]+/[^/\s]+?)(?:\.git)?/*$',
+                  r.stdout.strip())
+    return m.group(1) if m else None
+
+
+@check('practice-links-travel', 'tree',
+       'every link in a practice file THIS repo owns either travels with the '
+       "file (a sibling practice, a vendored engine file, this source's own "
+       'tools/checks/ check script or tests/ test, which must exist here) or '
+       'is an absolute URL into this repository on '
+       'its declared base_branch, naming a path that exists',
+       'whether the target is the RIGHT file -- including the nastiest '
+       'shape of this bug, a link like ../.claude/settings.json that '
+       'RESOLVES in the consumer, to that consumer\'s own file rather than '
+       'the one the sentence is about. It is caught here only because such '
+       'a path does not travel; nothing would catch it if it did. Also a '
+       'link that travels today '
+       'and stops travelling when a file leaves CONSUMER_ENGINE_FILES -- that '
+       'shows up as a violation on the next run, not at the moment of '
+       'removal. It reads practices/ only: local/practices/ is read in place '
+       'here and never materialized, so its links travel nowhere and break '
+       'nothing. It also cannot see a repo-local source in a CONSUMING repo, '
+       'where materialization moves a practice up a directory and changes '
+       'what its relative paths mean.')
+def _practice_links_travel(ctx):
+    pdir = ROOT / 'practices'
+    if not pdir.is_dir():
+        raise NotApplicable('this repo has no practices/ directory')
+    owned = [p for p in sorted(pdir.glob('*.md'))
+             if not _foreign_practice(str(p.relative_to(ROOT)))]
+    if not owned:
+        raise NotApplicable(
+            'every practice here is materialized from another source, so '
+            'practices/ is generated output -- these links have to be right '
+            'in the publishing source, and repairing them here would be '
+            'overwritten by the next sync')
+    try:
+        travel = _travelling_engine_files()
+    except Exception as e:                      # practice: fail-gracefully
+        raise NotApplicable(f'the vendored-engine file list could not be read '
+                            f'({e}), so what travels is unknown')
+    branch = _declared_base_branch(ROOT)
+    slug = _origin_slug()
+    out = []
+    for path in owned:
+        rel = str(path.relative_to(ROOT))
+        text = path.read_text(encoding='utf-8', errors='ignore')
+        for lineno, target in _markdown_links(text):
+            where = f'{rel}:{lineno}'
+            if target.startswith(('mailto:', '#')):
+                continue
+            if target.startswith(('http://', 'https://')):
+                m = _BLOB_URL_RE.match(target)
+                if not m or slug is None or m.group(1).lower() != slug.lower():
+                    continue                    # somebody else's repository
+                url_branch, url_path = m.group(2), m.group(3).split('#')[0]
+                if branch and url_branch != branch:
+                    out.append(Finding(
+                        where, f'links this repository at `{url_branch}`, but '
+                               f'precedent.json declares `{branch}` -- an '
+                               f'upstream link goes stale the moment it names '
+                               f'a branch nobody is publishing from'))
+                elif not (ROOT / url_path).exists():
+                    out.append(Finding(
+                        where, f'links `{url_path}` in this repository, and '
+                               f'no such path exists here'))
+                continue
+            base = target.split('#')[0]
+            if not base:
+                continue
+            if '/' not in base and (pdir / base).exists():
+                continue                        # a sibling practice file -- it travels
+            if base.startswith('../') and base[3:] in travel:
+                continue                        # a vendored engine file
+            # A source's own check scripts travel too: materialize writes
+            # every declared source's tools/checks/** into the consuming
+            # repo alongside practices/. Missing this was a false violation
+            # on the single most common cross-reference a private-set
+            # practice makes -- a practice citing the script that enforces
+            # it. Found 2026-09-11 by reading the individual set's original,
+            # which had named both shapes from the start. It must EXIST in the
+            # tree being scanned -- the same test the sibling-practice case
+            # above uses -- so one check stays right for a private set, whose
+            # scripts sit beside its practices, and for this repository, where
+            # tools/checks/ is materialize's output directory and a link into
+            # it points at nothing.
+            if (_CHECK_SCRIPT_RE.fullmatch(base)
+                    and (ROOT / base[3:]).exists()):
+                continue                        # this source's own check script
+            fix = (f'https://github.com/{slug}/blob/{branch or "<branch>"}/'
+                   f'{base.lstrip("./")}' if slug else 'an absolute URL')
+            out.append(Finding(
+                where, f'`{target}` does not travel with this file -- it is '
+                       f'live here and dead in every repository that receives '
+                       f'the catalogue. Link it as {fix}, or drop the link '
+                       f'markup and keep the backticked path'))
+    return out
+
 @check('no-version-suffix', 'change',
        'a file added by this change must not carry a version, date or state '
        'suffix in its name',
@@ -629,11 +831,69 @@ def _no_version_suffix(ctx):
     return out
 
 
+# Person-nouns that make a skill-level label legitimate: the label is
+# describing somebody, which is the one place it belongs.
+# practice: technical-describes-people
+_PERSON_NOUNS = ('contributor', 'contributors', 'person', 'people', 'user',
+                 'users', 'team', 'teams', 'member', 'members', 'author',
+                 'authors', 'reader', 'readers', 'writer', 'writers',
+                 'staff', 'colleague', 'colleagues', 'owner', 'owners')
+
+_SKILL_LABEL_RE = re.compile(r'(?:^|[/_\-])(non[_\-]?technical|technical)[/_\-]?',
+                             re.IGNORECASE)
+
+
+@check('technical-describes-people', 'tree',
+       'no tracked path labels a FILE or DIRECTORY with a skill level; '
+       "'technical' and 'non-technical' describe people",
+       'the same label inside prose, and a path where the label is followed '
+       'by a person-noun (NONTECHNICAL_CONTRIBUTOR_ACCESS.md names a person '
+       'and is correct). It reads names only -- it cannot see a per-person '
+       'rule written into a shared file, which is the failure the name leads '
+       'to.')
+def _technical_describes_people(ctx):
+    out = []
+    # practices/ names files after their SLUG, and a rule about this label
+    # must contain it; record/ is settled history nobody renames. The third
+    # exclusion is every tree this repo MIRRORS, and it used to be the
+    # literal 'process/upstream/' -- INSTALL.md §1's layout, and the wrong
+    # one for a §0 install, whose vendored catalogue sits wherever
+    # precedent.json's `universal` source points. In a §0 consumer the only
+    # path this check ever flagged was Precedent's own
+    # technical-describes-people.md, inside a mirror the consumer may not
+    # edit and cannot rename. Ask the engine (practice: durable-fix).
+    skip = ('practices/', 'record/') + _mirrored(ROOT)
+    for f in ctx.changed:
+        if f.startswith(skip):
+            continue
+        for part in pathlib.PurePath(f).parts:
+            m = _SKILL_LABEL_RE.search(part)
+            if not m:
+                continue
+            rest = part[m.end():].lower()
+            token = re.split(r'[/_\-. ]', rest.lstrip('_-'))[0]
+            if token in _PERSON_NOUNS:
+                continue
+            out.append(Finding(f, "the path labels a file or directory with a "
+                                  "skill level ('%s') -- that describes a "
+                                  "person, not a thing" % m.group(1)))
+            break
+    return out
+
+
 # Trees whose filenames belong to whoever produced them, not to this repo
 # (practice: filename-separator -- the rule is about names somebody HERE
 # chose). Vendored upstream, materialized output, and instantiable skeletons
 # whose names are copied verbatim into an adopter's tree.
-_SEPARATOR_FOREIGN = ('process/upstream/', 'tools/checks/', 'practices/')
+_SEPARATOR_FOREIGN_FIXED = ('tools/checks/', 'practices/')
+
+
+def _separator_foreign():
+    # The mirrored trees are asked for, not listed: the literal
+    # 'process/upstream/' that used to sit here is INSTALL.md §1's
+    # layout, and a §0 install mirrors the catalogue somewhere else
+    # entirely. Same root cause as _mirrored()'s own comment.
+    return _SEPARATOR_FOREIGN_FIXED + _mirrored(ROOT)
 
 
 @check('filename-separator', 'tree',
@@ -665,7 +925,7 @@ def _filename_separator(ctx):
     # file at all, which the harness's own planted case caught.
     for f in _git('ls-files', '--cached', '--others',
                   '--exclude-standard').stdout.split():
-        if any(f.startswith(x) for x in _SEPARATOR_FOREIGN):
+        if any(f.startswith(x) for x in _separator_foreign()):
             continue
         path = pathlib.PurePath(f)
         # The FIRST dot ends the stem: `a_b.md.template` is named after
@@ -1227,6 +1487,103 @@ def _session_bootstrap(ctx):
     return []
 
 
+# A hook path that does not resolve is the single most expensive silent
+# failure this project has measured, which is why this is an engine-property
+# check rather than a catalogue practice — it holds in any repo the engine is
+# vendored into, whether or not that repo resolves session-bootstrap.
+_HOOK_TOKEN_RE = re.compile(r'\$\{?CLAUDE_PROJECT_DIR\}?/\S+')
+
+
+def _declared_hook_targets(settings_path):
+    """[(abs_path, raw_token, is_argv0)] for every hook command in a
+    settings.json that names a file under $CLAUDE_PROJECT_DIR.
+
+    `is_argv0` is tracked because it decides whether the file has to be
+    executable: `$CLAUDE_PROJECT_DIR/.claude/hooks/x.sh` is exec'd directly
+    and a missing +x makes it silently never run, while the same path as an
+    argument to `python3` is read, not executed, and demanding +x there
+    would be a finding nobody should act on."""
+    try:
+        payload = json.loads(settings_path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        # A settings.json this file cannot parse is the harness's problem to
+        # report, not this check's to guess at.
+        return []
+    hooks = payload.get('hooks')
+    if not isinstance(hooks, dict):
+        return []
+    out = []
+    for entries in hooks.values():
+        for entry in entries if isinstance(entries, list) else []:
+            for h in (entry.get('hooks') or []) if isinstance(entry, dict) else []:
+                cmd = h.get('command') if isinstance(h, dict) else None
+                if not isinstance(cmd, str):
+                    continue
+                for m in _HOOK_TOKEN_RE.finditer(cmd):
+                    raw = m.group(0)
+                    rel = raw.split('/', 1)[1] if '/' in raw else ''
+                    if not rel:
+                        continue
+                    out.append((ROOT / rel, raw, cmd.strip().startswith(raw)))
+    return out
+
+
+@check('declared-hooks-exist', 'tree',
+       'every hook file a .claude/settings.json declares exists on disk, and '
+       'is executable where the harness execs it directly',
+       'a hook declared by an absolute or bare relative path (only '
+       '$CLAUDE_PROJECT_DIR tokens are resolvable from here); a hook that '
+       'exists, runs, and does the wrong thing; and a repo with working '
+       'hooks that declares none at all, which is a different question and '
+       'belongs to session-bootstrap. It does NOT read '
+       'templates/harness/*/settings.json: those declare paths for the repo '
+       'they are installed INTO, so resolving them against this tree would '
+       'report a template as broken for being a template.',
+       practice_backed=False)
+def _declared_hooks_exist(ctx):
+    """A hook whose path does not exist is not an error anybody sees.
+
+    WHY THIS EXISTS (practice: cite-the-incident). Twice, measurably. On
+    2026-09-08 this repo's own hooks all pointed at
+    $CLAUDE_PROJECT_DIR/.claude/hooks/... while the harness had rooted the
+    session one directory above the repo, so every path resolved to nothing
+    and the commit identity, the freshness guard, the path-trigger channel
+    and .precedent/SESSION_PRACTICES.md were silently absent for a whole
+    session. On 2026-09-09 the same class turned up from the other end: the
+    individual practice source has a .claude/settings.json and no
+    .claude/hooks/ directory at all, because it was bootstrapped before
+    precedent_bootstrap_source.py installed hooks and nothing since has
+    repaired it. Both cost real sessions, and in both the harness said
+    nothing -- it treats an unresolvable hook command as a no-op.
+
+    The check is deliberately narrow: it answers "does the file the config
+    names actually exist here", which is the half a machine can settle."""
+    settings = [p for p in (ROOT / '.claude').glob('settings*.json')
+                if p.is_file()]
+    if not settings:
+        raise NotApplicable('this repo has no .claude/settings*.json, so it '
+                            'declares no hooks that could fail to resolve')
+    found = []
+    for sp_ in settings:
+        rel_settings = sp_.relative_to(ROOT)
+        targets = _declared_hook_targets(sp_)
+        for path, raw, is_argv0 in targets:
+            if not path.exists():
+                found.append(Finding(
+                    str(rel_settings),
+                    f'declares the hook `{raw}` but {path.relative_to(ROOT)} '
+                    f'does not exist — the harness treats an unresolvable '
+                    f'hook command as a no-op, so this guard is off and '
+                    f'nothing says so'))
+            elif is_argv0 and not os.access(path, os.X_OK):
+                found.append(Finding(
+                    str(rel_settings),
+                    f'declares the hook `{raw}` and '
+                    f'{path.relative_to(ROOT)} is not executable — it will '
+                    f'silently never run'))
+    return found
+
+
 @check('engine-plus-host-shims', 'tree',
        'no file outside the vendored tree duplicates a run of lines from '
        'inside it — that is a fork, not a shim',
@@ -1326,6 +1683,16 @@ _ENGINE_REF_RE = re.compile(
 # somewhere else is how a real gap gets waved through later. Keep this
 # short: the default answer to "this file isn't here" is to vendor it.
 _ENGINE_REF_ABSENT_OK = {
+    # A repo's OWN declared ceilings for what a session loads
+    # (session-load-budget). Engine-read, never engine-owned: an adopter's
+    # ceilings are theirs, so vendoring this repo's copy into their tools/
+    # would hand them our numbers and then overwrite whatever they set on the
+    # next update. Both readers are guarded and say so where they are --
+    # build_views.py falls back to the literal the registry was created with,
+    # and this file's own session-load-budget check raises NotApplicable with
+    # a named reason. Absent means "this repo has declared no ceilings yet",
+    # which is the correct state of a fresh install.
+    'session_load_budgets.json',
     # split_practices.py's `split` subcommand, and nothing else, reads it:
     # the one-time conversion of BestPractice's own PRACTICES.md into
     # per-practice files. No consuming repo ever runs that, and
@@ -1409,7 +1776,7 @@ def _expires_is_honoured(ctx):
     gate goes red until a person decides.
     """
     import datetime
-    today = datetime.date.today().isoformat()
+    today = precedent_time.today()
     out = []
     for f in sorted((ctx.root / 'practices').glob('*.md')) + \
             sorted((ctx.root / 'local' / 'practices').glob('*.md')):
@@ -1488,6 +1855,119 @@ def _tracked_practice_files(ctx):
                                'git -- every local check reads it and passes, '
                                'and the pushed repository does not have it '
                                '(`git add` it, or delete it)'))
+    return out
+
+
+@check('timestamps-carry-offset', 'tree',
+       'no tracked Python file stamps a moment with a bare `date.today()`, '
+       '`utcnow()`, `utcfromtimestamp()` or a zero-argument `datetime.now()` '
+       '-- every one of those resolves to whatever zone the machine is on, '
+       'which in a container is UTC and in a record is unrecoverable. And '
+       'the declared fallback zone is the SAME string in all three places '
+       'that hold it: precedent.json, the time engine, and the commit hook',
+       'a stamp that carries an offset but the WRONG one -- a zone declared '
+       'incorrectly in somebody\'s identity.json is a true statement about a '
+       'false fact, and nothing mechanical can tell where a person actually '
+       'is. It is also blind to `datetime.now(tz)` with an explicit zone '
+       'argument: that IS offset-carrying and orderable, so flagging it '
+       'would fire on correct code, and routing it through the one module '
+       'is a one-formatter-per-quantity matter this check leaves to review. '
+       'Non-Python emitters (a shell `date` call, a template) are out of '
+       'scope for the same reason: `date +%Y-%m-%d` is correct once the '
+       'session zone is set, which is the hook\'s job, not this one\'s.')
+def _timestamps_carry_offset(ctx):
+    """Two properties, one practice: nothing writes a naive moment, and the
+    fallback zone cannot drift between the three files that name it.
+
+    AST, NOT GREP. The first draft grepped, and matched its own explanatory
+    comments in all twelve files it had just migrated -- a check reporting
+    the sentence that describes the rule as a violation of it. Parsing means
+    a comment, a docstring or a string literal mentioning `date.today()`
+    reads as prose, which is what it is.
+    """
+    import ast
+
+    # (attribute name, requires zero args) -- the calls that produce a moment
+    # with no zone attached. `now` is listed with args_must_be_empty because
+    # `datetime.now(tz)` is aware and fine; `now()` is naive.
+    NAIVE = {'today': True, 'utcnow': False, 'utcfromtimestamp': False,
+             'now': True}
+    ENGINE = 'tools/precedent_time.py'
+
+    out = []
+    files = [f for f in _git('ls-files', '--cached', '--others',
+                             '--exclude-standard', '--', '*.py').stdout.split()
+             if f and f != ENGINE]
+    if not files:
+        raise NotApplicable('no tracked Python files in this repository')
+
+    for rel in files:
+        path = ctx.root / rel
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except (OSError, SyntaxError):
+            # A file that will not parse is somebody else's finding, not
+            # this check's to invent -- and never a silent pass: say it.
+            out.append(Finding(rel, 'could not be parsed, so it was NOT '
+                                    'checked for naive timestamps'))
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            if not isinstance(fn, ast.Attribute) or fn.attr not in NAIVE:
+                continue
+            # Only the datetime family. `pathlib.Path.cwd()` has no `today`,
+            # but a domain object with a `.now()` of its own would otherwise
+            # be flagged for having a common method name.
+            root_name = fn.value
+            while isinstance(root_name, ast.Attribute):
+                root_name = root_name.value
+            if not (isinstance(root_name, ast.Name)
+                    and root_name.id in ('datetime', 'date')):
+                continue
+            if NAIVE[fn.attr] and (node.args or node.keywords):
+                continue        # datetime.now(tz) -- aware, and orderable
+            out.append(Finding(
+                f'{rel}:{node.lineno}',
+                f'`{fn.attr}()` writes a moment with no offset -- it resolves '
+                f'in whatever zone this machine is on, which in a container '
+                f'is UTC. Use tools/precedent_time.py '
+                f'({"today()" if fn.attr == "today" else "stamp(), utc_iso() or from_unix()"}), '
+                f'which resolves the person\'s zone and always carries the offset'))
+
+    # ---- the declared fallback, in the three files that hold it
+    declared = {}
+    cfg = ctx.root / 'precedent.json'
+    if cfg.exists():
+        try:
+            v = json.loads(cfg.read_text(encoding='utf-8')).get('fallback_timezone')
+            if isinstance(v, str) and v.strip():
+                declared['precedent.json (fallback_timezone)'] = v.strip()
+        except ValueError:
+            out.append(Finding('precedent.json', 'is not valid JSON, so the '
+                                                 'declared fallback zone could '
+                                                 'NOT be compared'))
+    for rel, pat in ((ENGINE, r"^FALLBACK_TZ\s*=\s*'([^']+)'"),
+                     ('.claude/hooks/commit-identity.sh', r'^DEFAULT_TZ="([^"]+)"'),
+                     ('templates/harness/claude-code/hooks/commit-identity.sh',
+                      r'^DEFAULT_TZ="([^"]+)"')):
+        f = ctx.root / rel
+        if not f.exists():
+            continue
+        m = re.search(pat, f.read_text(encoding='utf-8'), re.M)
+        if m:
+            declared[rel] = m.group(1)
+        else:
+            out.append(Finding(rel, 'holds the declared fallback zone and no '
+                                    'longer states it in the form this check '
+                                    'reads -- it could NOT be compared'))
+    if len(set(declared.values())) > 1:
+        detail = '; '.join(f'{k} says {v}' for k, v in sorted(declared.items()))
+        out.append(Finding('', f'the declared fallback zone disagrees across '
+                               f'the files that hold it -- {detail}. One of '
+                               f'them silently stamps a different offset than '
+                               f'the others'))
     return out
 
 
@@ -1933,11 +2413,15 @@ def _doc_lint():
 # reason; centralizing it here so the same exemption reaches every check that
 # walks changed markdown, rather than being re-derived per check.
 # practice: scrub-gate (the vendored tree's own gate is practice_audit.py)
-VENDORED_PREFIXES = ('process/upstream/',)
-
-
+# The path is ASKED FOR, never written down here. The literal that used to
+# sit at this line was 'process/upstream/' -- INSTALL.md §1's layout -- so
+# every check routed through _is_vendored() below silently lost its exemption
+# in a §0 install, where the vendored catalogue lives at whatever path
+# precedent.json's `universal` source names. That is the broadest instance of
+# the bug: this one exemption feeds acronyms-glossary, header-caps,
+# no-stale-counts and migration-scrubs-vocabulary at once.
 def _is_vendored(path):
-    return path.startswith(VENDORED_PREFIXES)
+    return path.startswith(_mirrored(ROOT))
 
 
 def _md_in_scope(ctx):
@@ -2161,32 +2645,175 @@ def _label_describes_content(ctx):
     return out
 
 
+# WHERE DISCLOSURE COUNTS, and the three-way contradiction this settled
+# (2026-09-10). The practice's Rule names one destination -- "for a
+# dependent repo, that document is templates/GETTING_STARTED.md's
+# administrator section". This check read a root GITHUB_ACTIONS.md and
+# nothing else. And INSTALL.md §1 step 6's root-hygiene list names
+# GITHUB_ACTIONS.md among the files that exist ONLY under
+# `process/upstream/` and must never be copied to the root. So a dependent
+# repo that FOLLOWED the practice failed the check, and one that satisfied
+# the check tripped root hygiene -- unless it wrote its own,
+# differently-scoped GITHUB_ACTIONS.md, which nothing asked it to. The
+# check's own "blind to" text half-admitted it ("a README section would
+# satisfy the practice's intent but not this check").
+#
+# Settled in the Rule's favour, because the Rule is the one of the three
+# that carries the reasoning: the destination is "the document that
+# project's own people actually read", and in a dependent repo that is
+# GETTING_STARTED.md, which root hygiene explicitly DOES place at the root.
+#
+# Both are read, rather than swapping one hard-coded filename for another.
+# GITHUB_ACTIONS.md stays a valid home for a repo that has its own --
+# BestPractice itself is exactly that repo, being the upstream, and its
+# root copy is its own document rather than a vendored one. A repo that
+# discloses in either has disclosed.
+DISCLOSURE_DOCS = ('GETTING_STARTED.md', 'GITHUB_ACTIONS.md')
+
+
 @check('github-setup-disclosed', 'change',
-       'a newly added GitHub Actions workflow file is named somewhere in '
-       'GITHUB_ACTIONS.md, where this project\'s people read about '
-       'GitHub-specific setup',
+       'a newly added GitHub Actions workflow file is named in '
+       "GETTING_STARTED.md's administrator section -- the document a "
+       "dependent repo's own people read -- or in a repo's own root "
+       'GITHUB_ACTIONS.md',
        'a workflow file that is EDITED rather than added (this only fires '
-       'on new files, per no-version-suffix\'s ctx.added_files pattern), '
-       'and disclosure written anywhere other than GITHUB_ACTIONS.md -- a '
-       'README section would satisfy the practice\'s intent but not this '
-       'check.')
+       "on new files, per no-version-suffix's ctx.added_files pattern); "
+       'WHERE in the document the name appears, so a filename dropped '
+       'anywhere in it passes; and whether the line says what the workflow '
+       'does or what must be clicked to enable it, which is most of what '
+       'the Rule actually asks for.')
 def _github_setup_disclosed(ctx):
     added = [f for f in ctx.added_files()
              if re.match(r'^\.github/workflows/.+\.ya?ml$', f)]
     if not added:
         raise NotApplicable('no GitHub Actions workflow file was added by '
                             'this change')
-    doc_path = ROOT / 'GITHUB_ACTIONS.md'
-    if not doc_path.exists():
-        return [Finding(f, 'adds a workflow file, but this repo has no '
-                            'GITHUB_ACTIONS.md to disclose it in') for f in added]
-    doc = doc_path.read_text(encoding='utf-8', errors='ignore')
+    present = [(name, (ROOT / name).read_text(encoding='utf-8', errors='ignore'))
+               for name in DISCLOSURE_DOCS if (ROOT / name).is_file()]
+    if not present:
+        return [Finding(f, f'adds a workflow file, but this repo has none of '
+                           f'{" or ".join(DISCLOSURE_DOCS)} to disclose it '
+                           f'in. A dependent repo instantiates '
+                           f'GETTING_STARTED.md at its root '
+                           f'(INSTALL.md §1 step 2); that is where its own '
+                           f'people read about GitHub-specific setup')
+                for f in added]
     out = []
     for f in added:
         name = pathlib.PurePath(f).name
-        if name not in doc:
-            out.append(Finding(f, f'{name} is not mentioned in '
-                                  f'GITHUB_ACTIONS.md'))
+        if not any(name in doc for _where, doc in present):
+            out.append(Finding(
+                f, f'{name} is not mentioned in '
+                   f'{" or ".join(w for w, _ in present)} -- an install that '
+                   f'turns a check on and records it only in the install log '
+                   f'has informed nobody who will act on it'))
+    return out
+
+
+# WHAT COUNTS AS "THIS WORKFLOW COMMITS". Deliberately the shell verbs, not
+# a YAML parse of every step: a workflow commits by running `git commit`,
+# and that string is what a reader greps for too. A `uses:` action that
+# commits on the caller's behalf is NOT caught -- named in the practice's
+# own "blind to" rather than pretended away.
+# Anchored at a WORD boundary, never at line start. The first version
+# anchored at `^\s*[-|>]?\s*`, which reads a shell line as a commit only
+# when `git` is the first word -- so `TZ="$ZONE" git commit -m ...`, the
+# very shape a CORRECTLY-authored workflow uses, was classified as "this
+# workflow does not commit" and skipped. A false negative, and the worse
+# direction: it would equally have missed a bot-authored commit behind any
+# env prefix. Caught by running the check against a correct fixture, which
+# is the half checkable-gets-checked insists on.
+CI_COMMIT_RE = re.compile(r'(?<![\w./-])git\s+commit\b')
+# The bot account, in both spellings a workflow actually uses.
+CI_BOT_RE = re.compile(r'github-actions\[bot\]|41898282\+github-actions')
+# Configuring an identity at all.
+CI_SETS_IDENTITY_RE = re.compile(r'git\s+config\s+(--\w+\s+)*user\.(name|email)', re.M)
+# Reading a DECLARED one. identity.json is the declaration the practice
+# names; PRECEDENT_COMMIT_* is the explicit override that outranks it.
+CI_READS_DECLARED_RE = re.compile(r'identity\.json|PRECEDENT_COMMIT_')
+
+
+@check('ci-commits-carry-identity', 'tree',
+       'a .github/workflows/*.yml that runs `git commit` resolves the '
+       'author from a declared identity (an identity.json, or an explicit '
+       'PRECEDENT_COMMIT_*) rather than naming the github-actions bot or '
+       'configuring a git identity from nothing',
+       'whether the identity a workflow DOES read names the right person; a '
+       '`uses:` action that commits on the workflow\'s behalf, which never '
+       'shows a `git commit` line here at all; whether the workflow actually '
+       'exits non-zero on a missing value, as opposed to reading one; and a '
+       'commit made by anything other than a GitHub Actions workflow, which '
+       'is the session-side commit-identity backstop\'s job and not this '
+       'check\'s.')
+def _ci_commits_carry_identity(ctx):
+    wf_dir = ROOT / '.github' / 'workflows'
+    if not wf_dir.is_dir():
+        raise NotApplicable('this repo has no .github/workflows/ directory, '
+                            'so it runs no workflow that could commit')
+    workflows = sorted(list(wf_dir.glob('*.yml')) + list(wf_dir.glob('*.yaml')))
+    if not workflows:
+        raise NotApplicable('this repo declares no GitHub Actions workflow')
+
+    committing, out = [], []
+    for wf in workflows:
+        try:
+            text = wf.read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        # COMMENTS ARE BLANKED, NOT DROPPED, AND EVERY TEST BELOW READS
+        # `body` (corrected 2026-09-10, the same day this check landed).
+        #
+        # The first version stripped comments for the commit test and read
+        # the RAW text for the bot test, four lines apart in this same
+        # function. So a workflow explaining why it does NOT use the bot
+        # was read as one that does -- and the workflow that hit it was the
+        # one that had just been FIXED, carrying the incident note its own
+        # fix is about. The check punished a repo for citing the incident,
+        # which is the opposite of what cite-the-incident asks for, and the
+        # only ways out were deleting the explanation or wording around it.
+        # Found independently by two sessions within an hour, each against
+        # a real workflow.
+        #
+        # Blanking rather than dropping keeps every line number equal to
+        # the file's own, so a finding still points where a reader looks.
+        body = '\n'.join('' if ln.lstrip().startswith('#') else ln
+                          for ln in text.splitlines())
+        if not CI_COMMIT_RE.search(body):
+            continue                 # reads only -- nothing to author
+        committing.append(wf)
+        rel = wf.relative_to(ROOT).as_posix()
+        bot = CI_BOT_RE.search(body)
+        if bot:
+            line = body.count('\n', 0, bot.start()) + 1
+            out.append(Finding(
+                f'{rel}:{line}',
+                'commits as the github-actions bot. A workflow runs on a '
+                'runner, where the session-side commit-identity hook never '
+                'executes -- so this is the one commit nothing else will '
+                'author correctly. Read name/email/timezone from the '
+                'declared identity.json and exit non-zero if any is '
+                'missing; falling back to the bot is the failure, not a '
+                'lesser version of the fix'))
+        elif CI_SETS_IDENTITY_RE.search(body) and not CI_READS_DECLARED_RE.search(body):
+            m = CI_SETS_IDENTITY_RE.search(body)
+            line = body.count('\n', 0, m.start()) + 1
+            out.append(Finding(
+                f'{rel}:{line}',
+                'configures a git identity but reads no declared one (no '
+                'identity.json, no PRECEDENT_COMMIT_*), so whatever it '
+                'commits is authored by whatever that line happens to say'))
+        elif not CI_READS_DECLARED_RE.search(body):
+            out.append(Finding(
+                rel,
+                'runs `git commit` without resolving any declared identity, '
+                'so the commit takes the runner\'s default author and its '
+                'UTC clock -- both of which a repository\'s own author and '
+                'timezone rules exist to refuse'))
+
+    if not committing:
+        raise NotApplicable(
+            f'none of this repo\'s {len(workflows)} workflow(s) runs '
+            f'`git commit`, so none of them authors anything')
     return out
 
 
@@ -2444,10 +3071,19 @@ def _rename_updates_links(ctx):
             if old in withheld:
                 continue      # withheld, not deleted -- see the note above
             # A file the consuming repo RECEIVED cannot be repointed there:
-            # the vendored upstream tree and the vendored engine are mirrored
-            # wholesale from a published commit, and an edit is overwritten by
-            # the next refresh. The reference is upstream's, and so is the fix.
-            if rel.startswith('process/upstream/') or rel in _vendored_engine \
+            # a mirrored tree and the vendored engine are copied wholesale
+            # from a published commit, and an edit is overwritten by the next
+            # refresh. The reference is upstream's, and so is the fix.
+            #
+            # THE VENDORED CATALOGUE IS THE THIRD SUCH TREE and this check did
+            # not know it. The engine and the materialized tree were already
+            # attributed from the committed manifest; the catalogue was
+            # excluded by the literal 'process/upstream/', which is
+            # INSTALL.md §1's layout only. A §0 consumer deleting one of its
+            # OWN files got two findings inside Precedent's practice prose,
+            # where the path named is correct upstream and where the consumer
+            # can repoint nothing. Ask the engine (practice: durable-fix).
+            if rel.startswith(_mirrored(ROOT)) or rel in _vendored_engine \
                     or rel in received or rel == DECOMMISSIONED_PATHS_REGISTRY \
                     or any(_exempt_matches(rel, e) for e in _retired_exempt):
                 # The decommissioning registry names every path this repo has
@@ -2632,6 +3268,35 @@ _LEDGER_MEMBER_DIRS = ('templates/harness/claude-code',
                        'templates/harness/codex', 'templates/harness/gemini-cli')
 
 
+def _ledger_change_cells(ledger_text):
+    r"""The `Originating change` cell of every ledger row -- the one place a
+    row's OWN change is named.
+
+    A row's own change is the commit in cell 2; a commit link anywhere else
+    on the line is a CITATION of another row ("no wiring change -- the same
+    `SessionStart` entry from [`810a1dc`] runs it"), which the ledger does
+    deliberately. Both halves of the check below key on this one definition,
+    because keying them differently is what produced two opposite bugs in
+    two days: the duplicate half counted whole lines and read three correct
+    rows as three duplicates of one change (2026-09-11, red on
+    precedent-beta-v01 against a tree nobody had edited), and the presence
+    half matched the whole FILE, so a change named only inside somebody
+    else's prose counted as ledgered and never needed a verdict of its own.
+
+    Split on unescaped pipes only. No change cell in this repo's ledger
+    contains `\|` today, so nothing shifts at index 2 -- but the pattern is
+    already in the file one column over (a claude-code cell carrying
+    `Edit\|Write\|NotebookEdit\|Bash`), so a plain `.split('|')` is one
+    cell away from reading the wrong column."""
+    cells = []
+    for line in ledger_text.splitlines():
+        if not line.startswith('|'):
+            continue
+        parts = re.split(r'(?<!\\)\|', line)
+        cells.append(parts[2] if len(parts) > 2 else '')
+    return cells
+
+
 def _shallow_boundary_commits():
     """Commits git's OWN `.git/shallow` file records as grafted boundaries --
     ground truth, unlike `git rev-list --max-parents=0` (used below to
@@ -2705,8 +3370,9 @@ def _shallow_boundary_commits():
 # distinguish a wrong answer from a right answer about a different tree.
 @check('parallel-artifact-ledger', 'tree',
        '`templates/harness/LEDGER.md` exists, and every commit that touched '
-       'a harness-adapter member (claude-code/, codex/, or gemini-cli/) has '
-       'its hash referenced somewhere in the ledger',
+       'a harness-adapter member (claude-code/, codex/, or gemini-cli/) is '
+       'named in exactly one row\'s `Originating change` cell -- a mention '
+       'in another row\'s prose is a citation, not that commit\'s own row',
        'whether a referenced row is actually CORRECT -- the right verdict '
        'per member, not a rubber-stamped one -- only that a row exists for '
        'every commit that changed a member, the "any marked date without a '
@@ -2736,6 +3402,7 @@ def _parallel_artifact_ledger(ctx):
                         'does not exist -- parallel-artifact-ledger.md '
                         'names a ledger table as this practice\'s Install')]
     ledger_text = ledger_path.read_text(encoding='utf-8', errors='ignore')
+    change_cells = _ledger_change_cells(ledger_text)
     # A repo's (or a test scratch copy's) root commit -- the tree coming
     # into existence, zero parents -- is inception, not "a change to any
     # member" the practice's Rule is about; exclude it, or every squashed-
@@ -2768,12 +3435,41 @@ def _parallel_artifact_ledger(ctx):
         for full_hash in out:
             if full_hash in roots or full_hash in inception:
                 continue
-            if full_hash[:7] not in ledger_text and full_hash not in ledger_text:
+            if not any(full_hash[:7] in cell or full_hash in cell
+                       for cell in change_cells):
                 findings.append(Finding(
                     'templates/harness/LEDGER.md',
                     f'no row references {full_hash[:7]} ({member_dir}), a '
                     f'commit that changed a member of the harness-adapter '
                     f'family -- add a dated row with a per-member verdict'))
+
+    # A commit ledgered TWICE is the collision this check could not see,
+    # because "a row exists" is satisfied by two of them. 2026-09-10: two
+    # sessions working in parallel each noticed 82572e7 had no row and each
+    # backfilled one, in different places in the file, so git merged both
+    # cleanly and the audit stayed green on a ledger carrying two verdicts
+    # for one change -- which is exactly the state the practice's "one dated
+    # row per change" exists to prevent, since a later reader cannot tell
+    # which verdict was the considered one. (practice: convention-to-audit)
+    #
+    # Counted per ROW rather than per occurrence: a single row names its
+    # commit twice by design, in the link text and the URL.
+    for full_hash in {h for d in _LEDGER_MEMBER_DIRS
+                      for h in _git('log', '--no-merges', '--format=%H',
+                                    '--', d).stdout.split()}:
+        # Counted over the change cells only -- see
+        # _ledger_change_cells(). Counting whole lines made three correct
+        # rows citing 810a1dc read as three duplicates of one change:
+        # 2026-09-11, red on precedent-beta-v01 against a tree nobody had
+        # edited, which checkable-gets-checked calls worse than no check.
+        rows = [cell for cell in change_cells
+                if full_hash[:7] in cell or full_hash in cell]
+        if len(rows) > 1:
+            findings.append(Finding(
+                'templates/harness/LEDGER.md',
+                f'{len(rows)} rows reference {full_hash[:7]} -- one change '
+                f'gets one dated row, so a reader can tell which transfer '
+                f'verdict was the considered one; merge them'))
 
     return findings
 
@@ -3459,7 +4155,9 @@ def _open_item_disposition(ctx):
         else:
             found = [glob] if (ROOT / glob).is_file() else []
         for rel in found:
-            if rel.split('/')[0] == '.git' or rel.startswith('process/upstream/'):
+            # _mirrored() guards its own import, so the fixture-safety
+            # note above still holds: copied alone, it falls back.
+            if rel.split('/')[0] == '.git' or rel.startswith(_mirrored(ROOT)):
                 continue
             if rel not in files:
                 files.append(rel)
@@ -3609,11 +4307,158 @@ def _decision_strength(ctx):
 # Runner
 # --------------------------------------------------------------------------
 
-def run(slugs, ctx, scopes):
+def load_exemptions():
+    """{slug: reason} for the practices this repo declared `not_binding`
+    and that may actually be exempted, plus the slugs whose exemption is
+    REFUSED because the practice is `severity: blocking`.
+
+    WHY THIS EXISTS, and what was broken without it (2026-09-10).
+    precedent_resolve.load_not_binding()'s own docstring describes the
+    mechanism exactly -- "whether a rule binds is a property of the PAIR,
+    not of the rule: `commit-author` binds a repo one person authors alone
+    and not one with many contributors" -- and this module read that list
+    in exactly ONE place, `_unreachable_practices`, where it only ever
+    suppressed a REACHABILITY finding. `main()` built its slug list from
+    `sorted(CHECKS)` and never consulted it at all, so declaring
+    `{"slug": "commit-author", "reason": "..."}` in a consuming repo's
+    precedent.json changed nothing about the run: the practice was still
+    checked, still violated, still counted, still exit 1. There was NO WAY
+    for a consuming repo to declare a practice non-binding and get a clean
+    check, and a real install ended on two permanent violations it had
+    written reasoned exemptions for. The 17 entries in
+    templates/document-project/precedent.json were, for check
+    purposes, decorative.
+
+    EXEMPTED IS ITS OWN STATUS, never silence. Dropping these slugs from
+    the run would trade one problem for a worse one -- an exemption that
+    leaves no trace in the output is how a rule gets switched off and
+    forgotten. They are reported by name, with their recorded reasons, and
+    counted in their own summary category.
+
+    `severity: blocking` may not be exempted, the same rule
+    _unreachable_practices already applies, for the same reason: a
+    blocking practice is exactly the one no downstream declaration is
+    allowed to switch off. A refused exemption runs normally here; the
+    reachability check is what reports the refusal itself as a finding, so
+    it is stated once rather than twice."""
+    try:
+        import precedent_resolve as pr
+        not_binding = pr.load_not_binding(ROOT)
+    except Exception as e:                                   # noqa: BLE001
+        # A malformed list exempts NOTHING -- every check runs. Loud, not
+        # silently permissive: an exemption mechanism that swallows its own
+        # bad entries is a way to opt out of a rule by typo.
+        # _unreachable_practices reports the malformed file itself.
+        print(f'precedent_check note: `not_binding` could not be read '
+              f'({e}), so no check is exempted this run.', file=sys.stderr)
+        return {}, {}
+
+    exempt, refused = {}, {}
+    for slug, reason in sorted(not_binding.items()):
+        path = _practice_file(slug)
+        severity = 'default'
+        if path is not None:
+            try:
+                fm, _sections = sp._read_practice_file(path)
+                severity = (fm.get('severity') or 'default').strip('" ')
+            except Exception:                                # noqa: BLE001
+                severity = 'default'
+        if severity == 'blocking':
+            refused[slug] = reason
+        else:
+            exempt[slug] = reason
+    return exempt, refused
+
+
+# code-cites-practice: session-load-budget
+SESSION_LOAD_SURFACES = ('AGENTS.md', 'CLAUDE.md', '.precedent/SESSION_PRACTICES.md')
+
+
+def _session_load_budgets():
+    """-> the one registry of always-loaded ceilings, or None if absent.
+
+    Read here rather than duplicated: tools/build_views.py and
+    tools/very_deep_check.py read the same file for the resident cap and the
+    section flag, so no cap is spelled twice (registry-source-of-truth).
+    """
+    f = ROOT / 'tools' / 'session_load_budgets.json'
+    if not f.is_file():
+        return None
+    try:
+        return json.loads(f.read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        return None
+
+
+@check('session-load-budget', 'tree',
+       'every file a session loads before it works is declared in '
+       'tools/session_load_budgets.json and is under its declared ceiling',
+       'what any of that text is worth. It measures a surface and compares it '
+       "to a number somebody wrote down; whether an entry still earns its "
+       'place is the reduction pass the practice asks for, and no script can '
+       'make that call. It also sees only THIS repo -- the sum across every '
+       'attached source is very_deep_check.py\'s SESSION LOAD section.')
+def _session_load_budget(ctx):
+    reg = _session_load_budgets()
+    if reg is None:
+        raise NotApplicable('this repo has no tools/session_load_budgets.json, '
+                            'so no ceiling has been declared to check against')
+    surfaces = reg.get('surfaces') or {}
+    try:
+        import build_views as _bv
+        approx = _bv._approx_tokens
+    except Exception:
+        def approx(text):
+            return int(len(text.split()) * 1.3)
+    out = []
+    for rel in SESSION_LOAD_SURFACES:
+        f = ROOT / rel
+        if not f.is_file():
+            continue
+        text = f.read_text(encoding='utf-8', errors='replace')
+        n = approx(text)
+        entry = surfaces.get(rel)
+        if entry is None:
+            out.append(Finding(rel, f'is loaded into every session '
+                                    f'({n:,} tokens) and has no ceiling in '
+                                    f'tools/session_load_budgets.json, so '
+                                    f'nothing can tell you it grew'))
+            continue
+        ceiling = entry.get('ceiling')
+        if not isinstance(ceiling, int):
+            out.append(Finding(rel, 'has a registry entry with no integer '
+                                    '"ceiling"'))
+            continue
+        if n > ceiling:
+            out.append(Finding(rel, f'{n:,} tokens, every session, over its '
+                                    f'declared ceiling of {ceiling:,}. Run the '
+                                    f'reduction pass -- move what no longer '
+                                    f'bites to a linked archive IN FULL -- '
+                                    f'rather than raising the number'))
+    for rel in surfaces:
+        if rel not in SESSION_LOAD_SURFACES:
+            out.append(Finding('tools/session_load_budgets.json',
+                               f'declares a ceiling for {rel!r}, which this '
+                               f'check does not know how to find; add it to '
+                               f'SESSION_LOAD_SURFACES or drop the entry'))
+    return out
+
+
+def run(slugs, ctx, scopes, exempt=None):
+    exempt = exempt or {}
     results = []
     for slug in slugs:
         c = CHECKS[slug]
         if c['scope'] not in scopes:
+            continue
+        # Declared non-binding in THIS repo, with a reason. Reported before
+        # the check runs, because the point of the declaration is that the
+        # pair (this repo, this rule) has no relationship -- running it and
+        # then discarding the findings would still cost the run its time
+        # and would still be reading a verdict this repo has said is not
+        # about it. See load_exemptions() for the whole story.
+        if slug in exempt:
+            results.append((slug, 'EXEMPT', [], exempt[slug]))
             continue
         # A check whose practice is not in force here has nothing to
         # enforce. This file is vendored verbatim into consuming repos
@@ -3699,12 +4544,14 @@ def main():
         scopes = {'tree', 'change', 'turn-end'}
     ctx = Ctx(paths=paths, rng=rng, whole_tree='--all' in flags)
     slugs = [only] if only else sorted(CHECKS)
-    results = run(slugs, ctx, scopes)
+    exempt, refused_exemptions = load_exemptions()
+    results = run(slugs, ctx, scopes, exempt=exempt)
 
     all_violated = [r for r in results if r[1] == 'VIOLATION']
     skipped = [r for r in results if r[1] == 'SKIPPED']
     errored = [r for r in results if r[1] == 'ERROR']
     passed = [r for r in results if r[1] == 'PASS']
+    exempted = [r for r in results if r[1] == 'EXEMPT']
 
     # advisory=True (see check()'s own docstring) is a per-check, incident-
     # justified exception, not a general severity dial -- as of 2026-09-05
@@ -3736,12 +4583,26 @@ def main():
 
     for slug, _st, _f, why in skipped:
         print(f'SKIPPED    {slug} — {why}')
+
+    # Named, with the recorded reason, every run. An exemption that leaves
+    # no trace in the output is how a rule gets switched off and forgotten,
+    # which is worse than the problem this fixed.
+    for slug, _st, _f, why in exempted:
+        print(f'EXEMPT     {slug} — declared not-binding in this repo\'s '
+              f'precedent.json: {why}')
+    for slug, why in sorted(refused_exemptions.items()):
+        print(f'\nNOTE       {slug} is declared not-binding here, but it is '
+              f'`severity: blocking` — a blocking practice is exactly the one '
+              f'a downstream repo may not switch off, so the check ran '
+              f'anyway. (Recorded reason: {why})')
     if ctx.scope_reason and any(CHECKS[s]['scope'] == 'change' for s in slugs):
         print(f'note: {ctx.scope_reason}')
 
     print(f'\nprecedent_check: {len(passed)} passed, {len(violated)} violated, '
           f'{len(advisory)} advisory, {len(errored)} errored, {len(skipped)} '
-          f'skipped (a skip is not a pass; advisory findings do not fail the run).')
+          f'skipped, {len(exempted)} exempted (a skip is not a pass; advisory '
+          f'findings do not fail the run; an exemption is this repo declaring '
+          f'the rule does not bind it, with a reason, in precedent.json).')
     if violated or errored:
         return 1
     if skipped and '--strict' in flags:
@@ -3755,7 +4616,7 @@ if __name__ == '__main__':
     # split three ways on it: a hard "unknown option" FAIL, a silent
     # fall-through that ran the whole audit as if nothing had been asked, or
     # the docstring printed with a non-zero exit. All three are wrong, and
-    # documentation/HOW_TO_USE_THIS_TECHNICAL.md points readers straight at
+    # documentation/HOW_TO_USE_THIS_DEVELOPERS.md points readers straight at
     # these commands. The module docstring is the usage text.
     if any(a in ('--help', '-h') for a in sys.argv[1:]):
         print((__doc__ or '').strip())

@@ -73,7 +73,20 @@ import split_practices as sp
 BEGIN_MARKER = '<!-- BEGIN GENERATED: precedent-loader -->'
 END_MARKER = '<!-- END GENERATED -->'
 
-RESIDENT_BUDGET_TOKENS = 2000
+# code-cites-practice: session-load-budget -- one registry holds every
+# always-loaded ceiling, so the resident cap is not spelled twice. The literal
+# is the fallback for a vendored copy that arrived without the registry, and
+# is the value the registry was created with.
+def _budget(key, default):
+    f = pathlib.Path(__file__).resolve().parent / 'session_load_budgets.json'
+    try:
+        v = json.loads(f.read_text(encoding='utf-8')).get(key)
+    except (OSError, ValueError, AttributeError):
+        return default
+    return v if isinstance(v, int) else default
+
+
+RESIDENT_BUDGET_TOKENS = _budget('resident_block_tokens', 2000)
 WORD_RE = re.compile(r"\S+")
 
 
@@ -161,12 +174,47 @@ def repo_is_public(root):
     key = str(pathlib.Path(root).resolve())
     if key not in _VISIBILITY_WARNED:
         _VISIBILITY_WARNED.add(key)
-        print(f"build_views NOTICE: {root}/precedent.json declares no "
-              f"`visibility`, so this run assumes PUBLIC and excludes "
-              f"team- and individual-level sources from anything tracked. "
-              f"That is the safe assumption, not a guess worth trusting: "
-              f"declare \"visibility\": \"private\" to carry them, or "
-              f"\"public\" to make this explicit.", file=sys.stderr)
+        # TWO WORDINGS, because the two situations are not equally bad.
+        # A config with no non-universal sources loses nothing to the
+        # public assumption -- there is no private text to exclude, and the
+        # notice is genuinely informational. A config that declares team or
+        # individual sources AND omits `visibility` has no plausible
+        # correct reading: it went to the trouble of wiring sources whose
+        # entire content this run is about to drop. The old single NOTICE
+        # covered both in the same informational register, and a real
+        # install read straight past it while receiving 89 practices
+        # instead of 121, with three team sets bound to nothing
+        # (2026-09-10). Say WHICH sources are being dropped, and say that
+        # the install is not doing its job.
+        dropped = []
+        try:
+            for src in (json.loads(
+                    (pathlib.Path(root) / 'precedent.json').read_text(
+                        encoding='utf-8')).get('sources') or []):
+                if src.get('level') in ('team', 'individual'):
+                    dropped.append(f"{src.get('level')}:{src.get('name')}")
+        except (ValueError, OSError, AttributeError, TypeError):
+            dropped = []
+        if dropped:
+            print(f"build_views WARNING: {root}/precedent.json declares "
+                  f"{len(dropped)} non-universal source(s) -- "
+                  f"{', '.join(dropped)} -- and no `visibility`. An "
+                  f"undeclared visibility is read as PUBLIC, which excludes "
+                  f"every one of those sources' practice text from the "
+                  f"materialized tree and the tracked loader block. Those "
+                  f"sources are, for this run, wired to nothing. If this "
+                  f"repo is private -- which is the only reading under "
+                  f"which declaring them makes sense -- add "
+                  f"\"visibility\": \"private\" to that file. If it is "
+                  f"genuinely public, declare \"public\" so the exclusion "
+                  f"is a choice rather than a default.", file=sys.stderr)
+        else:
+            print(f"build_views NOTICE: {root}/precedent.json declares no "
+                  f"`visibility`, so this run assumes PUBLIC and excludes "
+                  f"team- and individual-level sources from anything tracked. "
+                  f"That is the safe assumption, not a guess worth trusting: "
+                  f"declare \"visibility\": \"private\" to carry them, or "
+                  f"\"public\" to make this explicit.", file=sys.stderr)
     return True
 
 
@@ -513,8 +561,20 @@ def build_loader_block(practices, source_levels=None, omits_private=False):
     index_text = '\n'.join(index_lines)
 
     lines = [BEGIN_MARKER, '']
+    # The command named here has to EXIST in the repo this block is being
+    # written into. It used to name tools/verify_harness.py's regeneration
+    # check, which is deliberately not vendored into a source set
+    # (precedent_vendor_engine.py says so in as many words), so the one
+    # line telling a session the block was protected was false in every
+    # private set -- and it is the line a session reads INSTEAD of
+    # checking. Measured 2026-09-11 in an individual set: MAP.md sat three
+    # practices stale under a header saying a guard was failing the build
+    # on exactly that. `build_views.py --check` is this same file, so it
+    # exists wherever this block does (practice: cite-the-incident,
+    # TODO.md's loader-comment-names-an-unvendored-check).
     lines.append(f"<!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit "
-                 f"this block, tools/verify_harness.py's regeneration check fails on drift. -->")
+                 f"this block; `python3 tools/build_views.py --check` exits non-zero on "
+                 f"drift. -->")
     lines.append('')
     count_detail = f"{len(resident)} of {len(practices)} practices"
     if source_levels and resident:
@@ -925,8 +985,8 @@ def render_map_md(practices, withdrawn=()):
     by_tier = collections.Counter(fm.get('tier') for fm, _s, _f in practices)
     lines = [
         "<!-- GENERATED by tools/build_views.py -- do not hand-edit. Regenerate with "
-        "`python3 tools/build_views.py`; tools/verify_harness.py fails the build if this "
-        "file drifts from a fresh regeneration. -->",
+        "`python3 tools/build_views.py`; `python3 tools/build_views.py --check` exits "
+        "non-zero if this file has drifted from a fresh regeneration. -->",
         '',
         "# Repository map — where to find things",
         '',
@@ -1002,7 +1062,8 @@ TOOLS_DESCRIPTIONS = {
     'precedent_check.py': "The ENFORCED loading channel — runs every practice's `checked_by` script",
     'precedent_gate.py': "The GATE-TRIGGERED loading channel — Rules for a named moment (merge, review, push, reply)",
     'precedent_bootstrap_source.py': "Instantiates a brand-new individual or team practice set from a skeleton, for an adopter who has neither yet",
-    'precedent_source_bootstrap.py': "Retry-capable clone-or-pull for a privately-scoped individual source, used by its SessionStart hook and by precedent_resolve.py's own lazy self-heal",
+    'precedent_source_bootstrap.py': "Clone-or-pull for a privately-scoped individual or team source, used by its SessionStart hook and by precedent_resolve.py's own lazy self-heal",
+    'precedent_source_credentials.py': "Whether this environment can reach its private practice sources, and the git credential helper that lets a SessionStart hook clone them without add_repo",
     'precedent_candidate.py': "Stage 2 (phase 5) — raise, list and expire creation-pipeline candidates",
     'precedent_detect.py': "Stage 1 (phase 5) — the mechanical half of candidate detection",
     'precedent_land.py': "Stage 5 (phase 5) — writes an approved candidate into practices/, enforcing the registered-check invariant",
@@ -1011,6 +1072,7 @@ TOOLS_DESCRIPTIONS = {
     'precedent_promote.py': "Stage 3 (phase 5) — runs a candidate against the four promotion criteria",
     'precedent_refresh_sources.py': "Reports which attached practice-set sources have a stale vendored engine, and with --apply brings them up to date",
     'precedent_resolve.py': "Resolves the universal, team and individual sources into one set, by precedence",
+    'precedent_identity.py': "Resolves WHO this repo's commits belong to, from a declaration only -- an override, the repo's own identity.json, or the individual source's; raises rather than guessing",
     'precedent_decommission.py': "Audits a deprecated file or directory before it is deleted -- refuses while anything still references it, or a workflow it names is still live -- then deletes and records it",
     'precedent_migrate_status.py': "Classifies practices written under the old status vocabulary, where `retired` meant two different things; proposes, and refuses to guess a renamed successor",
     'precedent_retire.py': "Stage 6 (phase 5) — the periodic removal report; proposes, never acts",
@@ -1018,6 +1080,7 @@ TOOLS_DESCRIPTIONS = {
     'precedent_session_check.py': "Reports whether this session's SessionStart guarantees are actually in effect -- practices file, commit identity, backstop, packages, refspec, freshness, and the branch it started on -- and `--apply` runs the hooks by hand when the harness never did",
     'precedent_upstream_check.py': "Says whether the upstream branch has moved since the last commit carried onto this one, comparing against tools/upstream_watermark.json rather than git ancestry -- this branch carries `main` instead of merging it, so an ancestry test reports a permanent, meaningless gap; prints and never merges, and `--record` moves the watermark after a carry",
     'precedent_show.py': "Loads a practice's Rule/Detail/Why/Story/Install — the one code path that reads a practice file",
+    'precedent_time.py': "The ONE emitter for every date and time this repo writes down — resolves whose zone, always carries the offset; run it bare to see which rung answered",
     'precedent_simulate.py': "One command over the reach/mechanical-correctness and synthetic-batch tiers, plus the running trend log",
     'precedent_sync_views.py': "One command for a consuming repo: precedent_materialize.py + build_views.py --agents-only, glued together",
     'precedent_vendor_engine.py': "Vendors the minimal source-repo engine (this file, precedent_gate/paths/show.py, split_practices.py, a trimmed routing_scope.json) into an individual or team set, and keeps it refreshable",
@@ -1033,7 +1096,8 @@ TOOLS_DESCRIPTIONS = {
 }
 
 
-def render_glossary_md(practices):
+def render_glossary_md(practices, root=None):
+    root = pathlib.Path(root) if root else ROOT
     terms = []
     for fm, _sections, _f in practices:
         raw = fm.get('defines', '[]')
@@ -1042,8 +1106,8 @@ def render_glossary_md(practices):
     terms.sort(key=lambda t: t[0].lower())
     lines = [
         "<!-- GENERATED by tools/build_views.py -- do not hand-edit. Regenerate with "
-        "`python3 tools/build_views.py`; tools/verify_harness.py fails the build if this "
-        "file drifts from a fresh regeneration. -->",
+        "`python3 tools/build_views.py`; `python3 tools/build_views.py --check` exits "
+        "non-zero if this file has drifted from a fresh regeneration. -->",
         '',
         "# Canonical names",
         '',
@@ -1069,7 +1133,7 @@ def render_glossary_md(practices):
     # owns, so `defines:` has nowhere to put them and they went undefined
     # while being the most-used terms in the project. Measured 2026-09-08:
     # `source` 1152 uses, `gate` 709, `slug` 372, `level` 342, none defined.
-    engine_terms = _engine_glossary_terms()
+    engine_terms = _engine_glossary_terms(root)
     if engine_terms:
         lines += [
             "## Engine vocabulary",
@@ -1086,14 +1150,46 @@ def render_glossary_md(practices):
         ]
         for t in engine_terms:
             defn = t['definition'].replace('|', '\\|')
-            see = t.get('see', '')
-            link = f"[{see}]({see})" if see else '—'
-            lines.append(f"| **{t['term']}** | {defn} | {link} |")
+            lines.append(f"| **{t['term']}** | {defn} | "
+                         f"{_travel_link(root, t.get('see', ''))} |")
         lines.append('')
     return '\n'.join(lines)
 
 
-def _engine_glossary_terms():
+# WHERE A GLOSSARY ROW POINTS, IN A REPOSITORY THAT IS NOT THIS ONE.
+# The registry names its targets as paths in the upstream tree
+# (`practices/source-naming.md`, `spec/LOADER.md`), and this block is
+# rendered into every source set's own GLOSSARY.md by its vendored copy of
+# this file -- where `spec/` does not exist and most of `practices/` is a
+# different catalogue. Emitted verbatim, those rows are eight dead links in
+# a generated file nobody hand-edits, which is what a real team set's own
+# light check reported on 2026-09-11, immediately after a vendor update.
+#
+# So the same rule practice-links-travel already states for practice files:
+# link it where it lives, and point at upstream when it does not travel.
+# The upstream repository and branch come from the vendored engine's own
+# ENGINE_MANIFEST.json -- the only file that knows where this copy came
+# from -- and with no manifest and no local file the link markup is dropped
+# rather than guessed at, leaving a backticked path that misleads nobody.
+def _travel_link(root, see):
+    if not see:
+        return '—'
+    root = pathlib.Path(root) if root else ROOT
+    if (root / see).exists():
+        return f'[{see}]({see})'
+    try:
+        man = json.loads((root / 'tools' / 'ENGINE_MANIFEST.json')
+                         .read_text(encoding='utf-8'))
+        repo = str(man.get('source_repo') or '').rstrip('/')
+        branch = str(man.get('source_branch') or '')
+    except (OSError, ValueError):
+        repo = branch = ''
+    if repo and branch:
+        return f'[{see}]({repo}/blob/{branch}/{see})'
+    return f'`{see}`'
+
+
+def _engine_glossary_terms(root=None):
     """-> [dict] the engine-vocabulary rows, or [] when the registry is
     absent.
 
@@ -1102,7 +1198,7 @@ def _engine_glossary_terms():
     when the file was added -- and a glossary that refused to build there
     would break the adopter who is furthest behind, which is the one least
     able to fix it (practice: fail-gracefully)."""
-    reg = ROOT / 'tools' / 'glossary_terms.json'
+    reg = (pathlib.Path(root) if root else ROOT) / 'tools' / 'glossary_terms.json'
     if not reg.is_file():
         return []
     try:
@@ -1182,7 +1278,7 @@ def main():
         _in_force = {id(t) for t in practices}
         withdrawn = [t for t in _all if not is_in_force(t[0])]
         targets.append((map_md, render_map_md(practices, withdrawn)))
-        targets.append((glossary_md, render_glossary_md(practices)))
+        targets.append((glossary_md, render_glossary_md(practices, root)))
 
     if check:
         drift = []
@@ -1214,7 +1310,7 @@ if __name__ == '__main__':
     # split three ways on it: a hard "unknown option" FAIL, a silent
     # fall-through that ran the whole audit as if nothing had been asked, or
     # the docstring printed with a non-zero exit. All three are wrong, and
-    # documentation/HOW_TO_USE_THIS_TECHNICAL.md points readers straight at
+    # documentation/HOW_TO_USE_THIS_DEVELOPERS.md points readers straight at
     # these commands. The module docstring is the usage text.
     if any(a in ('--help', '-h') for a in sys.argv[1:]):
         print((__doc__ or '').strip())

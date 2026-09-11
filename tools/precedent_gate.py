@@ -179,6 +179,20 @@ def main():
                  f"practices registered to it. An empty gate is a step that "
                  f"loads nothing and looks like it worked.")
     manifest = ps._materialize_manifest(root)
+    # A session about to WRITE A REPLY under the wrong rules is the costliest
+    # form of the missing-sources failure, and the one nobody notices: the
+    # rules that did not load are disproportionately about how a reply is
+    # written. So the reply gate says it, at the moment it matters
+    # (practice: fail-gracefully -- never look complete).
+    if gate == 'reply':
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+            import precedent_source_credentials as psc
+            line = psc.remind(root, prefix='precedent gate')
+            if line:
+                print(f"{line}\n")
+        except ImportError:
+            pass
     print(f"# Practices for the {gate} gate — {vocab[gate]}\n")
     for slug in slugs:
         fm, sections = sp._read_practice_file(practices_dir / f'{slug}.md')
@@ -196,7 +210,7 @@ if __name__ == '__main__':
     # split three ways on it: a hard "unknown option" FAIL, a silent
     # fall-through that ran the whole audit as if nothing had been asked, or
     # the docstring printed with a non-zero exit. All three are wrong, and
-    # documentation/HOW_TO_USE_THIS_TECHNICAL.md points readers straight at
+    # documentation/HOW_TO_USE_THIS_DEVELOPERS.md points readers straight at
     # these commands. The module docstring is the usage text.
     if any(a in ('--help', '-h') for a in sys.argv[1:]):
         print((__doc__ or '').strip())

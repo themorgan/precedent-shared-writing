@@ -11,7 +11,7 @@ own**, and a repo may declare several team sets — see
 
 <!-- BEGIN GENERATED: precedent-loader -->
 
-<!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block, tools/verify_harness.py's regeneration check fails on drift. -->
+<!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block; `python3 tools/build_views.py --check` exits non-zero on drift. -->
 
 ## Occasion index
 
