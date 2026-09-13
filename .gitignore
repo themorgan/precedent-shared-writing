@@ -6,3 +6,13 @@ __pycache__/
 # identity.json and stores it here), so it is never the same on two
 # checkouts and must not be committed.
 .claude/settings.local.json
+
+# Another repository's practice text, resolved into this tree at session
+# start by tools/precedent_session_practices.py and rebuilt every time.
+# NEVER COMMIT IT. It holds the universal catalogue's prose, which lives in
+# alex137/BestPractice and is merely read here; committing a copy is exactly
+# the drift the untracked-file design exists to prevent (upstream calls the
+# committed variant "shape 2" and rejected it). Measured before this line
+# existed: `git check-ignore` said not ignored, so the generated file was
+# offered to the next `git add -A`.
+.precedent/

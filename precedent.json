@@ -14,6 +14,35 @@
     "block and the materialized tree. Verified before and after: repo_is_public",
     "stays False and AGENTS.md regenerates byte-identically."
   ],
+  "sources": [
+    {"level": "universal", "name": "precedent", "path": "../BestPractice"}
+  ],
+  "_sources_comment": [
+    "The universal catalogue, so a session rooted in THIS set can read it.",
+    "Until this landed a session here saw this set's own practices and",
+    "nothing else -- the generated occasion index below carries this repo's",
+    "own entries and not one of universal's, so every universal rule was",
+    "silently absent from every session ever run here while the session",
+    "applied the ones it could see. Upstream calls the fix 'shape 3' and",
+    "writes it up in spec/SOURCE_SET_PROSE_GAP.md.",
+    "",
+    "NOTHING OF UNIVERSAL'S TEXT IS COMMITTED HERE, which is the whole",
+    "point and the reason this is not the shape that renders universal into",
+    "the tracked AGENTS.md block (that is 'shape 2', and it was rejected:",
+    "it commits a copy that then drifts). tools/precedent_session_practices.py",
+    "writes the resolved text to an UNTRACKED .precedent/SESSION_PRACTICES.md,",
+    "rebuilt each session, and .gitignore names that path so no `git add -A`",
+    "can ever offer it.",
+    "",
+    "A RELATIVE SIBLING, not `~/BestPractice`. The path is resolved against",
+    "THIS repo -- precedent_source_bootstrap.py does (repo_path / path)",
+    "-- and $HOME is not where the sibling clones live: it is /root on this",
+    "container while this set sits under /home/user, so a ~ path names",
+    "nothing. The clone is created there by the --sources-from step in",
+    ".claude/settings.json, which takes the URL and the pinned branch from",
+    "tools/ENGINE_MANIFEST.json's own source_repo/source_branch. So this",
+    "needs no credential (BestPractice is public) and declares no new URL."
+  ],
   "fallback_timezone": "America/New_York",
   "_fallback_timezone_comment": [
     "The zone for stamping commits and generated dates in THIS repo when",

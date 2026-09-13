@@ -849,6 +849,89 @@ def build_loader_block(practices, source_levels=None, omits_private=False,
     return '\n'.join(lines), token_count, len(resident)
 
 
+def repo_is_practice_source(root):
+    """Whether this repo IS a practice set -- an individual or team source --
+    rather than a repo that consumes them.
+
+    Read from tools/ENGINE_MANIFEST.json's `kind`, which
+    precedent_vendor_engine.py writes as "source" when it vendors the engine
+    into a set and "consumer" when it vendors into a consuming repo. That is
+    the only durable signal a set carries about itself: precedent.json in a
+    set declares no level and no kind, and the directory name is a
+    convention a rename can break.
+
+    Absent or unreadable manifest -> False, which keeps every pre-existing
+    repo on the path it was already on.
+    """
+    mf = root / 'tools' / 'ENGINE_MANIFEST.json'
+    try:
+        return json.loads(mf.read_text()).get('kind') == 'source'
+    except Exception:                                        # noqa: BLE001
+        return False
+
+
+def sources_for_tracked_block(root, declared):
+    """Split declared sources into (tracked, deferred, notes).
+
+    THE ONE PLACE that decides what a repo's COMMITTED loader block may
+    carry. Both renderers read it -- this module for AGENTS.md, and
+    precedent_session_practices.py for the untracked
+    .precedent/SESSION_PRACTICES.md, which carries exactly what is deferred
+    here. They are split across two files and must never disagree about the
+    line between them, which is why the line is drawn once, here, and
+    imported rather than restated. (The previous arrangement restated it as
+    PRIVATE_LEVELS in both places, and the restatement was already wrong
+    within hours once repo-local began rendering into the block.)
+
+    TWO REASONS A SOURCE CANNOT GO IN THE TRACKED BLOCK, and they are
+    different reasons with the same remedy:
+
+    1. PUBLISHING SOMEONE'S PRIVATE TEXT. A public repo's tracked block is a
+       publication, so a team or individual source's clauses cannot be
+       rendered into it. This is the original rule and repo_is_public()
+       carries its full reasoning.
+
+    2. COMMITTING A COPY OF ANOTHER REPOSITORY'S TEXT. A practice SET that
+       declares the universal source is not publishing anything -- universal
+       is already public -- but rendering it into the set's tracked block
+       writes a second copy of universal's rule text into that set's git
+       history, in four sets, which then has to be regenerated every time
+       universal moves and is indistinguishable from current by reading it.
+       That is exactly the shape spec/SOURCE_SET_PROSE_GAP.md costed and
+       rejected as "shape 2". So a practice set's tracked block carries its
+       OWN practices and nothing else, and everything it declares is
+       deferred to the untracked file, where it is rebuilt from the source
+       every session and cannot go stale.
+
+    Case 2 is why this is not simply a level filter: the rule is about whose
+    tree the text lives in, not what the level is called.
+    """
+    notes = []
+    if repo_is_practice_source(root):
+        deferred = [s for s in declared if s['level'] != 'repo-local'
+                    and pathlib.Path(s['path']).resolve() != root.resolve()]
+        tracked = [s for s in declared if s not in deferred]
+        if deferred:
+            notes.append(
+                f"{', '.join(s['name'] for s in deferred)} deferred to "
+                f".precedent/SESSION_PRACTICES.md -- this repo is a practice "
+                f"set, so committing another source's text here would be a "
+                f"second copy of it")
+        return tracked, deferred, notes
+    if repo_is_public(root):
+        deferred = [s for s in declared if s['level'] in PRIVATE_LEVELS]
+        tracked = [s for s in declared if s['level'] not in PRIVATE_LEVELS]
+        if deferred:
+            notes.append(
+                f"{', '.join(s['name'] + ' (' + s['level'] + ')' for s in deferred)} "
+                f"excluded from the loader block -- this repo declares "
+                f"visibility: public, and the block is a tracked file, so "
+                f"rendering a private source into it would publish its "
+                f"practice text")
+        return tracked, deferred, notes
+    return list(declared), [], notes
+
+
 def source_levels_from_manifest(root):
     """{slug: level} read back out of a consuming repo's MANIFEST.json, or
     None where there is no such file.
@@ -942,18 +1025,10 @@ def loader_practices(root, own_practices):
               file=sys.stderr)
         return own_practices, source_levels_from_manifest(root)
 
-    public = repo_is_public(root)
     # Exclude, keep going, and SAY so on stderr rather than silently.
-    if public:
-        dropped = [f"{s['name']} ({s['level']})" for s in declared
-                   if s['level'] in PRIVATE_LEVELS]
-        declared = [s for s in declared if s['level'] not in PRIVATE_LEVELS]
-        if dropped:
-            print(f"build_views: {', '.join(dropped)} excluded from the "
-                  f"loader block -- this repo declares visibility: public, "
-                  f"and the block is a tracked file, so rendering a private "
-                  f"source into it would publish its practice text.",
-                  file=sys.stderr)
+    declared, _deferred, _notes = sources_for_tracked_block(root, declared)
+    for n in _notes:
+        print(f"build_views: {n}.", file=sys.stderr)
 
     # Only this repo's own source: nothing to merge, keep the old path.
     if len(declared) <= 1:
@@ -1263,6 +1338,7 @@ TOOLS_DESCRIPTIONS = {
     'precedent_session_practices.py': "Writes the team/individual/repo-local practices in force into an untracked .precedent/ file at session start, since this repo is public and their text may not be committed",
     'precedent_session_check.py': "Reports whether this session's SessionStart guarantees are actually in effect -- practices file, commit identity, backstop, packages, refspec, freshness, and the branch it started on -- and `--apply` runs the hooks by hand when the harness never did",
     'precedent_upstream_check.py': "Says whether the upstream branch has moved since the last commit carried onto this one, comparing against tools/upstream_watermark.json rather than git ancestry -- this branch carries `main` instead of merging it, so an ancestry test reports a permanent, meaningless gap; prints and never merges, and `--record` moves the watermark after a carry",
+    'precedent_vocabulary.py': "Lists every standing command in force -- each phrase and the plain sentence a person reads -- collected from the `command:` field of every practice across every resolved source; answers the \"Vocabulary\" command and emits the reader-facing table",
     'precedent_show.py': "Loads a practice's Rule/Detail/Why/Story/Install — the one code path that reads a practice file",
     'precedent_time.py': "The ONE emitter for every date and time this repo writes down — resolves whose zone, always carries the offset; run it bare to see which rung answered",
     'precedent_simulate.py': "One command over the reach/mechanical-correctness and synthetic-batch tiers, plus the running trend log",
