@@ -67,6 +67,10 @@ Before starting work of a kind named in the occasion index above, run `python3 t
   any practice change; it rebuilds [MAP.md](MAP.md) and
   [GLOSSARY.md](GLOSSARY.md) alongside it. Never hand-edit it.
 - **Before committing:** `python3 tools/precedent_check.py` — what matters
-  is `0 violated`, never the passed or skipped count.
+  is `0 violated`, never the passed or skipped count. Since 2026-09-13
+  [`.github/workflows/precedent-check.yml`](.github/workflows/precedent-check.yml)
+  runs the same suite on every pull request, so a violation is caught either
+  way; running it yourself is how you find out before the push rather than
+  after.
 - **Approval** is a listed approver's own yes, in
   [approvers.json](approvers.json).

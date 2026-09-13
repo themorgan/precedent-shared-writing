@@ -1,0 +1,186 @@
+# Install as .github/workflows/precedent-check.yml in a PRACTICE SOURCE
+# repository -- one whose practices/ it authors itself. It runs the whole
+# vendored check suite, rather than one named check.
+#
+# WHY THIS EXISTS (practice: cite-the-incident). Until 2026-09-13 this repo's
+# only workflows were two that each called ONE check's function directly,
+# because `precedent_check.py` skipped that check here: practice-links-travel.yml
+# and views-drift.yml. `binds_publishers` (BestPractice PR #261) fixed the skip
+# for the three checks that bind a publisher, so the first of those was deleted
+# -- and deleting it took the rule from "gated on every pull request" to "gated
+# when a session remembers to run the checks", because NOTHING here ran
+# `precedent_check.py` in CI at all. Fourteen checks bind this repo and none of
+# them was gated.
+#
+# The workflow-per-rule approach is what practice-links-travel.yml's own header
+# said was not the answer, and it was right. This is the answer: one workflow,
+# every check the engine says binds this repo, and it keeps covering new ones as
+# upstream adds them. It is what makes views-drift.yml removable later -- do not
+# remove that one before this has run green for a while, and note that it
+# catches one thing this does not (see its own header: `build_views.py` exits 0
+# on NOT VERIFIABLE, so generated-artifact-provenance passes where views-drift
+# fails).
+#
+# IT GATES, IT DOES NOT FIX. The repair belongs on the branch, by whoever broke
+# it. `python3 tools/precedent_check.py` prints the rule and the finding.
+#
+# IT REFUSES RATHER THAN PASSING BLIND, which is the whole point and the reason
+# for the two guard steps below. A suite that skips every check exits 0 and
+# looks identical to a clean run -- that is exactly the state this repo was in
+# before the engine refresh, and a green check that checked nothing is worse
+# than no check.
+name: Precedent checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# No `paths:` filter, for the reason the sibling workflows give: the suite takes
+# seconds, and its inputs are wider than they look -- every practice file,
+# precedent.json, the vendored engine, the generated views, the commit history.
+# A filter that misses one input is a workflow that reports nothing while
+# looking green.
+
+# Read-only on purpose: this reports, and has no business holding a token that
+# could write.
+permissions:
+  contents: read
+
+jobs:
+  precedent-check:
+    name: Every Precedent check that binds this repo
+    runs-on: ubuntu-latest
+
+    steps:
+      # The PR HEAD, not refs/pull/N/merge: auditing the merge tree reports
+      # findings belonging to neither branch, which the author cannot act on.
+      #
+      # fetch-depth: 0 is LOAD-BEARING, not caution. Several checks are scope
+      # `tree` and walk `git log` -- session-trailer among them. On the default
+      # shallow checkout it reports SKIPPED with a reason ("this is a shallow
+      # clone, so `git log` reaches only part of the history"), and a skip does
+      # not fail the run. So a shallow checkout would silently drop that check
+      # while the job stayed green. Measured in this repo on 2026-09-13.
+      - name: Check out the pull request head, with full history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # PyYAML is NOT on a bare GitHub runner, and at least one vendored check
+      # imports it -- tools/checks/check_light_check.py, which parses practice
+      # frontmatter. A check whose import fails is reported by
+      # precedent_check.py as a VIOLATION rather than a skip. That is the right
+      # call (a dependency that is absent has not been checked, and a skip is
+      # not a pass), and it means a missing module fails this gate loudly
+      # instead of quietly shrinking what it covers.
+      #
+      # FOUND THE HONEST WAY: this workflow's own first run in
+      # precedent-team-repo-maintenance went red with
+      # "ModuleNotFoundError: No module named 'yaml'", on a branch whose only
+      # change was adding the workflow. The local run had passed, because the
+      # container running it happened to have PyYAML. That is the gap a CI gate
+      # exists to close, and it closed it on its first attempt.
+      #
+      # Installed unconditionally in every set, so this file stays byte-identical
+      # across all four. A set with no yaml-importing check today pays two
+      # seconds and gains one fewer way to drift.
+      - name: Install the check suite's Python dependencies
+        run: python -m pip install --disable-pip-version-check pyyaml
+
+      - name: Refuse if this repo is not a source set carrying the engine
+        run: |
+          set -eu
+          if [ ! -f tools/precedent_check.py ]; then
+            if [ -f process/upstream/tools/precedent_check.py ]; then
+              echo "This repo vendors the engine under process/upstream/, which is" \
+                   "INSTALL.md section 1's CONSUMING-repo layout. A consumer runs the" \
+                   "suite from that path and resolves its practices from declared" \
+                   "sources; this workflow is for a source set. Remove it." >&2
+              exit 1
+            fi
+            echo "No tools/precedent_check.py -- the engine was never vendored into" \
+                 "this repo, or it lives somewhere this workflow does not know about." \
+                 "Vendor it (tools/precedent_vendor_engine.py) or add the path here." >&2
+            exit 1
+          fi
+          if [ ! -d practices ]; then
+            echo "No practices/ directory -- this repo publishes no practice files," \
+                 "so the publisher checks have nothing to bind. Remove this workflow." >&2
+            exit 1
+          fi
+
+      # The guard that matters. An engine older than BestPractice PR #261
+      # (2026-09-12) has no `binds_publishers`, so every universal check skips
+      # in a source set and the suite exits 0 having enforced nothing. That is
+      # not a failure this workflow may report as success.
+      - name: Refuse if the vendored engine predates binds_publishers
+        run: |
+          set -eu
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'tools')
+          try:
+              import precedent_check as pc
+          except Exception as e:
+              sys.exit(f'FAILED to import tools/precedent_check.py ({e!r}). This '
+                       f'workflow runs that module, so it cannot report on one it '
+                       f'cannot load.')
+
+          flagged = sorted(s for s, c in pc.CHECKS.items() if c.get('binds_publishers'))
+          if not flagged:
+              sys.exit('REFUSING: the vendored tools/precedent_check.py carries no '
+                       'check marked `binds_publishers`, so it predates BestPractice '
+                       'PR #261 (2026-09-12). In a source set that engine skips every '
+                       'universal check and still exits 0 -- a green run that enforced '
+                       'nothing. Refresh the engine first: '
+                       'python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>')
+          print(f'engine carries binds_publishers on {len(flagged)} check(s): '
+                + ', '.join(flagged))
+          PY
+
+      - name: Run every check that binds this repo
+        run: |
+          set -eu
+          # Not --strict. In a source set the great majority of registered
+          # checks belong to levels this repo does not resolve and skip by
+          # design -- 41 of 55 here. --strict turns each of those into a
+          # failure, which would make the gate permanently red and teach
+          # everyone to ignore it. Violations and errors fail the run on their
+          # own, which is the behaviour wanted.
+          set +e
+          python3 tools/precedent_check.py 2>&1 | tee check-output.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "" >&2
+            echo "precedent_check reported a violation or an error above. Fix it on" \
+                 "the branch: the finding is printed with the rule it breaks." >&2
+            exit "$status"
+          fi
+
+      # Belt and braces on the same failure the guard above anticipates: if the
+      # suite somehow ran with nothing binding this repo, the summary says
+      # "0 passed" and exits 0. Refuse that, and say which line said so.
+      - name: Refuse a run that checked nothing
+        run: |
+          set -eu
+          summary="$(grep -E '^precedent_check: [0-9]+ passed' check-output.txt | tail -1)"
+          if [ -z "$summary" ]; then
+            echo "No precedent_check summary line in the output. The run did not" \
+                 "finish the way this workflow expects; read the log above." >&2
+            exit 1
+          fi
+          passed="$(printf '%s' "$summary" | sed -E 's/^precedent_check: ([0-9]+) passed.*/\1/')"
+          if [ "$passed" -eq 0 ]; then
+            echo "REFUSING: $summary" >&2
+            echo "Zero checks passed, which in a source set means every check skipped" \
+                 "and the suite enforced nothing. A skip is not a pass." >&2
+            exit 1
+          fi
+          echo "OK: $summary"
