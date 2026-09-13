@@ -23,7 +23,7 @@ A document in one of a repo's declared `output_paths` is written **for its reade
 - **No practice-slug citations.** Not `` (`assorted-notes`) ``, not a link into `practices/` or `process/`. A slug means nothing to a reader outside the project and reads as a leaked internal reference.
 - **No notes about the repo's own conventions.** "Both are derived files -- regenerate them when a major change lands, don't edit them in place" is an instruction to a maintainer, addressed to somebody who does not have the repo.
 
-**Two exemptions, and they are narrow.** The `<!-- Last updated ... -->` comment [file-header](file-header.md) requires is invisible in every rendering, so it stays. A `doc-recipes/` directory is exempt outright: a recipe's whole job is to state the rules for one file, and it is never shipped.
+**Two exemptions, and they are narrow.** The `<!-- Last updated ... -->` comment `file-header` requires is invisible in every rendering, so it stays. A `doc-recipes/` directory is exempt outright: a recipe's whole job is to state the rules for one file, and it is never shipped.
 
 **Where the record goes instead.** A decision worth keeping goes in the repo's own open-items list or its brainstorm notes; a rule goes in the practice layer, at whichever level it belongs; a date goes in the commit. None of those travel with the deliverable, which is the point.
 

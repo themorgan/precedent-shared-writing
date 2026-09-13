@@ -67,7 +67,9 @@ Run:
   python3 tools/precedent_check.py --all            # change scope = whole tree
   python3 tools/precedent_check.py --list           # what is registered
   python3 tools/precedent_check.py --explain        # what each check does NOT check
-  python3 tools/precedent_check.py --strict         # a SKIP is a failure
+  python3 tools/precedent_check.py --strict         # a SKIP, or a thing a
+                                                    # check COULD NOT VERIFY,
+                                                    # is a failure
 """
 import ast, difflib, functools, io, json, os, pathlib, re, subprocess, sys
 
@@ -154,6 +156,18 @@ def rule_of(slug):
             return (f'({slug} enforces a property of the engine itself, not a '
                     f'catalogue practice -- there is no practices/{slug}.md by '
                     f'design. The check\'s own description above is the rule.)')
+        # A check that binds a PUBLISHER runs in a source set, where the
+        # practice text is upstream BY DESIGN rather than missing -- see
+        # run()'s gate. The failure message is still the rule; it just has
+        # to name where the rule is, because this repo cannot print it.
+        if reg.get('binds_publishers') and _publishes_practices():
+            where = _upstream_practice_url(slug) or (
+                f'practices/{slug}.md in the repository this engine was '
+                f'vendored from')
+            return (f'(this repo PUBLISHES practices and does not vendor '
+                    f'{slug}\'s own text, so the Rule cannot be printed here. '
+                    f'It binds what this repo publishes all the same. Read it '
+                    f'at: {where})')
         return f'(no practice file for {slug})'
     try:
         _fm, sections = sp._read_practice_file(path)
@@ -174,10 +188,34 @@ class Finding:
         return f'{self.where}: {self.detail}' if self.where else self.detail
 
 
+class Unverified(Finding):
+    """Something a check LOOKED AT and could not resolve -- not a violation,
+    and emphatically not a pass.
+
+    A check answers a question about this repository, and some of what it is
+    pointed at lives outside it: a generated file mirrored in from the repo
+    that builds it names a source no clone here contains. Reporting that as a
+    violation blames a header that is correct, and reporting it as a pass
+    claims a verification that never happened -- the two failures the
+    2026-09-12 report of generated-edit-goes-upstream caught between them,
+    one per attempted wording.
+
+    Printed as COULD NOT VERIFY, by file, on every run, and counted
+    separately in the summary. It does not fail the run: nobody in the repo
+    holding the mirror can act on it, and a finding nobody can act on is how
+    a gate becomes wallpaper (practice: checkable-gets-checked). `--strict`
+    does fail on it, alongside a skipped check, for a caller that has decided
+    could-not-verify is not good enough here.
+
+    practice: fail-gracefully -- clause 1, "never let a degraded result look
+    complete"."""
+
+
 CHECKS = {}
 
 
-def check(slug, scope, what, blind_to, advisory=False, practice_backed=True):
+def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
+          binds_publishers=False):
     """Register a check. `blind_to` is what it does NOT catch, printed by
     --explain -- a check's limits belong beside it, not in a document that
     drifts from it.
@@ -188,6 +226,26 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True):
     its practice actually resolving in THIS repo (see `run()`): this file
     is vendored into consuming repos, and a check for a practice a
     consumer does not have is a finding it can never act on.
+
+    `binds_publishers=True` marks a check whose subject is the practice
+    FILES a repo publishes, so it binds any repo that publishes a
+    practices/ tree even where that practice's own text is not vendored
+    in. It exists because the gate below, correct for a consumer, is
+    exactly wrong for a practice SOURCE set: a source set's practices/
+    holds its own practices only, so every other level's check skips
+    there -- permanently, since it resolves no sources and materializes
+    nothing into itself. Measured 2026-09-12 in a team source: 12 checks
+    passed and 42 SKIPPED, all 42 for that one reason. The cost was
+    already paid once -- a practice file there shipped a relative link to
+    a file materialization does not copy, live in the publishing set and
+    dead in every repo that received the catalogue, and the rule that
+    catches exactly that was one of the 42. A consuming repo found it, a
+    sync late (practice: cite-the-incident).
+
+    Set it only where the check's subject really is the published
+    practice tree, and only where the check is known to FUNCTION in a
+    source set -- the flag removes the gate, it does not make a check
+    that needs resolved sources suddenly work without them.
 
     `advisory=True` is distinct from a practice's own frontmatter
     `severity:` field (precedent_resolve.py's `severity: blocking`, about
@@ -200,7 +258,8 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True):
     def deco(fn):
         CHECKS[slug] = dict(slug=slug, scope=scope, fn=fn, what=what,
                             blind_to=blind_to, advisory=advisory,
-                            practice_backed=practice_backed)
+                            practice_backed=practice_backed,
+                            binds_publishers=binds_publishers)
         return fn
     return deco
 
@@ -215,7 +274,7 @@ def register_materialized_checks():
     refused to land a team or individual practice without one, and
     `spec/PRIVATE_ENFORCEMENT_BRIEF.md` told a private set how to write
     them -- and then a consuming repo held fourteen real, tested check
-    scripts (nine in precedent-team-maintainers, five in
+    scripts (nine in precedent-team-repo-maintenance, five in
     precedent-individual, as of 2026-09-06) that no command ever ran. The
     enforced channel was live for the universal catalogue and hollow for
     exactly the sources an adopting team writes for itself.
@@ -362,6 +421,55 @@ def _practice_file(slug):
         if p.exists():
             return p
     return None
+
+
+_ENGINE_MANIFEST = None
+
+
+def _engine_manifest():
+    """This repo's vendored-engine manifest, or {} where it has none.
+
+    Absent in BestPractice itself -- the engine's origin vendors nothing
+    into itself -- and present in every repo the engine was vendored INTO,
+    recording the `kind` it was vendored as and the repo and branch it came
+    from."""
+    global _ENGINE_MANIFEST
+    if _ENGINE_MANIFEST is None:
+        try:
+            _ENGINE_MANIFEST = json.loads(
+                (ROOT / 'tools' / 'ENGINE_MANIFEST.json')
+                .read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            _ENGINE_MANIFEST = {}
+    return _ENGINE_MANIFEST
+
+
+def _publishes_practices():
+    """True where this repo is a practice SOURCE set -- it authors the
+    practices/ tree it publishes, and materializes nothing into itself.
+
+    Read from the DECLARED `kind` in tools/ENGINE_MANIFEST.json, which
+    precedent_vendor_engine.py writes as 'source' or 'consumer' and reads
+    back for its own status and refresh verbs. Never inferred from the
+    directory layout: an authored practices/ tree and a materialized one
+    look identical on disk, which is the whole reason the kind is declared
+    rather than detected -- the same reasoning this module's own
+    `declared-base-branch` check enforces for a base branch, one level over."""
+    return (_engine_manifest().get('kind') == 'source'
+            and (ROOT / 'practices').is_dir())
+
+
+def _upstream_practice_url(slug):
+    """Where this slug's practice text lives upstream, or None.
+
+    Built from the manifest's own record of where this engine was vendored
+    from, so it names the branch the vendoring actually tracked instead of
+    guessing one."""
+    m = _engine_manifest()
+    repo, branch = m.get('source_repo'), m.get('source_branch')
+    if not repo or not branch:
+        return None
+    return f"{repo.rstrip('/')}/blob/{branch}/practices/{slug}.md"
 
 
 # --------------------------------------------------------------------------
@@ -613,7 +721,13 @@ def _foreign_practice(rel):
        'whether a Story records the RIGHT incident, or any incident at all -- '
        'an honest "no originating incident was recorded" passes, and should. '
        'It tests that the section says something, not that it says something '
-       'dramatic.')
+       'dramatic.',
+       # Binds a publisher: a catalogue is the thing a source set publishes,
+       # so this rule is about its output. One team set proved it wants to
+       # run there the hard way -- it re-declared this practice locally
+       # purely to defeat the gate, and that second copy has never agreed
+       # with universal's.
+       binds_publishers=True)
 def _catalogue_carries_stories(ctx):
     out = []
     pdir = ROOT / 'practices'
@@ -722,7 +836,14 @@ def _origin_slug():
        'here and never materialized, so its links travel nowhere and break '
        'nothing. It also cannot see a repo-local source in a CONSUMING repo, '
        'where materialization moves a practice up a directory and changes '
-       'what its relative paths mean.')
+       'what its relative paths mean.',
+       # Binds a publisher: this is the rule that protects everything a
+       # source set publishes, and it skipped in exactly those repos. A team
+       # source shipped practices/deep-check.md linking a test driver that
+       # materialization does not copy; a consuming repo caught it a sync
+       # late. Proven to function in a source set -- that set gates it today
+       # by calling this same function directly from its own workflow.
+       binds_publishers=True)
 def _practice_links_travel(ctx):
     pdir = ROOT / 'practices'
     if not pdir.is_dir():
@@ -847,7 +968,7 @@ _SKILL_LABEL_RE = re.compile(r'(?:^|[/_\-])(non[_\-]?technical|technical)[/_\-]?
        'no tracked path labels a FILE or DIRECTORY with a skill level; '
        "'technical' and 'non-technical' describe people",
        'the same label inside prose, and a path where the label is followed '
-       'by a person-noun (NONTECHNICAL_CONTRIBUTOR_ACCESS.md names a person '
+       'by a person-noun (a nontechnical-contributor-guide names a person '
        'and is correct). It reads names only -- it cannot see a per-person '
        'rule written into a shared file, which is the failure the name leads '
        'to.')
@@ -972,7 +1093,14 @@ GENERATED_VIEWS = ('MAP.md', 'GLOSSARY.md')
        "different shape (a hand-authored file with one generated section, "
        "not a wholly generated file) and its byte-identical regeneration is "
        "covered by verify_harness.py's check_generated_views_regenerate "
-       "instead, not by this check.")
+       "instead, not by this check.",
+       # Binds a publisher: a source set generates MAP.md, GLOSSARY.md and
+       # its own loader block from the practices/ tree it authors. Measured
+       # 2026-09-11 in an individual set, `--only
+       # generated-artifact-provenance` reported 1 skipped -- the check that
+       # would have caught the stale MAP.md which started TODO.md's
+       # loader-comment-names-an-unvendored-check.
+       binds_publishers=True)
 def _generated_artifact_provenance(ctx):
     out = []
     builder = _tool_path('tools/build_views.py')
@@ -1028,6 +1156,246 @@ def _generated_artifact_provenance(ctx):
                                + (r.stdout + r.stderr).strip().splitlines()[-1]
                                if (r.stdout + r.stderr).strip() else
                                'build_views.py --check failed'))
+    return out
+
+
+# ---- generated-edit-goes-upstream ------------------------------------------
+# A "do not hand-edit" header tells a session how its edit will be destroyed.
+# It does not say where the change belongs instead, and a session that cannot
+# find the input edits the output anyway -- which is the failure the practice
+# exists to stop. So the header must also name its Source, and the Source must
+# resolve.
+# practice: generated-edit-goes-upstream
+_DONT_EDIT_RE = re.compile(r'<!--(?:(?!-->).)*?do not hand-edit(?:(?!-->).)*?-->',
+                           re.I | re.S)
+# Where the clause ENDS is the whole difficulty, and the first attempt got it
+# wrong in both directions. It read
+# `\bSource:\s*([^-]+?)\s*(?:--|—|\.|-->)`, which (a) could not cross a
+# hyphen, so a real clause naming `business-modeling/doc-recipes/x.recipe.md`
+# did not match AT ALL and the file was reported as carrying no `Source:`
+# clause -- sending the reader to look for a clause sitting right there in the
+# header -- and (b) terminated on any `.`, so even a hyphen-free
+# `Source: docs/plain.md -- fine` captured `docs/plain` and was reported as a
+# path that does not exist. Hyphenated paths are the common case in these
+# repos, not the edge case, so the rule was close to unsatisfiable: both
+# failure messages pointed at the wrong problem, and a session trying to
+# COMPLY had no way to. Found 2026-09-11 from a consuming repo while adding a
+# clause to a generated header.
+#
+# What actually ends a clause, and why each terminator is written the way it
+# is:
+#   `-->`        the end of the HTML comment. Matched with no whitespace
+#                requirement, and FIRST, so it wins over the `--` inside it.
+#   whitespace + `--`
+#                this project's prose dash. The lookbehind is the fix for (a):
+#                a hyphen inside a path is never preceded by whitespace, so
+#                `doc-recipes/` reads as path and ` -- the recipe` reads as the
+#                end of the clause.
+#   `—`          an em dash never occurs in a path, so it needs no guard.
+#   `.` + whitespace or end
+#                a sentence-ending period. The lookahead is the fix for (b):
+#                an extension's dot is always followed by its extension, never
+#                by a space, so `.md ` no longer truncates. Dropping `.`
+#                altogether was the alternative and is worse -- without it a
+#                clause written as a sentence swallows the rest of the comment,
+#                and every path-shaped token in that prose is then checked as
+#                if the header had named it.
+#   end of text  a clause with no terminator at all captures to the end rather
+#                than failing to match, because "no `Source:` clause" is the
+#                one message that must mean what it says.
+#
+# WHAT THE CLAUSE MAY NAME is the second question, and it was got wrong for
+# a different reason (found 2026-09-12, from a consuming repo, on a file
+# MIRRORED in from the repo that builds it). The grammar assumed the source
+# is a path in the repo the header is sitting in. For a mirrored artifact
+# that is never true, and the three wordings tried were wrong three
+# different ways: no clause at all (correctly refused); the source's own
+# in-repo paths, which do not exist in the mirror, so the check reported
+# them as a Source that had MOVED -- by the practice's own reasoning a worse
+# state than none; and a URL to the building repo, which reads correctly to
+# a human and matches no path, so it was refused as naming nothing.
+#
+# So the clause takes an optional parenthetical naming the PLACE the source
+# lives in, and that is the whole grammar addition:
+#
+#   Source: practices/                  -- in this repo. Every path must exist.
+#   Source (in the Voice pack): voice/  -- somewhere else. Not resolvable here.
+#
+# The parenthetical is free text on purpose. Demanding a fixed phrase would
+# reproduce the exact failure PR #246 fixed -- a near-miss reported as "no
+# clause", sending a reader to hunt for something sitting in front of them --
+# and the author is the one who knows what to call the place. What the check
+# takes from it is one bit: this repository is not where the answer is.
+#
+# WHY NOT JUST ACCEPT A URL, which is the obvious move. Because the repo that
+# builds a mirrored artifact is often PRIVATE, and both private-repo-scrub and
+# precedent_materialize.py's _rewrite_links already refuse to mint a URL
+# naming a private repo into content that ships -- "a relative link that does
+# not resolve is a smaller failure than a disclosure that cannot be taken
+# back". A check that made a URL the only way to comply would be pulling
+# against that rule from the other side. The parenthetical takes a URL where
+# naming it is fine and a plain label where it is not, so the leak gate stays
+# the only thing deciding which -- this check never has an opinion about it.
+_SOURCE_CLAUSE_RE = re.compile(
+    r'\bSource(?:\s*\((?P<place>[^)]*)\))?\s*:\s*(?P<clause>.+?)\s*'
+    r'(?:-->|(?<=\s)--|—|\.(?=\s|$)|$)', re.S)
+# A URL is an address, never a path in this repo -- told apart so that a bare
+# `Source:` naming one gets a message about the form it should have used,
+# rather than the "naming no path at all" it drew before 2026-09-12, which is
+# true and useless.
+_SOURCE_URL_RE = re.compile(r'\b(?:https?|git|ssh)://\S+')
+# A path-shaped token inside the Source clause: something with a slash or a
+# known extension. Prose around it ("every resolved source's practice files")
+# is deliberately not parsed -- naming a directory is a legitimate Source, and
+# demanding a single file would make the honest answer unwritable.
+_SOURCE_PATH_RE = re.compile(r'(?<![\w/.])([A-Za-z0-9_.-]+/[A-Za-z0-9_./-]*|'
+                             r'[A-Za-z0-9_.-]+\.(?:md|py|json|ya?ml|txt))')
+
+
+def _generated_header_files():
+    """[(rel, comment)] for every tracked file carrying a `do not hand-edit`
+    HTML comment, excluding any `evals/` directory at any depth.
+
+    evals/ is excluded BY NAME, not by accident: those are recorded prompts
+    from past measurement runs, which embed a frozen copy of an old loader
+    block. They are inputs to a finished experiment, not live outputs -- 29
+    of them as of 2026-09-11, every one carrying a header naming a check that
+    has since been replaced. Regenerating them would destroy the record the
+    run is evidence for.
+
+    The exclusion is a PATH SEGMENT test, not a `evals/` prefix, and the
+    reason is not visible from this file: this engine is vendored into
+    consuming repos, where this whole tree -- evals/ included -- sits under a
+    mirror prefix. A prefix test matches only when the engine is checking the
+    repo it was written in. In a consumer on 2026-09-12 it matched nothing,
+    and the check reported 26 violations against these same recorded prompts
+    at `<mirror>/evals/...` -- every one a false positive, and not one of them
+    fixable there, because a vendored tree has to stay byte-identical to the
+    commit it mirrors. A segment test still excludes `evals/x.md` at the root,
+    and still reports `my-evals/x.md` and `evals-notes/x.md`, which are
+    ordinary directories that merely begin or end with the word."""
+    r = _git('ls-files', '-z')
+    if r.returncode != 0:
+        raise NotApplicable('git ls-files failed, so the tracked set of files '
+                            'could not be read')
+    out = []
+    for rel in r.stdout.split('\0'):
+        if not rel or 'evals' in pathlib.PurePosixPath(rel).parts[:-1]:
+            continue
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding='utf-8')
+        except (UnicodeDecodeError, OSError):
+            continue
+        for m in _DONT_EDIT_RE.finditer(text):
+            out.append((rel, m.group(0)))
+    return out
+
+
+@check('generated-edit-goes-upstream', 'tree',
+       'every `do not hand-edit` header also names a Source -- where the '
+       "file's content actually comes from -- and every path an unqualified "
+       '`Source:` names exists here. A `Source (in <place>):` names somewhere '
+       'this repo is not, so its paths are reported COULD NOT VERIFY rather '
+       'than resolved',
+       'whether the Source named is the RIGHT one, and whether a request to '
+       'change a generated file was actually routed there. No check can read '
+       'the conversation a request arrived in, which is why the routing half '
+       'of this practice is written as a rule and not as a gate. It is also '
+       'blind to whether the file is currently in sync with that source -- '
+       'that is generated-artifact-provenance, which asserts a fresh '
+       'regeneration changes nothing -- and, for a qualified Source, to '
+       'everything except that an address was given: it cannot open the '
+       'place named, so it cannot tell a live path there from one that moved '
+       'a year ago, and says so per file instead of implying either.')
+def _generated_edit_goes_upstream(ctx):
+    out = []
+    files = _generated_header_files()
+    if not files:
+        raise NotApplicable('no tracked file here carries a `do not '
+                            'hand-edit` header, so there is no generated '
+                            'view to route an edit away from')
+    for rel, comment in files:
+        m = _SOURCE_CLAUSE_RE.search(comment)
+        if m is None:
+            out.append(Finding(rel, 'carries a `do not hand-edit` header with '
+                                    'no `Source:` clause -- it tells a reader '
+                                    'their edit will be destroyed without '
+                                    'telling them where to put the change '
+                                    'instead, which is the header that '
+                                    'produces the hand edit. `Source: <path>` '
+                                    'for a source in this repo, `Source (in '
+                                    '<place>): <path>` for one that is not'))
+            continue
+        place = m.group('place')
+        clause = m.group('clause')
+        urls = _SOURCE_URL_RE.findall(clause)
+        # A URL's own slashes are path-shaped to _SOURCE_PATH_RE, so they come
+        # out of the clause before the paths are read. Without this a single
+        # URL reads as several imaginary directories.
+        named = _SOURCE_PATH_RE.findall(_SOURCE_URL_RE.sub(' ', clause))
+        if place is None:
+            if urls:
+                out.append(Finding(rel, f'has a `Source:` clause naming a URL '
+                                        f'({urls[0]}) -- an unqualified '
+                                        f'`Source:` names a path in THIS '
+                                        f'repo, which a URL is not. If the '
+                                        f'source is built somewhere else and '
+                                        f'mirrored here, say where: `Source '
+                                        f'(in <place>): <path>`'))
+                continue
+            if not named:
+                out.append(Finding(rel, f'has a `Source:` clause naming no '
+                                        f'path at all ({clause.strip()!r}) -- '
+                                        f'a reader cannot open a description'))
+                continue
+            for token in named:
+                if not (ROOT / token.rstrip('/')).exists():
+                    out.append(Finding(rel, f'names `{token}` as its Source '
+                                            f'and that path does not exist -- '
+                                            f'a Source that has moved reads '
+                                            f'as an answer, which is worse '
+                                            f'than none. If it never was in '
+                                            f'this repo, name the place it '
+                                            f'is in: `Source (in <place>): '
+                                            f'{token}`'))
+            continue
+        # Qualified: the source is in `place`, which this repo is not.
+        place = place.strip()
+        if not place:
+            out.append(Finding(rel, 'has a `Source ():` clause with nothing '
+                                    'in the parentheses -- the parenthetical '
+                                    'is there to name the place the source '
+                                    'lives in, and an empty one names nothing'))
+            continue
+        if not named and not urls:
+            out.append(Finding(rel, f'names the place its source lives in '
+                                    f'({place!r}) and then no address within '
+                                    f'it ({clause.strip()!r}) -- a reader who '
+                                    f'gets to that repo still has nothing to '
+                                    f'open. Name the path there, or the URL'))
+            continue
+        # EVERY token, including one that happens to resolve here. Resolving
+        # the ones that do was the first cut and it is wrong: `examples/` is a
+        # directory in half these repos, so a mirror carrying
+        # `Source (in the Voice pack): voice/, examples/, prompt/` had two
+        # paths reported and the third silently verified against a local
+        # directory that is not the one the header means. A coincidence
+        # rendering identically to a verification is the one thing
+        # fail-gracefully does not let a check do, and the cost of the strict
+        # rule is small and paid in the right place: the repo that BUILDS the
+        # file, if its generator writes the qualified form into its own tree
+        # as well as into the mirrors, gets one could-not-verify line at
+        # home. Emitting the unqualified `Source:` locally is that
+        # generator's to do, and it is the accurate header there anyway.
+        for token in named + urls:
+            out.append(Unverified(rel, f'names `{token}` under `Source '
+                                       f'({place}):` -- a place this '
+                                       f'repository is not, so the routing is '
+                                       f'there for a reader and nothing here '
+                                       f'can confirm the path is still live'))
     return out
 
 
@@ -2549,6 +2917,16 @@ def _acronyms_glossary(ctx):
         raise NotApplicable('no GLOSSARY.md in this repo, so the acronym '
                             'check has nothing to check unglossed terms '
                             'against')
+    # A skip, deliberately, and never a pass: with too small a corpus the
+    # word/initialism test answers False for both, so every shouted English
+    # word in the vendored catalogue reads as a violation the adopter
+    # cannot fix. practice: fail-gracefully -- degrade with a named reason.
+    if not dl.corpus_is_decisive():
+        raise NotApplicable(
+            "this repo's own markdown is too small a corpus to tell a "
+            'shouted English word from an initialism, so every ALL-CAPS '
+            'token would be reported -- add prose, or gloss terms by hand, '
+            'until tools/doc_lint.py corpus_is_decisive() is true')
     files = [f for f in _md_in_scope(ctx) if f not in dl.ACRONYM_SKIP_FILES]
     if not files:
         raise NotApplicable('no changed markdown file is in scope')
@@ -3764,7 +4142,7 @@ def _code_cites_practice(ctx):
             # A slug some IN-FORCE practice declares it overrides is
             # superseded, not missing. In a consuming repo a higher-precedence
             # source can replace a universal practice under a different name
-            # -- precedent-team-maintainers' `rule-links` overrides the
+            # -- precedent-team-repo-maintenance' `rule-links` overrides the
             # universal `doc-references-are-links` -- and the overridden slug
             # then resolves to no file at all. The universal engine code that
             # cites it is still correct about why it exists; the rule simply
@@ -4458,7 +4836,7 @@ def run(slugs, ctx, scopes, exempt=None):
         # and would still be reading a verdict this repo has said is not
         # about it. See load_exemptions() for the whole story.
         if slug in exempt:
-            results.append((slug, 'EXEMPT', [], exempt[slug]))
+            results.append((slug, 'EXEMPT', [], exempt[slug], []))
             continue
         # A check whose practice is not in force here has nothing to
         # enforce. This file is vendored verbatim into consuming repos
@@ -4471,18 +4849,33 @@ def run(slugs, ctx, scopes, exempt=None):
         # act on, satisfy, or even read the Rule of (`rule_of` prints
         # "(no practice file for ...)"). SKIPPED, never PASS: the check
         # did not run, and a skip is not a pass.
-        if c['practice_backed'] and _practice_file(slug) is None:
+        # The one exception: a check that binds a PUBLISHER (see check())
+        # runs in a repo that publishes practices, where the practice text
+        # is upstream by design rather than absent by accident. Without
+        # this, the repositories that PUBLISH the catalogue are the least
+        # checked repositories in the system.
+        if (c['practice_backed'] and _practice_file(slug) is None
+                and not (c.get('binds_publishers')
+                         and _publishes_practices())):
             results.append((slug, 'SKIPPED', [],
                             f'no practices/{slug}.md in this repo, so the '
                             f'practice is not in force here -- this check '
-                            f'belongs to a source this repo does not resolve'))
+                            f'belongs to a source this repo does not resolve',
+                            []))
             continue
         try:
-            findings = c['fn'](ctx) or []
+            returned = c['fn'](ctx) or []
+            # Partitioned here rather than by each check, so a check reports
+            # what it could not resolve by returning an Unverified in the
+            # same list and nothing else changes. A PASS means the findings
+            # list is empty -- an Unverified is not a finding, and must not
+            # make the check red.
+            unverified = [f for f in returned if isinstance(f, Unverified)]
+            findings = [f for f in returned if not isinstance(f, Unverified)]
             results.append((slug, 'VIOLATION' if findings else 'PASS',
-                            findings, None))
+                            findings, None, unverified))
         except NotApplicable as e:
-            results.append((slug, 'SKIPPED', [], str(e)))
+            results.append((slug, 'SKIPPED', [], str(e), []))
         except Exception as e:
             # A check's own bug (a malformed config it didn't validate, an
             # unhandled edge case) must not take the other checks down with
@@ -4498,7 +4891,7 @@ def run(slugs, ctx, scopes, exempt=None):
             # found no evidence either way) or SKIPPED (that means the
             # check legitimately does not apply here, not that it broke).
             results.append((slug, 'ERROR', [],
-                            f'{type(e).__name__}: {e}'))
+                            f'{type(e).__name__}: {e}', []))
     return results
 
 
@@ -4552,6 +4945,9 @@ def main():
     errored = [r for r in results if r[1] == 'ERROR']
     passed = [r for r in results if r[1] == 'PASS']
     exempted = [r for r in results if r[1] == 'EXEMPT']
+    # Orthogonal to the status above -- a check that PASSED can still have
+    # looked at something it could not resolve, and that is the common case.
+    unverified = [r for r in results if r[4]]
 
     # advisory=True (see check()'s own docstring) is a per-check, incident-
     # justified exception, not a general severity dial -- as of 2026-09-05
@@ -4561,7 +4957,7 @@ def main():
     violated = [r for r in all_violated if not CHECKS[r[0]].get('advisory')]
     advisory = [r for r in all_violated if CHECKS[r[0]].get('advisory')]
 
-    for slug, _st, findings, _why in violated:
+    for slug, _st, findings, _why, _uv in violated:
         print(f'\nVIOLATION  {slug}')
         for f in findings:
             print(f'    {f}')
@@ -4569,7 +4965,7 @@ def main():
         for line in rule_of(slug).splitlines():
             print(f'    {line}')
 
-    for slug, _st, findings, _why in advisory:
+    for slug, _st, findings, _why, _uv in advisory:
         print(f'\nADVISORY   {slug} — findings below do not fail this run '
               f'(see this check\'s own registration for why)')
         for f in findings:
@@ -4578,16 +4974,26 @@ def main():
         for line in rule_of(slug).splitlines():
             print(f'    {line}')
 
-    for slug, _st, _f, why in errored:
+    for slug, _st, _f, why, _uv in errored:
         print(f'\nERROR      {slug} — the check itself failed to run: {why}')
 
-    for slug, _st, _f, why in skipped:
+    for slug, _st, _f, why, _uv in skipped:
         print(f'SKIPPED    {slug} — {why}')
+
+    # Every run, whether the check passed or not: this is the half of the
+    # answer that is missing, and a run that prints it only on failure lets
+    # a green summary stand for a verification that did not happen
+    # (practice: fail-gracefully, clause 1).
+    for slug, _st, _f, _why, uv in unverified:
+        print(f'\nCOULD NOT VERIFY  {slug} — checked, and this much could not '
+              f'be resolved from this repository:')
+        for f in uv:
+            print(f'    {f}')
 
     # Named, with the recorded reason, every run. An exemption that leaves
     # no trace in the output is how a rule gets switched off and forgotten,
     # which is worse than the problem this fixed.
-    for slug, _st, _f, why in exempted:
+    for slug, _st, _f, why, _uv in exempted:
         print(f'EXEMPT     {slug} — declared not-binding in this repo\'s '
               f'precedent.json: {why}')
     for slug, why in sorted(refused_exemptions.items()):
@@ -4598,15 +5004,19 @@ def main():
     if ctx.scope_reason and any(CHECKS[s]['scope'] == 'change' for s in slugs):
         print(f'note: {ctx.scope_reason}')
 
+    n_uv = sum(len(r[4]) for r in unverified)
     print(f'\nprecedent_check: {len(passed)} passed, {len(violated)} violated, '
           f'{len(advisory)} advisory, {len(errored)} errored, {len(skipped)} '
-          f'skipped, {len(exempted)} exempted (a skip is not a pass; advisory '
-          f'findings do not fail the run; an exemption is this repo declaring '
-          f'the rule does not bind it, with a reason, in precedent.json).')
+          f'skipped, {len(exempted)} exempted, {n_uv} could not be verified '
+          f'(a skip is not a pass, and neither is a could-not-verify; '
+          f'advisory findings do not fail the run; an exemption is this repo '
+          f'declaring the rule does not bind it, with a reason, in '
+          f'precedent.json).')
     if violated or errored:
         return 1
-    if skipped and '--strict' in flags:
-        print('--strict: a check that could not run is a failure here.')
+    if (skipped or unverified) and '--strict' in flags:
+        print('--strict: a check that could not run, and a thing a check '
+              'could not resolve, are both failures here.')
         return 1
     return 0
 
