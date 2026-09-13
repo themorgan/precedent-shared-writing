@@ -23,6 +23,14 @@
           },
           {
             "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/tools/precedent_source_bootstrap.py --sources-from $CLAUDE_PROJECT_DIR || true"
+          },
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/tools/precedent_session_practices.py --repo $CLAUDE_PROJECT_DIR || true"
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/freshness-guard.sh session-start main"
           },
           {
