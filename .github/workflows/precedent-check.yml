@@ -72,6 +72,27 @@ jobs:
         with:
           python-version: "3.12"
 
+      # PyYAML is NOT on a bare GitHub runner, and at least one vendored check
+      # imports it -- tools/checks/check_light_check.py, which parses practice
+      # frontmatter. A check whose import fails is reported by
+      # precedent_check.py as a VIOLATION rather than a skip. That is the right
+      # call (a dependency that is absent has not been checked, and a skip is
+      # not a pass), and it means a missing module fails this gate loudly
+      # instead of quietly shrinking what it covers.
+      #
+      # FOUND THE HONEST WAY: this workflow's own first run in
+      # precedent-team-repo-maintenance went red with
+      # "ModuleNotFoundError: No module named 'yaml'", on a branch whose only
+      # change was adding the workflow. The local run had passed, because the
+      # container running it happened to have PyYAML. That is the gap a CI gate
+      # exists to close, and it closed it on its first attempt.
+      #
+      # Installed unconditionally in every set, so this file stays byte-identical
+      # across all four. A set with no yaml-importing check today pays two
+      # seconds and gains one fewer way to drift.
+      - name: Install the check suite's Python dependencies
+        run: python -m pip install --disable-pip-version-check pyyaml
+
       - name: Refuse if this repo is not a source set carrying the engine
         run: |
           set -eu
