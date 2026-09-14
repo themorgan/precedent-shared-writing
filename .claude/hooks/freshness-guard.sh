@@ -78,6 +78,12 @@
 # gotchas log, a pull run inside a checkout someone handed you is exactly
 # how a session got silently moved onto the wrong branch mid-work).
 #
+# WHY IT CHECKS REPOSITORIES THE SESSION MERELY HAS ATTACHED. A hook fires
+# for the project dir and nothing else, so an attached sibling clone runs none
+# of its own freshness checking however correctly its guard is installed.
+# PRECEDENT_FRESHNESS_ALSO names those repositories; see _also_entries. Unset,
+# nothing about this script's behaviour changes.
+#
 # WHY THIS NEVER TOUCHES THE BASE BRANCH AUTOMATICALLY. Bringing origin/BASE
 # into a feature branch is a real merge with real conflict potential -- the
 # opposite of the fast-forward above, which is a no-op or nothing. The
@@ -89,9 +95,112 @@ set -uo pipefail
 MODE="${1:-}"
 BASE_ARG="${2:-}"
 
-ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+# The repository currently being checked. It STARTS as the project dir and is
+# reassigned as the also-list below is walked, so every helper here keeps
+# working unchanged against whichever repo is in hand.
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+ROOT="$PROJECT_ROOT"
 
 _git() { git -C "$ROOT" "$@"; }
+
+# WHY AN ENV VAR, AND NOT MORE HOOK WIRING. A hook fires for the project dir
+# and nothing else, so a repository ATTACHED to a session rooted somewhere
+# else -- `add_repo`, a SessionStart clone, a sibling clone a team practice
+# source resolves to -- is never checked by its own guard, because its own
+# settings.json is never read. That is not theoretical: a branch was cut from
+# a stale main on 2026-09-11 while that repository's own guard sat installed
+# and silent one directory away.
+#
+# The identity chain already solved the same shape, and this is deliberately
+# the same answer: precedent_identity.py's rung 1 is PRECEDENT_COMMIT_*,
+# checked before anything that needs a clone or a hook, precisely because
+# environment variables follow a session into every repository it touches.
+# PRECEDENT_FRESHNESS_ALSO is that rung for freshness.
+#
+#   PRECEDENT_FRESHNESS_ALSO="/path/to/repo=main;/path/to/other=beta-branch"
+#
+# Entries are `;`-separated, each `<path>=<base branch>`. The base is spelled
+# out per entry for the same reason the hook takes it as an argument: it is
+# not detectable, and a repo whose configured default branch is not its base
+# branch is exactly where detection gets it wrong. An entry whose path is
+# absent or is not a git repository is NOTED and skipped, never blocked on --
+# a typo in a config value is not a stale checkout, and wedging every session
+# over one would teach people to unset the variable.
+#
+# Unset, this is a no-op: the project dir is checked exactly as before.
+_also_entries() {
+  local raw="${PRECEDENT_FRESHNESS_ALSO:-}"
+  [ -n "$raw" ] || return 0
+  # `printf '%s'` leaves the final entry unterminated, and `read` returns
+  # non-zero on an unterminated line -- so the loop body never ran for the LAST
+  # entry, which for a single-entry variable meant it never ran at all. Caught
+  # by a fixture, not by reading. The trailing newline is the fix.
+  printf '%s\n' "$raw" | tr ';' '\n' | while IFS= read -r entry; do
+    entry="$(printf '%s' "$entry" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$entry" ] || continue
+    printf '%s\n' "$entry"
+  done
+}
+
+# Prints "path<TAB>base" for a usable entry; prints nothing and NOTEs when the
+# entry names somewhere this guard cannot check.
+_also_resolve() {
+  local entry="$1" path base
+  case "$entry" in
+    *=*) path="${entry%%=*}"; base="${entry#*=}" ;;
+    *)   echo "NOTE: freshness-guard: PRECEDENT_FRESHNESS_ALSO entry '$entry' has no '=<base branch>' -- SKIPPED (not checked). Spell the base out: <path>=<base>." >&2; return 1 ;;
+  esac
+  path="$(printf '%s' "$path" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  base="$(printf '%s' "$base" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  if [ -z "$path" ] || [ -z "$base" ]; then
+    echo "NOTE: freshness-guard: PRECEDENT_FRESHNESS_ALSO entry '$entry' is missing a path or a base -- SKIPPED (not checked)." >&2
+    return 1
+  fi
+
+  # NOTHING EXPANDS A PATH THAT ARRIVES IN A VARIABLE'S VALUE. bash substitutes
+  # `~` and `$HOME` when it parses a word, never when it reads them back out of
+  # a variable, so `~/precedent-individual` set in an environment reaches this
+  # function as those literal characters and `git -C` looks for a directory
+  # with a tilde in its name.
+  #
+  # $HOME is the case that matters and the reason this exists. An individual
+  # practice source lives at $HOME/precedent-individual, and $HOME is not the
+  # same on every container -- so an absolute path written on one of them
+  # silently names nothing on the next. Measured 2026-09-11: this project's own
+  # environment carried /home/user/precedent-individual while the clone was at
+  # /root/precedent-individual, and the entry had been resolving to nothing,
+  # every session, for its whole life. Expanding makes ONE value correct
+  # everywhere, which is the only version of this that survives a fresh
+  # container (practice: durable-fix).
+  #
+  # Done by explicit substitution rather than `eval`: this value is a path, not
+  # a script, and eval on it would run whatever a mistyped entry happened to
+  # contain. ${HOME} before $HOME, or the second pattern eats the first's
+  # braces.
+  case "$path" in
+    '~') path="${HOME:-}" ;;
+    '~/'*) path="${HOME:-}${path#\~}" ;;
+  esac
+  path="${path//\$\{HOME\}/${HOME:-}}"
+  path="${path//\$HOME/${HOME:-}}"
+  path="${path//\$\{CLAUDE_PROJECT_DIR\}/$PROJECT_ROOT}"
+  path="${path//\$CLAUDE_PROJECT_DIR/$PROJECT_ROOT}"
+  if [ "$path" = "$PROJECT_ROOT" ]; then
+    # Already checked as the project dir; checking it twice would double every
+    # warning and, in pre-write, block on the same finding twice.
+    return 1
+  fi
+  if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
+    # The entry as WRITTEN is named alongside what it expanded to, because
+    # the two differing is the whole diagnosis when a $HOME-relative value is
+    # being read on a container whose $HOME is somewhere else.
+    local as_written=""
+    [ "$path" = "${entry%%=*}" ] || as_written=" (from '${entry%%=*}')"
+    echo "NOTE: freshness-guard: PRECEDENT_FRESHNESS_ALSO names '$path'$as_written, which is not a git repository (or is not there) -- SKIPPED (not checked), not passed." >&2
+    return 1
+  fi
+  printf '%s\t%s\n' "$path" "$base"
+}
 
 # `git rev-parse <missing-ref>` exits non-zero but PRINTS THE REF NAME on
 # stdout, so `$(git rev-parse X) || fallback` binds a ref name where a hash
@@ -101,6 +210,22 @@ _git() { git -C "$ROOT" "$@"; }
 _have_ref() { _git rev-parse --verify -q "$1" >/dev/null 2>&1; }
 
 _in_git() { _git rev-parse --git-dir >/dev/null 2>&1; }
+
+# Is this branch simply absent from origin, rather than origin being
+# unreachable? `git fetch origin <branch>` exits non-zero for BOTH, and
+# treating them the same is what made pre-write refuse the first write of
+# every new branch: a branch origin has never heard of has nothing to be
+# behind, so there is no staleness to guard against.
+#
+# `ls-remote --exit-code` separates them: 0 means origin answered AND has
+# the ref, 2 means origin answered and does not, anything else means the
+# question could not be asked at all. Only the middle case is safe to wave
+# through -- an unreachable origin still blocks, which is the whole point
+# of this guard.
+_branch_absent_from_origin() {
+  _git ls-remote --exit-code --heads origin "$1" >/dev/null 2>&1
+  [ "$?" = "2" ]
+}
 
 _current_branch() {
   local b
@@ -165,6 +290,82 @@ _behind_base_count() {
   _git rev-list --count "HEAD..origin/$1" 2>/dev/null || printf '?'
 }
 
+# A shallow clone counts every commit back to its graft point as LOCAL, so a
+# checkout that is merely behind reads as diverged -- and both modes below
+# then decline to update it, which is the one outcome worse than either. Cost
+# on 2026-09-13: a session ran a whole thread against a day-old tree, applying
+# rules that had been superseded, and only found out when an unrelated command
+# was blocked. Deepen once and recount before believing the counts.
+# practice: durable-fix. See record/GOTCHAS.md#g12 for the merge-base shape of
+# the same false negative.
+_deepen_if_shallow() {
+  _is_shallow || return 1
+  _git fetch --quiet --deepen=500 origin "$1" 2>/dev/null && return 0
+  # Some git policy hooks refuse --unshallow; a bounded deepen is tried first
+  # for that reason, and a failure here is not fatal -- the caller keeps the
+  # counts it already had and says they are approximate.
+  _git fetch --quiet --unshallow origin "$1" 2>/dev/null && return 0
+  return 1
+}
+
+# How far apart in TIME the two tips are, which is the quantity a person
+# actually judges risk on: "132 commits behind" says nothing, "your copy is a
+# day older than the tip" says everything. Both timestamps come from git, so
+# nothing here depends on the container's clock.
+# practice: no-invented-specifics.
+_gap_seconds() {
+  local mine theirs
+  mine="$(_git log -1 --format=%ct HEAD 2>/dev/null)" || return 1
+  theirs="$(_git log -1 --format=%ct "origin/$1" 2>/dev/null)" || return 1
+  case "$mine$theirs" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$theirs" -gt "$mine" ] || { printf '0'; return 0; }
+  printf '%s' "$((theirs - mine))"
+}
+
+# The limit past which "behind" stops being a note and becomes the headline.
+# Declared in precedent.json rather than compiled in, because a threshold
+# nobody decided is doctrine (practice: constants-are-risk-inputs). A repo
+# with no declaration, or no python3 on the hook path, falls back to the
+# engine default; `git config precedent.freshness.staleHours N` overrides
+# both for one checkout.
+_stale_hours() {
+  local v
+  v="$(_git config --get precedent.freshness.staleHours 2>/dev/null || true)"
+  case "$v" in ''|*[!0-9]*) v="" ;; esac
+  if [ -z "$v" ] && [ -n "$ROOT" ] && [ -f "$ROOT/precedent.json" ]; then
+    v="$(python3 -c 'import json,sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    raise SystemExit(0)
+h = d.get("stale_checkout_hours")
+if isinstance(h, int) and h > 0:
+    print(h)' "$ROOT/precedent.json" 2>/dev/null || true)"
+  fi
+  case "$v" in ''|*[!0-9]*) v=24 ;; esac
+  printf '%s' "$v"
+}
+
+# One phrase, appended to every message that reports a checkout as behind, so
+# the age travels with the count wherever the count is printed.
+# practice: one-formatter-per-quantity.
+_age_phrase() {
+  local gap limit hours
+  gap="$(_gap_seconds "$1")" || { printf ''; return 0; }
+  [ "$gap" -gt 0 ] || { printf ''; return 0; }
+  hours="$((gap / 3600))"
+  limit="$(_stale_hours)"
+  if [ "$hours" -ge "$limit" ]; then
+    if [ "$hours" -ge 48 ]; then
+      printf ' STALE: this copy is %s day(s) older than origin/%s, past the %sh limit -- treat it as out of date and deal with it before working.' "$((hours / 24))" "$1" "$limit"
+    else
+      printf ' STALE: this copy is %sh older than origin/%s, past the %sh limit -- treat it as out of date and deal with it before working.' "$hours" "$1" "$limit"
+    fi
+  elif [ "$hours" -ge 1 ]; then
+    printf ' (This copy is %sh older than origin/%s; the limit is %sh.)' "$hours" "$1" "$limit"
+  fi
+}
+
 # The whole idle test: one stat and a subtraction, no network, no daemon.
 # Returns 0 when a check is due. Stamps on the way through, so a burst of
 # prompts costs one check between them rather than one each.
@@ -196,19 +397,26 @@ _throttle_due() {
 # ---------------------------------------------------------------------------
 # session-start
 # ---------------------------------------------------------------------------
-mode_session_start() {
-  _in_git || exit 0
+# One repository, reported and never enforced. Returns 0 always, like the mode
+# that calls it.
+_session_start_one() {
+  ROOT="$1"
+  BASE_ARG="$2"
+  _in_git || return 0
   _widen_refspec
 
   local branch
   branch="$(_current_branch)" || {
-    echo "NOTE: freshness-guard: HEAD is detached -- no branch to check." >&2
-    exit 0
+    echo "NOTE: freshness-guard: HEAD is detached in $ROOT -- no branch to check." >&2
+    return 0
   }
 
   local fetched=1
   _git fetch --quiet origin "$branch" 2>/dev/null || fetched=0
-  if [ "$fetched" -eq 0 ]; then
+  if [ "$fetched" -eq 0 ] && _branch_absent_from_origin "$branch"; then
+    fetched=1
+    echo "NOTE: freshness-guard: '$branch' does not exist on origin yet -- nothing to be behind. Checking it against the base branch only." >&2
+  elif [ "$fetched" -eq 0 ]; then
     echo "WARN: freshness-guard: could not fetch origin/$branch -- freshness NOT verified. Everything below is measured against a possibly stale remote-tracking ref; a silent result here means 'not checked', never 'in sync'." >&2
   fi
 
@@ -216,13 +424,17 @@ mode_session_start() {
     local behind ahead
     behind="$(_git rev-list --count "HEAD..origin/$branch" 2>/dev/null || echo 0)"
     ahead="$(_git rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo 0)"
+    if [ "$ahead" != "0" ] && _deepen_if_shallow "$branch"; then
+      behind="$(_git rev-list --count "HEAD..origin/$branch" 2>/dev/null || echo 0)"
+      ahead="$(_git rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo 0)"
+    fi
     if [ "$behind" != "0" ]; then
       if _dirty; then
-        echo "WARN: freshness-guard: '$branch' is $behind commit(s) behind origin/$branch, and the working tree has uncommitted changes -- NOT updating it automatically. Commit or stash, then: git merge --ff-only origin/$branch" >&2
+        echo "WARN: freshness-guard: '$branch' is $behind commit(s) behind origin/$branch, and the working tree has uncommitted changes -- NOT updating it automatically.$(_age_phrase "$branch") Commit or stash, then: git merge --ff-only origin/$branch" >&2
       elif [ "$ahead" != "0" ]; then
-        echo "WARN: freshness-guard: '$branch' has diverged from origin/$branch ($ahead local commit(s), $behind remote) -- NOT updating it automatically. Reconcile deliberately; do not discard either side." >&2
+        echo "WARN: freshness-guard: '$branch' has diverged from origin/$branch ($ahead local commit(s), $behind remote) -- NOT updating it automatically.$(_age_phrase "$branch") Reconcile deliberately; do not discard either side." >&2
       elif [ "$fetched" -eq 0 ]; then
-        echo "WARN: freshness-guard: '$branch' looks $behind commit(s) behind, but the fetch failed -- not acting on an unverified comparison." >&2
+        echo "WARN: freshness-guard: '$branch' looks $behind commit(s) behind, but the fetch failed -- not acting on an unverified comparison.$(_age_phrase "$branch")" >&2
       else
         local before
         before="$(_git rev-parse HEAD 2>/dev/null)"
@@ -253,6 +465,25 @@ mode_session_start() {
     echo "NOTE: freshness-guard: no base branch given and origin/HEAD does not resolve -- base-branch check SKIPPED (not passed). Pass the base as the hook's second argument in .claude/settings.json." >&2
   fi
 
+  return 0
+}
+
+# The project dir first, then every repository the session merely has
+# ATTACHED. Always exits 0: this half reports, and a freshness question must
+# never be the thing that wedges a session.
+mode_session_start() {
+  _session_start_one "$PROJECT_ROOT" "$BASE_ARG"
+  local entry resolved path base
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    resolved="$(_also_resolve "$entry")" || continue
+    path="${resolved%%$'\t'*}"
+    base="${resolved#*$'\t'}"
+    echo "NOTE: freshness-guard: also checking attached repository $path (base $base)." >&2
+    _session_start_one "$path" "$base"
+  done <<EOF
+$(_also_entries)
+EOF
   exit 0
 }
 
@@ -322,23 +553,66 @@ print((d.get("tool_input") or {}).get("command") or "")' 2>/dev/null || true)"
     exit 0
   fi
 
+  _pre_write_one "$PROJECT_ROOT" "$BASE_ARG" "$sentinel"
+
+  # Every ATTACHED repository, under the same enforcement. A session reads its
+  # practices out of these, so working against a stale one is the same failure
+  # as working against a stale project dir -- and the override above is
+  # deliberately NOT re-read per repo: it is set on the checkout somebody chose
+  # to stop guarding, and this loop must not let that decision silence a
+  # different repository.
+  local entry resolved path base
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    resolved="$(_also_resolve "$entry")" || continue
+    path="${resolved%%$'\t'*}"
+    base="${resolved#*$'\t'}"
+    _pre_write_one "$path" "$base" "$sentinel"
+  done <<EOF
+$(_also_entries)
+EOF
+
+  : > "$sentinel"
+  exit 0
+}
+
+# One repository, enforced. Returns 0 when it is current; calls _block (which
+# exits 2) when it is not. The sentinel is passed in rather than read from the
+# caller's scope: bash would resolve it dynamically either way, and a helper
+# that silently depends on a `local` two frames up breaks the moment anything
+# else calls it.
+_pre_write_one() {
+  ROOT="$1"
+  BASE_ARG="$2"
+  local sentinel="$3"
+
+  _in_git || return 0
   _widen_refspec
 
   local branch
-  branch="$(_current_branch)" || { : > "$sentinel"; exit 0; }
+  branch="$(_current_branch)" || return 0
 
-  _git fetch --quiet origin "$branch" 2>/dev/null || \
-    _block "could not fetch origin/$branch, so this checkout's freshness could not be verified at all. A check that could not run is not a check that passed. Run: git fetch origin $branch"
+  if ! _git fetch --quiet origin "$branch" 2>/dev/null; then
+    if _branch_absent_from_origin "$branch"; then
+      echo "NOTE: freshness-guard: '$branch' does not exist on origin yet -- nothing to be behind, so this call is not blocked on it. The base-branch check below still runs." >&2
+    else
+      _block "could not fetch origin/$branch, so this checkout's freshness could not be verified at all. A check that could not run is not a check that passed. Run: git fetch origin $branch"
+    fi
+  fi
 
   if _have_ref "origin/$branch"; then
     local behind ahead
     behind="$(_git rev-list --count "HEAD..origin/$branch" 2>/dev/null || echo 0)"
     ahead="$(_git rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo 0)"
+    if [ "$ahead" != "0" ] && _deepen_if_shallow "$branch"; then
+      behind="$(_git rev-list --count "HEAD..origin/$branch" 2>/dev/null || echo 0)"
+      ahead="$(_git rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo 0)"
+    fi
     if [ "$behind" != "0" ]; then
       if _dirty; then
-        _block "'$branch' is $behind commit(s) behind origin/$branch and the working tree is dirty. Commit or stash first, then: git merge --ff-only origin/$branch"
+        _block "'$branch' is $behind commit(s) behind origin/$branch and the working tree is dirty.$(_age_phrase "$branch") Commit or stash first, then: git merge --ff-only origin/$branch"
       elif [ "$ahead" != "0" ]; then
-        _block "'$branch' has diverged from origin/$branch ($ahead local, $behind remote). Reconcile it deliberately -- this guard will not choose a side for you."
+        _block "'$branch' has diverged from origin/$branch ($ahead local, $behind remote).$(_age_phrase "$branch") Reconcile it deliberately -- this guard will not choose a side for you."
       else
         local before
         before="$(_git rev-parse HEAD 2>/dev/null)"
@@ -364,8 +638,7 @@ print((d.get("tool_input") or {}).get("command") or "")' 2>/dev/null || true)"
     fi
   fi
 
-  : > "$sentinel"
-  exit 0
+  return 0
 }
 
 # Deliberately delegates to mode_session_start instead of restating its
