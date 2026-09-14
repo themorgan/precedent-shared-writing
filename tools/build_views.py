@@ -48,7 +48,7 @@ Run:
       # not the target repo's content, the same "sibling files travel with
       # the script, not with --repo" rule sibling-module imports follow.
 """
-import collections, json, os, pathlib, re, sys
+import collections, json, os, pathlib, re, subprocess, sys
 
 # _ENGINE_DIR (where this file itself lives) is only ever used for the
 # sibling-module import and the MAP.md "## The engine" listing below --
@@ -87,6 +87,49 @@ def _budget(key, default):
 
 
 RESIDENT_BUDGET_TOKENS = _budget('resident_block_tokens', 2000)
+
+
+def surface_budget(name, default):
+    """The declared ceiling for ONE named surface in session_load_budgets.json.
+
+    RESIDENT_BUDGET_TOKENS above is the ceiling for the resident block of the
+    TRACKED loader block -- the one in AGENTS.md. It is not the ceiling for
+    every file this renderer is asked to build, and treating it as one is the
+    bug this exists to fix: .precedent/SESSION_PRACTICES.md carries a
+    different set of practices, is untracked, and has its own entry in the
+    same registry. Applying AGENTS.md's allocation to it made the untracked
+    file unbuildable in two real practice sets on 2026-09-13 -- 1,396 tokens
+    of universal residents against a 425- and a 550-token cap that were never
+    about them (practice: registry-source-of-truth -- one registry, read the
+    row you mean).
+    """
+    f = pathlib.Path(__file__).resolve().parent / 'session_load_budgets.json'
+    try:
+        row = (json.loads(f.read_text(encoding='utf-8'))
+               .get('surfaces', {}).get(name, {}))
+    except (OSError, ValueError, AttributeError):
+        return default
+    v = row.get('ceiling')
+    return v if isinstance(v, int) else default
+
+
+class ResidentBudgetExceeded(Exception):
+    """The resident block is over its surface's declared ceiling.
+
+    RAISED rather than sys.exit()ed, which is what it did until 2026-09-13.
+    Exiting is right for the tracked block -- build_views' own CLI is a gate,
+    and over budget means the commit does not happen -- and wrong for every
+    other caller: precedent_session_practices.py runs from a SessionStart
+    hook, so an exit there means the session gets no practices at all rather
+    than a file that is a bit long. The gate keeps exiting, at the one place
+    that is a gate; everyone else decides for themselves
+    (practice: fail-gracefully).
+    """
+
+    def __init__(self, tokens, budget):
+        self.tokens, self.budget = tokens, budget
+        super().__init__(f'resident block is ~{tokens} tokens, over the '
+                         f'{budget}-token hard cap')
 WORD_RE = re.compile(r"\S+")
 
 
@@ -644,7 +687,8 @@ def _place_rule_links(text, practice_file, block_dir, repo_root=None,
 
 
 def build_loader_block(practices, source_levels=None, omits_private=False,
-                       block_dir=None, repo_root=None, planned=()):
+                       block_dir=None, repo_root=None, planned=(),
+                       budget_tokens=None):
     """practices: (fm, sections, file) triples, exactly as load_practices()
     returns for this repo's own single-source catalogue. source_levels:
     optional {slug: level} for a caller resolving MULTIPLE sources (e.g.
@@ -698,11 +742,11 @@ def build_loader_block(practices, source_levels=None, omits_private=False,
     resident_text = '\n\n'.join(
         f"**{fm['slug']}.** {rule}" for fm, _sections, rule in placed
     )
+    budget = (RESIDENT_BUDGET_TOKENS if budget_tokens is None
+              else budget_tokens)
     token_count = _approx_tokens(resident_text)
-    if token_count > RESIDENT_BUDGET_TOKENS:
-        sys.exit(f"build_views FAIL: resident block is ~{token_count} tokens, "
-                 f"over the {RESIDENT_BUDGET_TOKENS}-token hard cap -- demote or "
-                 f"retire a resident practice before adding another.")
+    if token_count > budget:
+        raise ResidentBudgetExceeded(token_count, budget)
 
     on_demand = [(fm, sections) for fm, sections, _f in practices if fm.get('tier') == 'on-demand']
     by_occasion = collections.defaultdict(list)
@@ -765,7 +809,7 @@ def build_loader_block(practices, source_levels=None, omits_private=False,
     # fails, and the honest rendering of "this source has nothing here" is
     # silence, not an empty heading.
     if resident:
-        lines.append(f"## Resident block (~{token_count} of {RESIDENT_BUDGET_TOKENS} token budget, "
+        lines.append(f"## Resident block (~{token_count} of {budget} token budget, "
                      f"{count_detail})")
         lines.append('')
         lines.append(resident_text)
@@ -870,6 +914,59 @@ def repo_is_practice_source(root):
         return False
 
 
+def _same_repository(path, root):
+    """Whether `path` and `root` are the same REPOSITORY, not merely the same
+    directory.
+
+    Path equality was the test until 2026-09-13 and it is not enough, for a
+    reason this project already had written down: an individual source
+    resolves through ~/.config/precedent/config.json, which names an absolute
+    path, and that is routinely a SECOND clone rather than the checkout being
+    edited (record/GOTCHAS.md's entry on it). So a session working IN an
+    individual set, whose config named another clone of that same set, saw its
+    own practices treated as somebody else's tree: deferred out of the tracked
+    block and duplicated into .precedent/SESSION_PRACTICES.md, where they were
+    already present from the block. Reported by that set on 2026-09-13 and
+    reproduced here against two clones of one repository.
+
+    Compares origin URLs, falling back to the resolved path when either side
+    has no remote -- a fixture, a worktree, a directory that is not a git
+    repository at all. Normalized for the differences that are not
+    differences: a trailing .git, a trailing slash, and case, since a clone
+    URL is routinely lowercased by the harness while the canonical spelling
+    is not (record/GOTCHAS.md's entry on the lowercased clone URL).
+    """
+    path, root = pathlib.Path(path), pathlib.Path(root)
+    if path.resolve() == root.resolve():
+        return True
+
+    def _origin(d):
+        try:
+            r = subprocess.run(['git', '-C', str(d), 'remote', 'get-url', 'origin'],
+                               capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return ''
+        if r.returncode != 0:
+            return ''
+        u = r.stdout.strip().rstrip('/').lower()
+        return u[:-4] if u.endswith('.git') else u
+
+    a, b = _origin(path), _origin(root)
+    if a and a == b:
+        return True
+    # ONE CLONED FROM THE OTHER, which is what `git clone <local path>` makes
+    # and what a person reproducing this by hand will produce. Its origin is a
+    # filesystem path rather than a URL, so the comparison above cannot see it.
+    for origin, other in ((a, root), (b, path)):
+        if origin and not origin.startswith(('http', 'git@', 'ssh://')):
+            try:
+                if pathlib.Path(origin).resolve() == other.resolve():
+                    return True
+            except (OSError, ValueError):
+                pass
+    return False
+
+
 def sources_for_tracked_block(root, declared):
     """Split declared sources into (tracked, deferred, notes).
 
@@ -909,7 +1006,7 @@ def sources_for_tracked_block(root, declared):
     notes = []
     if repo_is_practice_source(root):
         deferred = [s for s in declared if s['level'] != 'repo-local'
-                    and pathlib.Path(s['path']).resolve() != root.resolve()]
+                    and not _same_repository(s['path'], root)]
         tracked = [s for s in declared if s not in deferred]
         if deferred:
             notes.append(
@@ -1079,9 +1176,18 @@ def render_agents_md(practices, agents_md=None, source_levels=None,
     # always this engine's own ROOT: `--repo DIR` renders another repo's
     # AGENTS.md, and a resident Rule's sibling citation has to be repointed
     # for that repo's root, not this one's.
-    block, tokens, n_resident = build_loader_block(
-        practices, source_levels=source_levels, omits_private=omits_private,
-        block_dir=agents_md.parent)
+    # THIS caller is the gate, so over budget still exits here, with the
+    # identical message it printed before ResidentBudgetExceeded existed --
+    # the tracked block not being regenerated is exactly the outcome wanted.
+    # Every other caller catches the exception instead (see its docstring).
+    try:
+        block, tokens, n_resident = build_loader_block(
+            practices, source_levels=source_levels,
+            omits_private=omits_private, block_dir=agents_md.parent)
+    except ResidentBudgetExceeded as e:
+        sys.exit(f"build_views FAIL: resident block is ~{e.tokens} tokens, "
+                 f"over the {e.budget}-token hard cap -- demote or "
+                 f"retire a resident practice before adding another.")
     if BEGIN_MARKER not in original or END_MARKER not in original:
         sys.exit(f"build_views FAIL: {agents_md} has no "
                  f"{BEGIN_MARKER} / {END_MARKER} markers to regenerate between.")
@@ -1106,8 +1212,9 @@ def _upstream_doc_pointer():
     tail = []
     if (ROOT / 'spec' / 'PRACTICE_FORMAT.md').is_file():
         tail.append("[spec/PRACTICE_FORMAT.md](spec/PRACTICE_FORMAT.md) for the format")
-    if (ROOT / 'PRACTICE_ENGINE_PLAN.md').is_file():
-        tail.append("[PRACTICE_ENGINE_PLAN.md](PRACTICE_ENGINE_PLAN.md) for the design")
+    if (ROOT / 'spec' / 'PRACTICE_ENGINE_PLAN.md').is_file():
+        tail.append("[PRACTICE_ENGINE_PLAN.md](spec/PRACTICE_ENGINE_PLAN.md)"
+                    " for the design")
     return (" See " + " and ".join(tail) + ".") if tail else ""
 
 
@@ -1345,6 +1452,7 @@ TOOLS_DESCRIPTIONS = {
     'precedent_sync_views.py': "One command for a consuming repo: precedent_materialize.py + build_views.py --agents-only, glued together",
     'precedent_vendor_engine.py': "Vendors the minimal source-repo engine (this file, precedent_gate/paths/show.py, split_practices.py, a trimmed routing_scope.json) into an individual or team set, and keeps it refreshable",
     'resplit_sections.py': "The editorial Rule/Detail/Why/Story/Install split, applied from tools/section_split.json",
+    'todo_progress.py': 'which open items a change may have moved, and which name a file that is gone -- reports a resemblance, never a verdict',
     'routing_audit.py': "The routing audit — mechanical coverage check plus a rotating deep-read slice",
     'routing_eval.py': "Measures whether trigger-based loading actually beats carrying the whole catalogue",
     'routing_eval_synthetic.py': "Stress-tests the occasion-index channel alone, on hand-written synthetic tasks rather than real commits",
@@ -1573,7 +1681,7 @@ if __name__ == '__main__':
     # split three ways on it: a hard "unknown option" FAIL, a silent
     # fall-through that ran the whole audit as if nothing had been asked, or
     # the docstring printed with a non-zero exit. All three are wrong, and
-    # documentation/HOW_TO_USE_THIS_DEVELOPERS.md points readers straight at
+    # documentation/FOR_DEVELOPERS.md points readers straight at
     # these commands. The module docstring is the usage text.
     if any(a in ('--help', '-h') for a in sys.argv[1:]):
         print((__doc__ or '').strip())
