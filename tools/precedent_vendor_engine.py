@@ -337,6 +337,15 @@ ENGINE_FILES = [
     # design without precedent_resolve.py -- which a source set does not get
     # -- reading that repo's own practices/ and saying so.
     'precedent_vocabulary.py',
+    # The reply gate's BLOCKING half. Left out when it landed 2026-09-13,
+    # which had two costs the same day: the stop-hook check never reached a
+    # consuming repo at all (its hook guards on the file existing, so it
+    # skipped silently), and precedent_gate.py -- which DOES travel -- began
+    # importing it hours later to print the declared requirements before the
+    # reply. A vendored repo then printed "could not be read (No module
+    # named 'precedent_reply_check')" on every single turn. Reproduced in a
+    # stripped vendor tree before this line was added.
+    'precedent_reply_check.py',
     'precedent_vendor_engine.py',
 ]
 
@@ -1391,7 +1400,7 @@ if __name__ == '__main__':
     # split three ways on it: a hard "unknown option" FAIL, a silent
     # fall-through that ran the whole audit as if nothing had been asked, or
     # the docstring printed with a non-zero exit. All three are wrong, and
-    # documentation/HOW_TO_USE_THIS_DEVELOPERS.md points readers straight at
+    # documentation/FOR_DEVELOPERS.md points readers straight at
     # these commands. The module docstring is the usage text.
     if any(a in ('--help', '-h') for a in sys.argv[1:]):
         print((__doc__ or '').strip())
