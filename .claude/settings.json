@@ -23,11 +23,7 @@
           },
           {
             "type": "command",
-            "command": "python3 $CLAUDE_PROJECT_DIR/tools/precedent_source_bootstrap.py --sources-from $CLAUDE_PROJECT_DIR || true"
-          },
-          {
-            "type": "command",
-            "command": "python3 $CLAUDE_PROJECT_DIR/tools/precedent_session_practices.py --repo $CLAUDE_PROJECT_DIR || true"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/precedent-universal-catalogue.sh"
           },
           {
             "type": "command",
