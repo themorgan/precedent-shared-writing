@@ -52,7 +52,7 @@
     "their identity.json, while the answer for a person this project could",
     "not identify is the repository's to choose.",
     "",
-    "New York, not Buenos Aires. This is a TEAM set: shared by level, and consumed by repositories with more than one member. Buenos Aires is Morgan's own zone and belongs in his individual source, not in a set an unidentified committer could be anyone in. Morgan, 2026-09-10: the Buenos Aires fallback is just for him personally; a shared set defaults to New York. Sibling declarations the same day: precedent-team-maintainers, precedent-team-working-style, and the nomen-omen consuming repo.",
+    "New York, not Buenos Aires. This is a TEAM set: shared by level, and consumed by repositories with more than one member. Buenos Aires is Morgan's own zone and belongs in his individual source, not in a set an unidentified committer could be anyone in. Morgan, 2026-09-10: the Buenos Aires fallback is just for him personally; a shared set defaults to New York. Sibling declarations the same day: precedent-team-repo-maintenance, precedent-team-working-style, and the nomen-omen consuming repo.",
     "",
     "APPLIED, NEVER ENFORCED, exactly as the engine-level rung below it is.",
     "Applied, because the alternative is not 'no zone' but the container's",
