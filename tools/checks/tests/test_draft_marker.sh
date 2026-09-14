@@ -102,6 +102,23 @@ install_engine () {   # copy the real engine in; caller has checked ENGINE
   cp "$(dirname "$ENGINE")"/*.py tools/
 }
 
+remove_engine () {   # the inverse of install_engine, and it has to exist
+  # A "no-engine" case used to get its way for free: this repo vendored no
+  # precedent_resolve.py, so a clone of it had none. That stopped being true
+  # when the engine started vendoring the resolver into every practice set --
+  # and the D' fixture, which ASSERTED the absence rather than arranging it,
+  # began failing with "fixture bug: this case requires NO engine" on a tree
+  # where nothing was wrong except the assumption. Arranging the condition is
+  # what a fixture is for; asserting somebody else's tree still happens to
+  # satisfy it is a fixture waiting to break.
+  #
+  # precedent_resolve.py alone is the switch, not the whole engine directory:
+  # it is the module the check imports to ask which trees are mirrors, and the
+  # check falls back to the manifest answer when that import fails. Removing
+  # it is exactly the "no resolver reachable" state these cases mean.
+  rm -f tools/precedent_resolve.py
+}
+
 declare_source () {   # $1 = path to declare as a source
   python3 - "$1" <<'PY'
 import json, pathlib, sys
@@ -160,7 +177,7 @@ run () {
     cd "$scratch"
     overlay_check_under_test
     "$fixture"
-    if [ "$want_engine" = engine ]; then install_engine; fi
+    if [ "$want_engine" = engine ]; then install_engine; else remove_engine; fi
     git add -A >/dev/null
     git -c user.name=Test -c user.email=test@example.com commit -q -m "fixture: $label"
     code=0
@@ -200,9 +217,7 @@ git clone -q "$ROOT" "$SCRATCH" || fail "D' -- could not clone the fixture"
   fixture_section0_mirror
   git add -A >/dev/null
   git -c user.name=Test -c user.email=test@example.com commit -q -m "fixture: D-prime"
-  if [ -f tools/precedent_resolve.py ]; then
-    echo "fixture bug: this case requires NO engine" >&2; exit 1
-  fi
+  remove_engine
   code=0
   out="$(python3 tools/checks/check_draft_marker.py 2>&1)" || code=$?
   [ "$code" = 1 ] || { echo "expected exit 1 (no engine, no manifest, so no exclusion), got $code: $out" >&2; exit 1; }
