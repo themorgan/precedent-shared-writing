@@ -2176,6 +2176,155 @@ def _declared_hooks_exist(ctx):
     return found
 
 
+def _settings_hook_dirs():
+    """-> [Path] every directory a .claude/settings*.json actually wires a
+    hook out of, resolved against this repo.
+
+    Only `$CLAUDE_PROJECT_DIR`-rooted commands are resolvable from here --
+    the same limit declared-hooks-exist states for itself. A hook declared
+    by an absolute or bare relative path names a directory this tree cannot
+    resolve, so it simply is not swept: the cost of missing one is a hook
+    that goes unchecked, where the cost of guessing wrong would be calling a
+    working hook dead.
+    """
+    out = []
+    claude = ROOT / '.claude'
+    if not claude.is_dir():
+        return out
+    for sp in sorted(claude.glob('settings*.json')):
+        try:
+            raw = sp.read_text(encoding='utf-8')
+        except OSError:                          # practice: fail-gracefully
+            continue
+        for m in re.finditer(
+                r'\$\{?CLAUDE_PROJECT_DIR\}?/([\w./-]+\.sh)', raw):
+            d = (ROOT / m.group(1)).parent
+            if d not in out:
+                out.append(d)
+    return out
+
+
+@check('hooks-on-disk-are-reachable', 'tree',
+       'every hook file in .claude/hooks/ is reachable from something that '
+       'could run it — a settings*.json entry, another hook, or an engine '
+       'tool that invokes it by path',
+       'a hook that IS named somewhere but by a caller that never fires, and '
+       'a hook named only in prose: a document mentioning a filename is not '
+       'an invocation, so documents are deliberately not searched. It says '
+       'nothing about a repo with no .claude/hooks/ at all, which is '
+       "session-bootstrap's question, nor about what a hook does once it "
+       'runs.',
+       practice_backed=False)
+def _hooks_on_disk_are_reachable(ctx):
+    """A hook nothing names is off, and from inside a session that looks
+    exactly like a hook that is working.
+
+    WHY THIS EXISTS (practice: cite-the-incident). The forward direction — a
+    settings entry naming a file that is not there — is
+    declared-hooks-exist above. This is the other end, and it was found in a
+    real consuming repo: on 2026-09-14 an `Update Vendors` pass there found
+    two hooks sitting in .claude/hooks/ with nothing naming them --
+    freshness-guard.sh and commit-identity.sh, both written minutes earlier
+    by precedent_refresh_sources.py --apply, which drops hook files in and
+    deliberately will not edit a settings.json. Nothing failed, which is the
+    whole problem: the session found them by listing the directory and
+    reading settings.json against it, not because anything said so.
+
+    TWO THINGS THIS INCIDENT IS NOT, corrected 2026-09-14 against the
+    repo's own history after the first version of this docstring got both
+    wrong (practice: no-invented-specifics -- a cited incident is a claim,
+    and a rule argued from a false one cannot be judged). Neither orphan was
+    the reply gate: that repo had never carried reply-gate.sh at all, tracked
+    or untracked, so its replies were ungated by absence and this check would
+    have reported nothing. And the exposure was minutes inside one session,
+    not "as long as the files had been present" -- the same session wired
+    both before it merged. The real cost is the one still worth citing: a
+    tool that installs hook files but cannot wire them leaves orphans by
+    design, and until this check nothing but a person reading the directory
+    would ever say so.
+
+    Reachability deliberately includes engine tools, not only settings.
+    tools/precedent_resolve.py invokes
+    .claude/hooks/precedent-individual-bootstrap.sh by path rather than
+    through any settings entry, so a check that read settings alone would
+    report this repo's own working bootstrap hook as dead — measured here
+    before this check shipped, which is why the clause exists."""
+    hooks_dir = ROOT / '.claude' / 'hooks'
+    # A practice set created by precedent_bootstrap_source.py wires its hooks
+    # out of a tracked `bootstrap/` instead, on purpose, so one copy exists
+    # and nothing can drift from it -- and such a set has no .claude/hooks/
+    # at all. Sweeping only the conventional directory declined as
+    # NotApplicable there while five real hooks sat unchecked, which is the
+    # blind spot this reads settings for. Measured 2026-09-14 against a real
+    # individual set.
+    hook_dirs = []
+    if hooks_dir.is_dir():
+        hook_dirs.append(hooks_dir)
+    for d in _settings_hook_dirs():
+        if d.is_dir() and d not in hook_dirs:
+            hook_dirs.append(d)
+    if not hook_dirs:
+        raise NotApplicable('this repo has no .claude/hooks/ directory and no '
+                            'settings*.json naming a hook anywhere else, so '
+                            'no hook file here could be orphaned')
+    hooks = []
+    for d in hook_dirs:
+        for p in sorted(d.iterdir()):
+            # `.sh` only outside the conventional directory: a bootstrap/
+            # holds settings and freshness snippets beside its hooks, and
+            # calling those abandoned hooks would be noise.
+            if not p.is_file() or p.name.startswith('.'):
+                continue
+            if d != hooks_dir and p.suffix != '.sh':
+                continue
+            hooks.append(p)
+    if not hooks:
+        raise NotApplicable('no hook files in ' +
+                            ', '.join(str(d.relative_to(ROOT))
+                                      for d in hook_dirs))
+    # Everything that could plausibly RUN a hook. Prose is excluded on
+    # purpose: naming a file in a document does not invoke it.
+    callers = []
+    caller_dirs = [(ROOT / '.claude', 'settings*.json'),
+                   (ROOT / 'tools', '*.py')]
+    caller_dirs.extend((d, '*') for d in hook_dirs)
+    for d, pat in caller_dirs:
+        if d.is_dir():
+            callers.extend(p for p in d.glob(pat) if p.is_file())
+    texts = []
+    for c in callers:
+        try:
+            texts.append((c, c.read_text(encoding='utf-8', errors='ignore')))
+        except OSError:                          # practice: fail-gracefully
+            continue
+    found = []
+    for hook in hooks:
+        # A PATH reference, not a bare mention. Every real caller names a
+        # hook the only way it can be run -- `hooks/<name>`, whether that is
+        # `$CLAUDE_PROJECT_DIR/.claude/hooks/reply-gate.sh` in a settings
+        # entry or `.claude/hooks/precedent-individual-bootstrap.sh` in
+        # precedent_resolve.py. Matching the bare filename instead made this
+        # check unfalsifiable: its own harness plant, which necessarily
+        # writes the planted name into the test source, read as a caller and
+        # the planted violation passed. Measured 2026-09-14, before it
+        # shipped.
+        # `hooks/<name>` for the conventional directory; `<dir>/<name>` for
+        # a set wiring them out of bootstrap/ -- still a PATH reference, the
+        # only form that can actually run one, never a bare filename.
+        ref = (f'hooks/{hook.name}' if hook.parent == hooks_dir
+               else f'{hook.parent.name}/{hook.name}')
+        if any(ref in t for c, t in texts if c != hook):
+            continue
+        found.append(Finding(
+            str(hook.relative_to(ROOT)),
+            f'sits in {hook.parent.relative_to(ROOT)}/ and nothing that '
+            'could run it names it — '
+            'no settings*.json entry, no other hook, no engine tool. An '
+            'orphaned hook is off, and from inside a session that is '
+            'indistinguishable from one that works'))
+    return found
+
+
 @check('engine-plus-host-shims', 'tree',
        'no file outside the vendored tree duplicates a run of lines from '
        'inside it — that is a fork, not a shim',

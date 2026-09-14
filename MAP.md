@@ -39,6 +39,7 @@ None. No practice in this catalogue has been retired or deduplicated yet -- when
 | [tools/build_codeowners.py](tools/build_codeowners.py) | A team practice set's CODEOWNERS, generated from its own approvers.json |
 | [tools/build_views.py](tools/build_views.py) | This file, GLOSSARY.md, and AGENTS.md's loader block — generated views |
 | [tools/precedent_check.py](tools/precedent_check.py) | The ENFORCED loading channel — runs every practice's `checked_by` script |
+| [tools/precedent_close_detect.py](tools/precedent_close_detect.py) | Stage 1's trigger — at the close of a session that merged and is ready to archive, offers at most one practice candidate found in that session's own material |
 | [tools/precedent_decommission.py](tools/precedent_decommission.py) | Audits a deprecated file or directory before it is deleted -- refuses while anything still references it, or a workflow it names is still live -- then deletes and records it |
 | [tools/precedent_gate.py](tools/precedent_gate.py) | The GATE-TRIGGERED loading channel — Rules for a named moment (merge, review, push, reply) |
 | [tools/precedent_identity.py](tools/precedent_identity.py) | Resolves WHO this repo's commits belong to, from a declaration only -- an override, the repo's own identity.json, or the individual source's; raises rather than guessing |
