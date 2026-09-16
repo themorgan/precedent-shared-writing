@@ -3,9 +3,10 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "74eb776277105b70fa504470de1dc3c521b0fd33",
+  "source_commit": "aacdb206678a4d101062c42c35218aae6abd8c75",
   "files": [
     "build_views.py",
+    "github_budget.py",
     "glossary_terms.json",
     "build_codeowners.py",
     "precedent_gate.py",
@@ -21,6 +22,7 @@
     "precedent_identity.py",
     "precedent_resolve.py",
     "precedent_session_practices.py",
+    "precedent_access_check.py",
     "precedent_vocabulary.py",
     "precedent_reply_check.py",
     "precedent_close_detect.py",
@@ -28,27 +30,39 @@
     "routing_scope.json"
   ],
   "sha256": {
-    "build_views.py": "e5ebad4ce9598a55e380c0302051819ddf69825ac869407dbd3fcc1afefc6483",
+    "build_views.py": "3fa3f35b47926618b5947d597583b42519ccee72a53fd9bbc74bed29a0998341",
+    "github_budget.py": "dea63fa55af3483015a0675be1ece4bc35fb164c97abc37f65e2eb3b6d81f386",
     "glossary_terms.json": "b241a97f63131c88b60c7025b434ce59a0fc3b6c76068a47827f44eeea06be1c",
-    "build_codeowners.py": "94081c6f19d139a4af01c1b820a437f9c1472314b2acc76520cb38ef889d637c",
-    "precedent_gate.py": "467c8793a93a47639f4bb838a66a5cfd5dd06d779a970d5b447c4f04c1d34976",
+    "build_codeowners.py": "39e59f570abfd0e6a8c186466af5a3050605599e48b7d626cf666068b575db3a",
+    "precedent_gate.py": "262a364311a396c8aff00bacb207faf5f5a93960d9d240ce3fa1c18144891f2b",
     "precedent_paths.py": "3aabdb65b5be64af9ac25a81627ddb14423fd5dafbbd7fd0faf135eddfb07aa5",
-    "precedent_show.py": "42a5b0888bf9a206c9a92906c301ca05cd9eefda798aca5787f25d6d2d7f077f",
+    "precedent_show.py": "9e0e78d56f90ce6f736aac9d19cc1f47ce0ef4c9ea5aed5e1d5d5d81a73a1dd8",
     "split_practices.py": "ca76434960c9dd4b234bed1af680f6bad71cc7764b98bfc9df4e3e80597e4893",
     "precedent_migrate_status.py": "63dd3d93e7cd56dc842a3cda2435f480f4b830b9e31bd7d9e0bdb6d389bb7636",
     "precedent_decommission.py": "13287da5d6322fc87fe34f56cd2fe547cbc0b5761e3b4afe3929d7307f169958",
-    "precedent_check.py": "651f159e8bb90d7eeffd340f3c6b5e8c646f8546c345dc5bd577d840340cea9d",
+    "precedent_check.py": "99e97af6f5448d26cd397139f490c996c98312db66c4453faf96d836a9e68f74",
     "precedent_source_credentials.py": "1be669c4deed2c11bff78c8013abc6a20c3c110d999b0fb36d019d93f69f1469",
     "precedent_source_bootstrap.py": "d87e250fbd82fe2567d6b6c1ac0a2d6c90e1b0c8b411b11b6735e607967e6df1",
     "precedent_time.py": "7808e962faea32cb2233b04ccf39f9b4d60a3a777b7b251ce5bcf593fd8eb21b",
-    "precedent_identity.py": "63937da97f6c58586746ec9364301c2d643febae3ee09722eb08255e21218750",
-    "precedent_resolve.py": "9f53109dc0d9bed9427babe718805d59a94340cb8fb025cedb1d2a556459dd4d",
-    "precedent_session_practices.py": "d07249caff779d9681fe1c8fda140c2a1a79b46ba35d4fc38cdba1d78fd6d1a9",
+    "precedent_identity.py": "6a31a6e6ace72bb52c48548454c6218d89433588ad3f1be42898a414be59089e",
+    "precedent_resolve.py": "0df0146e43a633992e68ac926cc7feb6951379b12d3a5050b5cf9f21a38071ee",
+    "precedent_session_practices.py": "26aa101744fc358ef29854b894e2679d7a6b6d44a5f6fbf0ebf8822086208074",
+    "precedent_access_check.py": "c859627acb37e799a59dd35bd9a1859826ed8c2b8e76976fe72c7558f7cc7c13",
     "precedent_vocabulary.py": "2264eef814d8daaa246fd56223820761245feff0235a25cd960a12d0eef04ce0",
-    "precedent_reply_check.py": "9cbf020ad50df6b4ced1ebf35288394d26ccbf9d2414903fe3beef687260c344",
+    "precedent_reply_check.py": "5ae4d7dbd9a054fc0634c5fbdad86d43ac3e88ef21f196dfb1b72f19c37d0264",
     "precedent_close_detect.py": "322666ce2024ca5786ec139857f91f8cf20ac2c34e66d615ebf854b6f30bddde",
-    "precedent_vendor_engine.py": "cbd064a25f62c0b94c4c54aaf94181fa7d96b82a16e24dcaf8ebda1b3881966a",
+    "precedent_vendor_engine.py": "c570fc7df18ddd2eb82e060eadad9ab9c3df5690fb2ed878b09c1df356e6e95f",
     "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"
   },
-  "_note": "The vendored Precedent source-repo engine (see tools/precedent_vendor_engine.py's own docstring, and spec/BOOTSTRAP_NEW_SOURCES.md / INSTALL.md). Never hand-edit a file this manifest lists -- run 'python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>' instead (kind is read back from this manifest -- no --kind flag needed for status/refresh); a hand-edit is detected as drift (sha256 mismatch) and refused without --force."
+  "_note": "The vendored Precedent source-repo engine (see tools/precedent_vendor_engine.py's own docstring, and spec/BOOTSTRAP_NEW_SOURCES.md / INSTALL.md). Never hand-edit a file this manifest lists -- run 'python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>' instead (kind is read back from this manifest -- no --kind flag needed for status/refresh); a hand-edit is detected as drift (sha256 mismatch) and refused without --force.",
+  "hook_files": [
+    "commit-identity.sh",
+    "freshness-guard.sh",
+    "precedent-universal-catalogue.sh"
+  ],
+  "hooks_sha256": {
+    "commit-identity.sh": "6a3bfc9e8ff4977fedbb6db83797425ccab69d49618bd7e6463a1246824d15f4",
+    "freshness-guard.sh": "1b36729a39128a0dc35d1e3743ed5b29bac5529d41ab4e5d9ff9c5b6a895f71b",
+    "precedent-universal-catalogue.sh": "7e6cb688df3bb09e44f603df099b83847f2576ee05aa48ffefe7d34585c2be22"
+  }
 }
