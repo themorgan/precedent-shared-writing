@@ -61,7 +61,7 @@
     "precedent-universal-catalogue.sh"
   ],
   "hooks_sha256": {
-    "commit-identity.sh": "6a3bfc9e8ff4977fedbb6db83797425ccab69d49618bd7e6463a1246824d15f4",
+    "commit-identity.sh": "7a2ee9dbe1890b83fd8993ee1d1168787597e01de2d0dbfe19b21d6b3887df0f",
     "freshness-guard.sh": "1b36729a39128a0dc35d1e3743ed5b29bac5529d41ab4e5d9ff9c5b6a895f71b",
     "precedent-universal-catalogue.sh": "7e6cb688df3bb09e44f603df099b83847f2576ee05aa48ffefe7d34585c2be22"
   }
