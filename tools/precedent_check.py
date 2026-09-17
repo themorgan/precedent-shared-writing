@@ -1960,18 +1960,75 @@ def _gotcha_record_entries(rel):
     return out
 
 
+# The 2026-09-16 shape (spec/OPEN_ITEM_AND_GOTCHA_PLAN.md Part 2): one file
+# per trap under gotchas/gotcha-<date>-<slug>.md, frontmatter plus
+# `## Symptom` / `## Story` / `## Fix`. The instructions file carries only a
+# pointer -- no entries to parse there at all -- so the story test moves to
+# reading these files directly, in place of following AGENTS.md's index into
+# a linked record. A repo that has not migrated (no gotchas/ directory, or
+# an empty one) falls through to the pre-migration logic below unchanged,
+# so this universal check does not start failing every not-yet-migrated
+# consumer the day it is vendored.
+_GOTCHA_FM_FIELD_RE = re.compile(r'^([a-z_]+):\s*(.*)$')
+
+
+def _read_gotcha_files(root):
+    """-> [(path, status, symptom_ok, story_words, story_sentences)] for every
+    gotchas/gotcha-*.md file, or None if the directory does not exist or has
+    no such files (caller falls back to the pre-migration shape).
+    """
+    d = pathlib.Path(root) / 'gotchas'
+    if not d.is_dir():
+        return None
+    files = sorted(d.glob('gotcha-*.md'))
+    if not files:
+        return None
+    out = []
+    for f in files:
+        try:
+            text = f.read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            continue
+        if not text.startswith('---\n'):
+            out.append((f, None, False, 0, 0))
+            continue
+        end = text.find('\n---', 4)
+        fields = {}
+        if end != -1:
+            for line in text[4:end].splitlines():
+                mm = _GOTCHA_FM_FIELD_RE.match(line)
+                if mm:
+                    fields[mm.group(1)] = mm.group(2).strip()
+        status = fields.get('status')
+        body = text[end:] if end != -1 else text
+        sm = re.search(r'^##\s*Symptom\s*\n+(.+?)(?:\n\n|\n##|\Z)', body,
+                       re.M | re.S)
+        symptom_ok = bool(sm and sm.group(1).strip())
+        # The story test reads Story AND Fix together: several migrated
+        # entries could not be split cleanly and carry a placeholder Fix
+        # ("read ## Story"), which must not itself read as a bare fix.
+        story_m = re.search(r'^##\s*Story\s*\n+(.*?)(?:\n##\s*Fix|\Z)', body,
+                            re.M | re.S)
+        story = story_m.group(1) if story_m else ''
+        words = len(story.split())
+        sentences = len([s for s in re.split(r'(?<=[.!?])\s', story)
+                         if s.strip()])
+        out.append((f, status, symptom_ok, words, sentences))
+    return out
+
+
 @check('environment-gotchas', 'tree',
-       'the session instructions carry a "do NOT rediscover these" section, '
-       'and every entry in it carries what failed, not only the fix — '
-       'following the link into the record when the section is a split index',
+       'the session instructions point at a gotcha catalogue and every live '
+       'entry in it carries what failed, not only the fix — reading '
+       'gotchas/*.md directly where a repo has migrated to that shape, or '
+       'following the link into the record on the pre-migration shape',
        'whether the story is a good story, whether it is true, or whether the '
-       'section is complete. It tells a one-line command from an entry that '
+       'catalogue is complete. It tells a one-line command from an entry that '
        'took the trouble to say what happened, and no more — padding defeats '
-       'it, and it says so rather than implying otherwise. On a split section '
-       'it checks that every line resolves to a real entry and that the entry '
-       'carries the story; it cannot tell whether the LINE names the symptom '
-       'a session would recognise, which is the half that makes an index '
-       'usable and the half only a person can read.')
+       'it, and it says so rather than implying otherwise. It cannot tell '
+       'whether a gotcha file\'s Symptom names what a session would '
+       'recognise, which is the half that makes the catalogue searchable '
+       'and the half only a person can read.')
 def _environment_gotchas(ctx):
     name, text = _instructions_file()
     m = GOTCHA_HEADING_RE.search(text)
@@ -1979,6 +2036,27 @@ def _environment_gotchas(ctx):
         return [Finding(name, 'has no "do NOT rediscover these" section, so '
                               'every expensive environment discovery is paid '
                               'for again by the next session')]
+
+    gotcha_files = _read_gotcha_files(ROOT)
+    if gotcha_files is not None:
+        out = []
+        live = [g for g in gotcha_files if g[1] == 'live']
+        if not live:
+            return [Finding(name, 'gotchas/ exists but has no status: live '
+                                  'entries')]
+        for f, status, symptom_ok, words, sentences in live:
+            rel = f.relative_to(ROOT)
+            if not symptom_ok:
+                out.append(Finding(str(rel), 'has no ## Symptom section (or '
+                                             'an empty one) -- unfindable by '
+                                             'grep on the failure text'))
+            if words < STORY_MIN_WORDS or sentences < STORY_MIN_SENTENCES:
+                out.append(Finding(str(rel), f'gotcha entry is a bare fix '
+                                             f'({words} words, {sentences} '
+                                             f'{"sentence" if sentences == 1 else "sentences"}) '
+                                             f'with no account of what failed'))
+        return out
+
     rest = text[m.end():]
     end = re.search(r'^#{1,4}\s', rest, re.M)
     section = rest[:end.start()] if end else rest
@@ -4467,7 +4545,7 @@ def _parallel_artifact_ledger(ctx):
         # unflagged by every backfill pass until CI on an unrelated pull
         # request caught it, and had to be written into the ledger by hand
         # as a row saying, in effect, "no transfer verdict applicable".
-        # (TODO.md item 18.)
+        # (closed and pruned from TODO.md; was the `ledger-root-commit-exemption` item.)
         out = _git('log', '--no-merges', '--format=%H', '--', member_dir).stdout.split()
         inception = {out[-1]} if out else set()
         for full_hash in out:
@@ -5227,6 +5305,110 @@ def _open_item_disposition(ctx):
             if not DISPOSITION_STAMP_RE.match(stamp.strip()):
                 out.append(Finding(where, f'{value!r} stamp {stamp.strip()!r} is not '
                                           f'"YYYY-MM-DD, who"'))
+    return out
+
+
+# spec/OPEN_ITEM_AND_GOTCHA_PLAN.md Part 4.1 step 7 (extended by step 10,
+# Part 4.4): the 2026-09-16 todo/gotcha migration retired TODO.md's item
+# format for todo/*.md and gotchas/*.md, one file per item. Three shapes of
+# reference go stale the moment that migration lands, and nothing else in
+# this repository catches any of them -- without this check the migration
+# decays within a week, which is the failure the plan's own step 7 names.
+# `practice_backed=False`: this binds the migration's own integrity, not a
+# catalogue practice -- there is no practices/<slug>.md for it to be in
+# force against, the same shape as open-item-disposition's sibling checks
+# that guard a file's grammar rather than a rule a session follows.
+TODO_STALE_LINK_RE = re.compile(r'(\.\./)?\bTODO\.md#[a-zA-Z0-9-]+')
+BARE_GOTCHA_ANCHOR_RE = re.compile(r'\]\(#g\d+\)')
+ITEM_N_PHRASE_RE = re.compile(
+    r'\bTODO(?:\.md)?\s+item\s+\d+\b|\bitem\s+\d+\s*\(\s*(?:was|closed)\b',
+    re.IGNORECASE)
+# Old-format item bullets -- `- <a id="slug">` or a bare `- **Title.**` --
+# reappearing in TODO.md itself is new content added the old way after the
+# cutover (Part 4.4 step 1): the stub this migration left behind is prose
+# only, never a bulleted item.
+TODO_OLD_ITEM_BULLET_RE = re.compile(r'^-\s+(?:\[ \]\s+)?(?:<a id="|\*\*)', re.M)
+# This sub-check only makes sense once TODO.md HAS become the redirect
+# stub -- a downstream project installed from templates/TODO.md.template
+# never underwent this repo's own 2026-09-16 migration, and its TODO.md
+# opens with "# Repo TODO -- ..." and legitimately carries `- [ ]
+# **Title:**` bullets under "## Recurring" (the same shape the stub
+# forbids). Firing on every TODO.md regardless of that heading made this
+# vendored check block a clean install of every downstream project the
+# moment it ran precedent_check.py against its own fresh template --
+# caught by check_installer_produces_a_clean_install's fixture, which
+# installs into a scratch repo and expects `0 violated`.
+TODO_STUB_HEADING_RE = re.compile(r'\A#\s+TODO has moved\b')
+# This check's own file (it must be able to document the very shapes it
+# forbids), the migration's own historical records (a mapping table and a
+# measured-in-the-past spec, both meant to freeze old identifiers on
+# purpose, not to be repointed as the tree changes), and the harness
+# (whose own test for this check plants every one of these shapes as a
+# literal Python string, on purpose, to prove the check fires on it --
+# fixture-owns-its-state, one level out: the fixture's planted strings
+# live in the fixture, but the check that scans them runs against the
+# real tree, including this file).
+STALE_TODO_REF_EXEMPT_FILES = {
+    'tools/precedent_check.py',
+    'tools/verify_harness.py',
+    'spec/OPEN_ITEM_AND_GOTCHA_PLAN.md',
+    'spec/TODO_GOTCHA_MIGRATION_MAP.md',
+}
+# record/GOTCHAS.md and record/GOTCHAS_ARCHIVE.md still carry `<a
+# id="gN">` anchors themselves (Part 4.3: the migration moved TRACKING to
+# gotchas/*.md, not the story text, which stays here) -- a bare `#gN`
+# inside either one is a same-document jump and genuinely resolves, unlike
+# the same bare anchor copied into any other file.
+BARE_GOTCHA_ANCHOR_EXEMPT_FILES = {
+    'record/GOTCHAS.md',
+    'record/GOTCHAS_ARCHIVE.md',
+}
+
+
+@check('todo-gotcha-stale-reference', 'tree',
+       'nothing in the tracked tree cites an open item or a gotcha the way '
+       'the pre-2026-09-16 format did -- a `TODO.md#slug` link, a bare '
+       '`#gN` anchor with no file, an "item N" phrase, or TODO.md itself '
+       'growing a new old-format bullet',
+       'a reference this pattern set does not recognise -- a paraphrase '
+       'with no link at all, or a slug guessed rather than copied, reads '
+       'as clean prose to a regex and is exactly the kind of drift a '
+       'person re-reading the migration would still have to catch by eye',
+       practice_backed=False)
+def _todo_gotcha_stale_reference(ctx):
+    tracked = _git('ls-files', '*.md', '*.py').stdout.split()
+    mirrored = _mirrored(ctx.root)
+    out = []
+    for rel in sorted(tracked):
+        if rel in STALE_TODO_REF_EXEMPT_FILES or rel.startswith(mirrored):
+            continue
+        text = ctx.read(rel)
+        if not text:
+            continue
+        checks = [
+            (TODO_STALE_LINK_RE, 'links to TODO.md by anchor -- TODO.md is a '
+             'redirect stub since the migration; repoint it into todo/'),
+            (ITEM_N_PHRASE_RE, 'cites an open item by number ("item N") -- '
+             'numbers shifted before the migration and mean nothing after '
+             'it; cite the item\'s slug'),
+        ]
+        if rel not in BARE_GOTCHA_ANCHOR_EXEMPT_FILES:
+            checks.append(
+                (BARE_GOTCHA_ANCHOR_RE, 'links to a bare `#gN` anchor with no '
+                 'file -- qualify it (record/GOTCHAS.md#gN, or the item\'s own '
+                 'gotchas/*.md file)'))
+        for pat, label in checks:
+            for m in pat.finditer(text):
+                line_no = text.count('\n', 0, m.start()) + 1
+                out.append(Finding(f'{rel}:{line_no}', f'{m.group(0)!r} {label}'))
+        if rel == 'TODO.md' and TODO_STUB_HEADING_RE.match(text):
+            for m in TODO_OLD_ITEM_BULLET_RE.finditer(text):
+                line_no = text.count('\n', 0, m.start()) + 1
+                out.append(Finding(f'{rel}:{line_no}',
+                    'a new item bullet in TODO.md -- TODO.md is a redirect '
+                    'stub since the 2026-09-16 migration and takes no new '
+                    'items; file it under todo/ instead '
+                    '(spec/OPEN_ITEM_AND_GOTCHA_PLAN.md)'))
     return out
 
 
