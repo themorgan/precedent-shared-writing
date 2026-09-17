@@ -68,3 +68,16 @@ yet. A stamp with a fabricated name is worse than no stamp.
    share code with its siblings that survives being copied alone; that
    convention belongs upstream, next to the copy-alone rule it has to
    satisfy.
+4. <a id="todo-gotcha-stale-reference-exempted"></a>**`todo-gotcha-stale-reference` flags this file, exempted for now.** The
+   2026-09-17 engine refresh brought in a check that flags any
+   `TODO.md#anchor` string. It caught two things here: the instructional
+   example near the top of this file (`` `TODO.md#slug` ``, a placeholder,
+   not a real link), and the link to BestPractice's own
+   `source-checks-adopt-engine-helpers` item two items up, which is
+   genuinely stale — that item is gone from BestPractice's current
+   `todo/` tree and its own `spec/TODO_GOTCHA_MIGRATION_MAP.md`, and
+   nothing found here confidently says where it went. Repointing that
+   link needs someone to trace it in BestPractice's own history, not a
+   guess made from this repo. Declared `not_binding` in `precedent.json`
+   until then. **Blocked-on:** tracing the real destination of the
+   `source-checks-adopt-engine-helpers` item in BestPractice.

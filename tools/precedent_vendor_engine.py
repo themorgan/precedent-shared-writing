@@ -21,7 +21,7 @@ Two KINDS, sharing one mechanism:
                full precedent_materialize.py/precedent_sync_views.py
                toolchain that resolves all of them into one materialized
                tree). Needs CONSUMER_ENGINE_FILES: everything 'source'
-               needs, PLUS those materializing tools — see TODO.md item 18 and this repo's own
+               needs, PLUS those materializing tools — see this repo's own
                engine-plus-host-shims practice ("domain-neutral mechanism
                lives in the vendored tree"). Piloted 2026-09-05 against
                a private consumer repo — INSTALL.md §1 step 12 and §2
@@ -37,8 +37,8 @@ one, and precedent-team-tms's copy was simply missing outright.
 
 THE GAP 'consumer' CLOSES. A real consumer's own tools/ needing the same
 treatment was named explicitly as future work when 'source' shipped
-(TODO.md item 18: "not piloted... deliberately not folded into the
-source-repo fix"). A private consumer repo — a real four-source
+(the TODO item that named it — since closed and removed — said: "not
+piloted... deliberately not folded into the source-repo fix"). A private consumer repo — a real four-source
 consumer, not a fixture — had the identical undocumented-hand-copy problem
 'source' closed for practice sets: its top-level tools/ held
 build_views.py, precedent_gate.py, precedent_paths.py, precedent_show.py,
@@ -454,6 +454,18 @@ CONSUMER_ENGINE_FILES = ENGINE_FILES[:-1] + [
     # above: a universal practice's own Install names a module, so every
     # repo that resolves that practice needs it vendored alongside.
     'title_case.py',
+    # The generators for the 2026-09-16 todo/gotcha migration's own per-item
+    # format (spec/OPEN_ITEM_AND_GOTCHA_PLAN.md Part 1 and Part 2). Missing
+    # from this list since the migration and since build_gotcha_index.py was
+    # added the same way -- found 2026-09-16 when a consumer taking the
+    # vendor update went looking for build_gotcha_index.py to do its own
+    # gotcha-catalogue split and it simply was not there, no error, no
+    # SKIPPED, nothing named it as missing. CONSUMER-only, same reasoning as
+    # doc_lint.py above: a source set materializes no catalogue of its own
+    # todo/*.md or gotchas/*.md items, so it has nothing for either generator
+    # to read.
+    'build_todo_index.py',
+    'build_gotcha_index.py',
     # precedent_source_bootstrap.py is NOT re-listed here, for the same
     # reason precedent_check.py is not (see the note below): it was
     # consumer-only when this list was written -- the individual-source
@@ -1664,7 +1676,7 @@ def refresh(clone, force=False, ref=None):
     return 0
 
 
-_BARE_SYNC_RE = re.compile(r'precedent_sync_views\.py(?![^\n]*--repo)')
+_BARE_SYNC_RE = re.compile(r'\bpython3\s+\S*precedent_sync_views\.py(?![^\n]*--repo)')
 
 
 def _warn_bare_sync_invocations(root):
