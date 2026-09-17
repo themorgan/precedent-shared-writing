@@ -15,7 +15,11 @@
     "stays False and AGENTS.md regenerates byte-identically."
   ],
   "sources": [
-    {"level": "universal", "name": "precedent", "path": "../BestPractice"}
+    {
+      "level": "universal",
+      "name": "precedent",
+      "path": "../BestPractice"
+    }
   ],
   "_sources_comment": [
     "The universal catalogue, so a session rooted in THIS set can read it.",
@@ -65,5 +69,11 @@
     "Set here rather than by editing the vendored hook (practice:",
     "layered-practice-packs, registry-source-of-truth). Morgan's instruction,",
     "2026-09-10. practice: timestamps-carry-offset."
+  ],
+  "not_binding": [
+    {
+      "slug": "todo-gotcha-stale-reference",
+      "reason": "Two findings, both explained in TODO.md item 4 (todo-gotcha-stale-reference-exempted): an instructional placeholder string, and a genuinely stale link to a BestPractice TODO item this repo cannot confidently trace to its new location."
+    }
   ]
 }
