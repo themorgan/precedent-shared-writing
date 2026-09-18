@@ -446,6 +446,12 @@ CONSUMER_ENGINE_FILES = ENGINE_FILES[:-1] + [
     'doc_lint.py',
     'doc_sync.py',
     'routing_audit.py',
+    # Move tracked files or directories and repoint every reference in the
+    # same change (rename-updates-links made mechanical; added 2026-09-17
+    # from a consumer's repository reshape -- 366 files, 2,900 references,
+    # four tranches). A consumer's own tools are what reshape its tree, so
+    # the tool lives in the consumer half; a practice set moves nothing.
+    'move_paths.py',
     # headline-capitalization's check imports it. Added 2026-09-06, after a
     # consumer that re-vendored the catalogue got the practice but not the
     # module, and precedent_check.py reported the check as ERRORED
@@ -466,6 +472,17 @@ CONSUMER_ENGINE_FILES = ENGINE_FILES[:-1] + [
     # to read.
     'build_todo_index.py',
     'build_gotcha_index.py',
+    # The one-time converter for the SAME migration (Part 4.2's own step 1:
+    # "This repository ships the finished template and tooling first" --
+    # todo_migrate.py, build_todo_index.py, and the stale-reference check,
+    # "all vendored the way the rest of the engine is"). Missing from this
+    # list for the same reason build_todo_index.py was, above, and caught
+    # the same way: a consumer whose own TODO.md had never been migrated
+    # went looking for this to run its own conversion and it simply was not
+    # here -- found 2026-09-18. CONSUMER-only, same reasoning as
+    # build_todo_index.py directly above: a source set has no TODO.md of its
+    # own to convert, so it has nothing for this tool to read either.
+    'todo_migrate.py',
     # precedent_source_bootstrap.py is NOT re-listed here, for the same
     # reason precedent_check.py is not (see the note below): it was
     # consumer-only when this list was written -- the individual-source
