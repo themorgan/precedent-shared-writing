@@ -13,7 +13,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from themorgan/HavrutaBrainstorm's repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from themorgan/HavrutaBrainstorm's repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on MS Word desktop macOS 16.78.3)"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -72,8 +72,17 @@ which is wrong for part of every day.
 **Every `##` and `###` heading starts on a fresh page** -- a page break
 before the heading, not after whatever came before it, so a section that
 ends mid-page never runs its last paragraph into the next section's
-title. The title page is the one exception: it opens the document, so
-nothing needs to break before it.
+title. The break is an explicit page-break run appended to the end of
+whatever paragraph precedes the heading, never a property on the
+heading's own paragraph -- that way it structurally cannot land after
+the heading's own text. **Two headings with nothing between them --
+a `##` Part immediately followed by a `###` with no body prose of its
+own, e.g. `book-joseph`'s "Part II"** -- stack together on the same
+fresh page rather than each forcing a separate break: the second heading
+does not get its own break when the one right before it was itself a
+heading with nothing of its own to separate them. The title page is the
+one exception that needs no break of its own: it opens the document, so
+nothing precedes it.
 
 **Page is A4, default line spacing is 1.3x**, set once on the `Normal`
 style and the section's page size rather than per paragraph, so every
@@ -178,13 +187,30 @@ render to confirm (`soffice`/`pandoc` both broken in the working
 session), the mechanism was switched to a more defensive one: an
 explicit page-break **run**, appended to the end of the paragraph that
 precedes each heading, rather than a property on the heading paragraph
-itself. The break now physically lives in a different, earlier
-paragraph -- it cannot be misattributed to landing after the heading's
-own text, because it is not in that paragraph at all. `Go update`. Not
-independently confirmed as the actual root cause of what Morgan saw
-(the failure was never reproduced outside his own rendering), but it is
-the standard, most broadly compatible technique for this in
-`python-docx`, and removes the ambiguity either way.
+itself. `Go update`.
+
+Morgan checked the re-export on MS Word desktop (macOS, version 16.78.3)
+and reported it still wrong, specifically at "Part II" -- naming the
+exact heading pinned the actual bug down for real this time. `book-
+joseph/MANUSCRIPT.md`'s `## Part II: Realistic Lessons From Joseph` has
+no body text of its own: it's immediately followed by `### Introduction`
+with nothing between them (same shape at `## Part I` -> `### Joseph the
+Kid`). Both page-break mechanisms so far gave every `##`/`###` heading
+its own break unconditionally -- so when a Part heading has no body
+before the next heading, that second break has nowhere to land but
+inside the FIRST heading's own paragraph (the run-based version) or
+isolates it alone on a page (the property-based version before it) --
+either way, from a reader's perspective, "Part II" is immediately
+followed by a page break with nothing in between: exactly "a page break
+after the chapter name."
+
+**The actual fix**: track whether the paragraph a heading is about to
+break from is itself a heading with no body of its own, and skip the
+break in that case, so two headings with nothing between them stack on
+the same fresh page instead of each forcing a separate one. Verified
+directly in the regenerated file's XML: no heading paragraph, including
+both `Part I` and `Part II`, carries a trailing page-break run anymore.
+`Go update`.
 
 ## Install
 `tools/checks/check_create_word_doc.py` is structural only: it confirms

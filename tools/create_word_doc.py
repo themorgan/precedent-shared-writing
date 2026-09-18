@@ -159,12 +159,22 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
 
     saw_title = False
     last_para = None  # practice: create-word-doc (chapter page breaks)
+    # A heading with no body of its own -- a "## Part" immediately followed
+    # by a "### Chapter" and no prose between them, e.g. book-joseph's own
+    # "Part II" -> "Introduction" -- must NOT also force its own break: that
+    # break has nowhere to land but inside the Part heading's own paragraph,
+    # which is exactly "a page break right after the heading name" (Morgan,
+    # 2026-09-18, reported on Word desktop macOS). Track whether last_para
+    # is itself a heading we just broke to; skip the next break when it is,
+    # so two headings with nothing between them stack on the SAME page.
+    last_was_heading = False
     for block in blocks:
         first = block[0]
 
         if not saw_title and re.match(r"^# ", first) and len(block) == 1:
             last_para = doc.add_heading(first[2:].strip(), level=0)
             saw_title = True
+            last_was_heading = False
             continue
 
         if re.match(r"^## ", first) and len(block) == 1:
@@ -175,15 +185,17 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
             # in a different, earlier paragraph and can't land after the
             # heading's own text -- the heading paragraph carries no
             # page-break marking of its own at all.
-            if last_para is not None:
+            if last_para is not None and not last_was_heading:
                 last_para.add_run().add_break(WD_BREAK.PAGE)
             last_para = doc.add_heading(first[3:].strip(), level=1)
+            last_was_heading = True
             continue
 
         if re.match(r"^### ", first) and len(block) == 1:
-            if last_para is not None:
+            if last_para is not None and not last_was_heading:
                 last_para.add_run().add_break(WD_BREAK.PAGE)
             last_para = doc.add_heading(first[4:].strip(), level=2)
+            last_was_heading = True
             continue
 
         if all(re.match(r"^-\s+", l.strip()) for l in block):
@@ -194,6 +206,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
                     r.bold = bold
                     r.italic = italic
             last_para = p
+            last_was_heading = False
             continue
 
         p = doc.add_paragraph()
@@ -210,6 +223,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
             if idx < len(block) - 1:
                 p.add_run().add_break(WD_BREAK.LINE)
         last_para = p
+        last_was_heading = False
 
     if add_footer:
         footer = section.footer
