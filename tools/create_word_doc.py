@@ -158,22 +158,32 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
     word_count_cache = str(len(text.split()))
 
     saw_title = False
+    last_para = None  # practice: create-word-doc (chapter page breaks)
     for block in blocks:
         first = block[0]
 
         if not saw_title and re.match(r"^# ", first) and len(block) == 1:
-            doc.add_heading(first[2:].strip(), level=0)
+            last_para = doc.add_heading(first[2:].strip(), level=0)
             saw_title = True
             continue
 
         if re.match(r"^## ", first) and len(block) == 1:
-            h = doc.add_heading(first[3:].strip(), level=1)
-            h.paragraph_format.page_break_before = True  # practice: create-word-doc (chapter page breaks)
+            # practice: create-word-doc (chapter page breaks) -- the break
+            # is an explicit page-break RUN appended to the END of the
+            # paragraph that comes BEFORE this heading, never a property
+            # set on the heading paragraph itself. That way the break lives
+            # in a different, earlier paragraph and can't land after the
+            # heading's own text -- the heading paragraph carries no
+            # page-break marking of its own at all.
+            if last_para is not None:
+                last_para.add_run().add_break(WD_BREAK.PAGE)
+            last_para = doc.add_heading(first[3:].strip(), level=1)
             continue
 
         if re.match(r"^### ", first) and len(block) == 1:
-            h = doc.add_heading(first[4:].strip(), level=2)
-            h.paragraph_format.page_break_before = True  # practice: create-word-doc (chapter page breaks)
+            if last_para is not None:
+                last_para.add_run().add_break(WD_BREAK.PAGE)
+            last_para = doc.add_heading(first[4:].strip(), level=2)
             continue
 
         if all(re.match(r"^-\s+", l.strip()) for l in block):
@@ -183,6 +193,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
                     r = p.add_run(run_text)
                     r.bold = bold
                     r.italic = italic
+            last_para = p
             continue
 
         p = doc.add_paragraph()
@@ -198,6 +209,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
                     r.italic = italic
             if idx < len(block) - 1:
                 p.add_run().add_break(WD_BREAK.LINE)
+        last_para = p
 
     if add_footer:
         footer = section.footer
