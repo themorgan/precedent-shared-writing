@@ -13,7 +13,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from themorgan/HavrutaBrainstorm's repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from themorgan/HavrutaBrainstorm's repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -164,6 +164,27 @@ that repo's subject (a book and its brainstorm) at all, it's the craft
 of handing someone a finished document -- exactly this set's subject.
 The book-*/MANUSCRIPT.md-specific wording is generalized to "a structured
 export" throughout; nothing about the mechanism changed. `Go update`.
+
+Same day, later still: Morgan opened an export and reported the break
+landing after a chapter's own heading, not before it -- the opposite of
+this Rule. The mechanism at the time was `paragraph_format.page_break_
+before = True` set on each heading paragraph, which is unambiguously
+"before" per the OOXML spec (verified directly in the generated XML and
+via `python-docx`'s own paragraph model, across every heading in a real
+export, twice) -- but Morgan, looking at the actual rendered file rather
+than the XML, was firm it was still wrong on a second, freshly-generated
+copy. Rather than keep arguing from a spec reading neither of us could
+render to confirm (`soffice`/`pandoc` both broken in the working
+session), the mechanism was switched to a more defensive one: an
+explicit page-break **run**, appended to the end of the paragraph that
+precedes each heading, rather than a property on the heading paragraph
+itself. The break now physically lives in a different, earlier
+paragraph -- it cannot be misattributed to landing after the heading's
+own text, because it is not in that paragraph at all. `Go update`. Not
+independently confirmed as the actual root cause of what Morgan saw
+(the failure was never reproduced outside his own rendering), but it is
+the standard, most broadly compatible technique for this in
+`python-docx`, and removes the ambiguity either way.
 
 ## Install
 `tools/checks/check_create_word_doc.py` is structural only: it confirms
