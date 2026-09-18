@@ -6,13 +6,15 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## The practice catalogue
 
-`practices/` holds 17 practice files (0 resident, 17 on-demand). One file per practice.
+`practices/` holds 19 practice files (0 resident, 19 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
 | [branch-links](practices/branch-links.md) | on-demand | naming a git branch in a document, reply, or status update |
 | [content-subdirs](practices/content-subdirs.md) | on-demand | root has accumulated three or more deliverable-content documents |
+| [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
+| [curly-quotes](practices/curly-quotes.md) | on-demand | writing or pasting text into any document under a repo's declared output_paths |
 | [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing or editing a document in a declared output path -- anything an outside reader will see |
 | [doc-recipe](practices/doc-recipe.md) | on-demand | a standing constraint on one file gets stated a second time |
 | [draft-marker](practices/draft-marker.md) | on-demand | leaving a placeholder or fill-in-later note mid-draft |

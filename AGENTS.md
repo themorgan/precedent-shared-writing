@@ -32,6 +32,8 @@ When naming anything that has a destination, in a document or a reply:
   rule-links — link anything mentioned that has a destination, on first use
 When root has accumulated three or more deliverable-content documents:
   content-subdirs — group deliverable content under a named subdirectory -- a recommendation
+When writing or pasting text into any document under a repo's declared output_paths:
+  curly-quotes — a straight " or ' in outward-facing prose becomes a typographic curly quote
 
 (More on-demand practices are not listed here: one whose applies_to names real paths, or which declares a gate, is reached by those channels instead -- `precedent_paths.py FILE` and `precedent_gate.py MOMENT`. A trigger a PERSON SAYS cannot be reached that way and is always listed above. `precedent_show.py --index-omitted` names the omitted ones.)
 ```
