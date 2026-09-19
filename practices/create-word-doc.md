@@ -13,7 +13,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from themorgan/HavrutaBrainstorm's repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3)"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3)"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -62,7 +62,7 @@ CONFIDENTIAL - DRAFT BOOK: <SHORT NAME> - <date>
 `<n>`/`<total>` are live Word PAGE/NUMPAGES fields, not a computed
 count, so they stay correct after Word repaginates. `<SHORT NAME>`
 defaults to a `book-*/` ancestor directory's name (this tool's own
-manuscript-export convention -- `book-joseph` -> `Joseph`) with `--short-
+manuscript-export convention -- `book-example` -> `Example`) with `--short-
 name` required whenever the source isn't under a `book-*/` directory or
 that mechanical derivation isn't what's wanted. The date defaults to
 today via `tools/precedent_time.py` (practice: timestamps-carry-offset)
@@ -77,7 +77,7 @@ whatever paragraph precedes the heading, never a property on the
 heading's own paragraph -- that way it structurally cannot land after
 the heading's own text. **Two headings with nothing between them --
 a `##` Part immediately followed by a `###` with no body prose of its
-own, e.g. `book-joseph`'s "Part II"** -- stack together on the same
+own, e.g. `book-example`'s "Part II"** -- stack together on the same
 fresh page rather than each forcing a separate break: the second heading
 does not get its own break when the one right before it was itself a
 heading with nothing of its own to separate them. The title page is the
@@ -138,8 +138,8 @@ document" *means*, not a step a future session has to remember to ask
 about.
 
 ## Story
-2026-09-18, in `themorgan/HavrutaBrainstorm`: first Word export of
-`book-joseph/MANUSCRIPT.md`, done as a one-off script in a session
+2026-09-18, in a private repo: first Word export of
+an example manuscript file, done as a one-off script in a session
 scratchpad. Morgan came back asking for a page-numbered "Page X of Y"
 footer plus a "CONFIDENTIAL - DRAFT BOOK: <NAME> - <DATE>" line, and to
 turn the whole thing into a standing practice with `Go Merge` -- so the
@@ -167,7 +167,7 @@ requirement now covers every Word document built for him, not only
 structured exports.
 
 **Moved to `precedent-team-writing` on 2026-09-18**, from
-`themorgan/HavrutaBrainstorm`'s repo-local set, on Morgan's own
+a private repo-local set, on Morgan's own
 reconsideration in the same thread: the footer requirement isn't about
 that repo's subject (a book and its brainstorm) at all, it's the craft
 of handing someone a finished document -- exactly this set's subject.
@@ -191,11 +191,11 @@ itself. `Go update`.
 
 Morgan checked the re-export on MS Word desktop (macOS, version 16.78.3)
 and reported it still wrong, specifically at "Part II" -- naming the
-exact heading pinned the actual bug down for real this time. `book-
-joseph/MANUSCRIPT.md`'s `## Part II: Realistic Lessons From Joseph` has
+exact heading pinned the actual bug down for real this time. The example
+manuscript's `## Part II: [Section Title]` has
 no body text of its own: it's immediately followed by `### Introduction`
-with nothing between them (same shape at `## Part I` -> `### Joseph the
-Kid`). Both page-break mechanisms so far gave every `##`/`###` heading
+with nothing between them (same shape at `## Part I` -> `### [Chapter
+Title]`). Both page-break mechanisms so far gave every `##`/`###` heading
 its own break unconditionally -- so when a Part heading has no body
 before the next heading, that second break has nowhere to land but
 inside the FIRST heading's own paragraph (the run-based version) or
