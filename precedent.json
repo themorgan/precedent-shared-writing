@@ -31,6 +31,21 @@
       "path": "../precedent-team-working-style"
     }
   ],
+  "_commit_author_check_comment": [
+    "check_commit_author.py and check_buenos_aires_dates.py were vendored",
+    "into this repo (tools/checks/, practices/) on 2026-09-19, but",
+    "precedent-individual is deliberately NOT added to the `sources` list",
+    "above -- build_views refuses that outright: 'A shared repository may",
+    "only name sources everyone in it can read -- naming an individual set",
+    "here leaks its existence and location to the whole team'. Identity",
+    "still resolves correctly without it: bootstrap/commit-identity.sh's own",
+    "ladder reads ~/.config/precedent/config.json (untracked, per-machine)",
+    "directly, a mechanism entirely separate from this file's `sources`,",
+    "which is only for practice TEXT reaching this repo's generated views.",
+    "Verified: the full-sweep run resolved 'Morgan F' <morgan@westegg.com>",
+    "and found the check's own violations correctly with no `sources` entry",
+    "for precedent-individual at all."
+  ],
   "_sources_comment": [
     "The universal catalogue, so a session rooted in THIS set can read it.",
     "Until this landed a session here saw this set's own practices and",
@@ -79,5 +94,35 @@
     "Set here rather than by editing the vendored hook (practice:",
     "layered-practice-packs, registry-source-of-truth). Morgan's instruction,",
     "2026-09-10. practice: timestamps-carry-offset."
+  ],
+  "grandfathered_commit_shas": [
+    {
+      "sha": "3971226d53cc574fd4e314ac68f300dff8bd28d5",
+      "note": "'Ask the engine which trees are mirrors, not process/manifest.json', 2026-09-10 16:25:47 -0400. Author is correctly Morgan F <morgan@westegg.com> -- only check_buenos_aires_dates.py trips, on a -0400 (US Eastern, not Buenos Aires) offset. This check was not vendored into this repo until 2026-09-19 (see _individual_source_comment above), so this predates the check's own existence here rather than surfacing at the time. Already on main; exempted rather than rewritten (no-rewrite-for-warnings)."
+    },
+    {
+      "sha": "9a2106238f5b4c40e62eb1bb0866f529b7ff2c58",
+      "note": "'Record which way a degraded answer costs, and point the link item upstream', 2026-09-10 17:00:22 -0400. Same cause as the entry above, same day. Already on main; exempted rather than rewritten (no-rewrite-for-warnings)."
+    },
+    {
+      "sha": "83b1cdf0955661e24b6b528c7dbd2974232e8dd3",
+      "note": "'Declare this repo's test driver local, so nobody reads it as what consumers run', 2026-09-12 13:14:02 +0000. Author correctly Morgan F <morgan@westegg.com>; only check_buenos_aires_dates.py trips, on a +0000 (container UTC) offset. Predates this check being vendored into this repo (2026-09-19). Already on main; exempted rather than rewritten (no-rewrite-for-warnings)."
+    },
+    {
+      "sha": "1445aff0e13b29e60c4dda509483832b3f66778a",
+      "note": "'Merge branch declare-local-test-driver', 2026-09-12 13:14:45 +0000. Same cause and same session as the entry above, the merge of that same branch. Already on main; exempted rather than rewritten (no-rewrite-for-warnings)."
+    },
+    {
+      "sha": "5db442aa7aebea37e76a6b349917426f3e21b50c",
+      "note": "'Add mutual shared-level sources between the four practice packs', 2026-09-19 10:11:45 -0300, pushed straight to main. Author `Claude <noreply@anthropic.com>` instead of the declared identity -- offset already -0300, so only check_commit_author.py trips, not check_buenos_aires_dates.py. The same change, made by the same session the same minute, is grandfathered as e5cd3130 in precedent-individual's identity.json (that note has the full incident: an ad-hoc `git clone` outside the harness's own attach flow, so this repo's identity hook never ran against this checkout). Found now because this check was vendored into this repo for the first time on 2026-09-19, in the same pass that added this exemption. Already on main; exempted rather than rewritten (no-rewrite-for-warnings)."
+    },
+    {
+      "sha": "a784f0897c438517dbe3743458507ba31e11dd9e",
+      "note": "'Restrict CI push trigger to main, tighten debounce to 30 minutes', 2026-09-19 16:03:58 +0000, pushed straight to main. Author `Claude <noreply@anthropic.com>`, offset +0000 -- both checks trip. Parallels 311fb188 in precedent-individual's identity.json, same session, same incident (a five-plus-commit batch pushed straight to main across several sibling repos without the identity hook having run). Already on main; exempted rather than rewritten (no-rewrite-for-warnings)."
+    },
+    {
+      "sha": "825726ea43186bfbc63efb7bfe0aaa929303d386",
+      "note": "'Add pull_request trigger alongside push: branches: [main]', 2026-09-19 16:45:07 +0000, pushed straight to main. Same session and cause as the entry above, forty minutes later. Parallels 14a51800 in precedent-individual's identity.json. Already on main; exempted rather than rewritten (no-rewrite-for-warnings)."
+    }
   ]
 }
