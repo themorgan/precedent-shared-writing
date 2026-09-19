@@ -1,0 +1,15 @@
+{
+  "name": "precedent-team-writing",
+  "level": "shared",
+  "visibility": "private",
+  "subject": "the craft of writing for a human reader",
+  "code": [],
+  "_comment": [
+    "This file is what makes the directory a practice-set source: its",
+    "name is chosen once, here, and every consumer declares it verbatim.",
+    "The repository holding it may be called anything. `subject` is a",
+    "sentence saying what the set is about; `code` lists directories",
+    "a consumer vendors alongside the practices (tools/, for a set",
+    "whose practices are about a tool it ships)."
+  ]
+}
