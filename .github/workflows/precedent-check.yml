@@ -1,7 +1,9 @@
 # Install as .github/workflows/precedent-check.yml in a PRACTICE SET -- an
 # individual or team source set that authors its own practices/ and vendors
 # the engine into its own tools/. See GITHUB_ACTIONS.md, "Install in a
-# Practice-Set Repository".
+# Practice-Set Repository". Replaces views-drift.yml.template, which no
+# longer exists as a separate file (folded in below as this workflow's own
+# job).
 #
 # WHY THIS EXISTS (practice: cite-the-incident). Every source set had the
 # same hole: the only workflows any of them carried called a SINGLE check's
@@ -22,122 +24,109 @@
 # teaches everyone to ignore it; a gate nobody reads is worse than no gate.
 # Violations, errors and a refusal below each fail the run on their own.
 #
-# MERGED WITH views-drift.yml HERE, 2026-09-19 (practice: cite-the-incident).
-# Both files ran on `push:`, every branch, since 2026-09-14 (see the trigger
-# below), and each carried its OWN debounce STEP inside its OWN single job.
-# A debounce step only skips the steps AFTER it -- the job itself still
-# starts a runner and checks out the tree to reach that decision, and GitHub
-# bills a job for at least one whole minute no matter how quickly it
-# finishes. Two workflows meant two billed minutes on every push regardless
-# of what the debounce window decided, because "skip the rest of this job"
-# and "never bill this job" are different things, and only the second one
-# saves money.
+# WHY THE views-drift JOB EXISTS, NOT JUST precedent-check (practice:
+# cite-the-incident). Every set that vendors the engine generates AGENTS.md's
+# loader block, MAP.md and GLOSSARY.md, and until 2026-09-11 nothing checked
+# any of them anywhere but in Precedent's own repo (deep-check.yml runs
+# verify_harness.py, deliberately not vendored into a source set). A real
+# individual set's MAP.md sat three practices stale under a generated header
+# claiming a guard was failing the build on exactly that. precedent_check.py's
+# own generated-artifact-provenance check (binds a source set since
+# BestPractice PR #261) covers MAP.md/GLOSSARY.md via the same
+# build_views.py --check subprocess the views-drift job below runs, but NOT
+# AGENTS.md's generated loader block -- a hand-authored file with one
+# generated section, a different shape only verify_harness.py used to catch.
+# The views-drift job is the only thing in a source set that catches
+# loader-block drift; that is why it stays its own job with its own failure
+# message rather than folding into precedent-check's registry of checks.
 #
-# Measured against a real account's usage report: these four practice sets'
-# push-triggered workflows billed 142 of 165 Actions minutes on 2026-09-19,
-# on top of 183 the day before -- almost entirely pushes the debounce window
-# would have skipped, split across two jobs that each paid their own
-# one-minute floor to say so.
+# ONE WORKFLOW, NOT TWO (2026-09-19, practice: cite-the-incident). This file
+# and views-drift.yml.template used to be separate, each its own job with
+# its own debounce STEP. A debounce step only skips the steps AFTER it -- the
+# job itself still starts a runner and checks out the tree to reach that
+# decision, and GitHub bills a job for at least one whole minute no matter
+# how quickly it finishes. Two workflows meant two billed minutes on every
+# push regardless of what the debounce window decided. Measured against a
+# real account's usage report, on four practice sets installed from this
+# template: push-triggered workflows billed 142 of 165 Actions minutes in
+# one morning, almost entirely pushes the debounce window would have
+# skipped, split across two jobs that each paid their own one-minute floor
+# to say so.
 #
 # The fix is not a cheaper debounce decision -- billing rounds up to a whole
 # minute regardless of how many seconds a job actually runs, so a faster
 # checkout does not lower the bill. The fix is fewer jobs that
-# unconditionally start. This file now makes the debounce decision exactly
-# ONCE, in its own `debounce` job, and the two checks below are separate
-# jobs gated on that job's output via `needs:` + `if:` rather than steps
-# inside a job that already started. A job whose `if:` evaluates false is
-# reported SKIPPED and never allocates a runner -- it is not billed at all.
-# On the common (skip) push this workflow now bills one job-minute instead
-# of two; on the rare push that actually runs the suite it bills about what
-# it always did (the debounce job's own minute, plus each check's own run,
-# still in parallel).
+# unconditionally start. This file makes the debounce decision exactly ONCE,
+# in its own `debounce` job below, and the two checks are separate jobs
+# gated on that job's output via `needs:` + `if:` rather than steps inside a
+# job that already started. A job whose `if:` evaluates false is reported
+# SKIPPED and never allocates a runner -- it is not billed at all. On the
+# common (skip) push this workflow bills one job-minute instead of two; on
+# the rare push that actually runs the suite it bills about what it always
+# did (the debounce job's own minute, plus each check's own run, still in
+# parallel).
 #
-# TRADEOFF, stated explicitly: the two checks used to keep independent
-# six-hour debounce clocks, one per workflow name. They now share one,
-# keyed off this merged workflow's own name (`gh run list --workflow
-# "${{ github.workflow }}"` below). Both are whole-catalogue ADVISORY
-# checks over the same tree, not a security backstop -- see each job's own
-# steps -- and in practice they drift together, so treating them as one
-# unit for debounce purposes costs nothing this repo would notice. Each
-# check keeps its own job name, its own steps, and its own failure
-# messages; only the "have we looked recently" decision is now shared.
-# `views-drift.yml` as a separate file is gone -- nothing here narrows
-# WHAT either check verifies, only how many jobs the decision to skip them
-# costs.
-#
-# STACKED WITH A SECOND FIX, SAME DAY: `push:` below is now restricted to
-# `branches: [main]`, and the debounce default is tightened from 360 to 30
-# minutes (see both below). That is a separate, earlier decision of
-# Morgan's from the same 2026-09-19 incident, made and merged to `main` in
-# a different session before this file's merge landed on top of it -- see
-# GITHUB_ACTIONS_BILLING_2026-09-19_FINDINGS.md in
-# precedent-team-repo-maintenance for both halves of the incident. It is a
-# DIFFERENT lever from the one-job-per-push fix above: that fix cuts the
-# floor cost of a push this workflow still runs on; this one cuts how many
-# pushes reach the workflow at all, by giving up automatic verification on
-# a branch pushed to directly (the exact gap the 2026-09-14 change closed --
-# reopened here deliberately, Morgan's call, not an oversight). The two
-# stack cleanly: fewer pushes trigger this workflow now, and each one that
-# does costs less than it used to.
+# The full incident, measurements, and the account that hit this are
+# recorded in this repo's own spec/CI_MINUTES_PLAN.md, item 8. That's
+# history worth reading if you're deciding whether to deviate from this
+# template's shape; it is not required reading to install it as shipped.
 
 name: Precedent checks
 
 on:
-  # THIRD DESIGN, 2026-09-19 (same day as the second): pull_request +
-  # push:main, not push:main alone.
+  # pull_request (opened, synchronize) PLUS push scoped to the branch(es)
+  # that actually receive merges -- `main` below is the default a fresh
+  # install gets. CUSTOMIZE THE BRANCH LIST if this repo's own routine merge
+  # target is not just `main`: Precedent's own equivalent workflows in this
+  # repo list `[main, precedent-beta-v01]`, because routine work here lands
+  # on precedent-beta-v01, not main (see GITHUB_ACTIONS.md). Whatever
+  # branch(es) a session actually merges into in the repo this installs
+  # into, list them here.
   #
-  # 2026-09-14: `pull_request:` alone until then meant a session pushing
-  # straight to a source set's own branch -- the normal way work lands in a
-  # private, single-owner practice set -- ran no check whatsoever. Widened
-  # to `push:`, every branch, to close that gap.
+  # WHY BOTH, NOT PUSH ALONE (2026-09-19, the second of two same-day
+  # changes -- item 8 above has the full account). `push:`, unrestricted to
+  # any branch, was this template's design from 2026-09-14 to 2026-09-19: a
+  # session pushing straight to a source set's own branch -- the normal way
+  # work lands in a private, single-owner practice set -- otherwise ran no
+  # check at all. Restricting push to named branches alone (tried first,
+  # same day) reopened that exact gap for every other branch, and a
+  # different repo's CI caught a real error on an open PR the same day --
+  # exactly the case branch-restriction-alone gives up on. `pull_request:`
+  # restores it at close to zero added cost: a branch with NO open PR
+  # triggers nothing here at all -- GitHub does not even evaluate this
+  # workflow, cheaper than debounce ever was. A branch WITH an open PR gets
+  # checked, debounced the same way repeated pushes to it already are.
   #
-  # 2026-09-19, first: narrowed to `push: branches: [main]`. Even debounced
-  # and merged into one job (see the header above), a push still bills a
-  # minimum run -- checkout plus the debounce decision -- and branch churn
-  # across these four repos' many session branches was the actual driver of
-  # a two-day Actions spike. This reopened the 2026-09-14 gap: a branch
-  # pushed to directly got zero automatic verification, checked only once
-  # it reached main.
-  #
-  # 2026-09-19, second: that gap turned out to matter -- a different repo's
-  # CI (platform-docs-check.yml, not this one) caught a real error on an
-  # open PR the same day, exactly the case `branches: [main]` alone gives
-  # up on. `pull_request:` (opened, synchronize) restores it at close to
-  # zero added cost: a branch with NO open PR triggers nothing here at all
-  # -- GitHub does not even evaluate this workflow, let alone bill the
-  # debounce job's own minute, which is cheaper than debounce ever was. A
-  # branch WITH an open PR gets checked, debounced the same way repeated
-  # pushes to it already were. `push: branches: [main]` stays alongside it
-  # so main itself is still checked on every merge, including a direct
-  # push that bypasses a PR.
-  #
-  # push+pull_request together, not push alone, no longer double-bills: the
-  # reasoning that argued against running both (a push run and a
-  # pull_request run testing the identical tree) applied to push-on-every-
-  # branch overlapping pull_request:synchronize on that same branch. With
-  # push now scoped to main only, nothing here fires both events for the
-  # same commit -- a PR's branch only ever gets pull_request events, and
-  # main only ever gets push events (a PR's merge commit landing on main is
-  # a push to main, not a synchronize on the now-closed PR branch).
+  # WHY THIS DOESN'T DOUBLE-BILL, which is the reason earlier versions of
+  # this template ran push alone: a push run and a pull_request run test
+  # the identical tree whenever a push lands on a branch that ALSO matches
+  # push's own filter -- doc-lint.yml.template measured this directly, 235
+  # runs in matched pairs before it was fixed the same way this file now is.
+  # That collision needs push to be listening on the SAME branch
+  # pull_request is watching. With push scoped to only the branch(es) named
+  # below -- none of which is ever a PR's own head branch -- a PR's branch
+  # only ever gets pull_request events, and a named branch only ever gets
+  # push events (a PR's merge commit landing on main is a push to main, not
+  # a synchronize on the now-closed PR branch). Nothing here fires twice for
+  # the same commit.
   pull_request:
     types: [opened, synchronize]
   push:
     branches: [main]
   workflow_dispatch:
 
-# No `paths:` filter, for the same reason each check below gives on its own
-# terms: the inputs to these checks are wider than they look -- a practice's
-# frontmatter, the engine itself, a check script a practice names in
-# checked_by, the routing vocabulary, precedent.json's visibility. A filter
-# that misses one input is a workflow that reports nothing while looking
-# green.
+# No `paths:` filter, for the same reason each check job below gives on its
+# own terms: the inputs to these checks are wider than they look -- a
+# practice's frontmatter, the engine itself, a check script a practice
+# names in checked_by, the routing vocabulary, precedent.json's visibility.
+# A filter that misses one input is a workflow that reports nothing while
+# looking green.
 
 # CONCURRENCY, so a burst of pushes to the same branch does not pay for
-# every run in the burst (2026-09-16, matching bestpractice-docs.yml's own
-# template since 2026-09-15). A second run starting on this branch cancels
-# whichever earlier run for it is still going, rather than billing both to
-# completion. One group for the whole workflow -- all three jobs below rise
-# and fall together, same as when this was two files with two groups.
+# every run in the burst (2026-09-16). A second run starting on this branch
+# cancels whichever earlier run for it is still going, rather than billing
+# both to completion. One group for the whole workflow -- all three jobs
+# below rise and fall together.
 concurrency:
   group: precedent-check-${{ github.ref }}
   cancel-in-progress: true
