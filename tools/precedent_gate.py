@@ -150,7 +150,7 @@ def practices_by_gate(practices_dir=None):
 # repositories, and this repo is public. Imported from build_views where it
 # is declared, with a literal fallback for a partial vendor: the two
 # answering differently is the failure this whole split exists to prevent.
-PRIVATE_LEVELS = getattr(bv, 'PRIVATE_LEVELS', ('team', 'individual'))
+PRIVATE_LEVELS = getattr(bv, 'PRIVATE_LEVELS', ('shared', 'team', 'individual'))
 
 
 def resolved_gate_practices(root, gate):
@@ -357,6 +357,23 @@ def main():
             line = psc.remind(root, prefix='precedent gate')
             if line:
                 print(f"{line}\n")
+        except ImportError:
+            pass
+
+        # Whether anyone other than Morgan has pushed to precedent-beta-v01
+        # since he was last told -- silent except on a real alert, which is
+        # the whole point: the always-printed status line lives in
+        # .claude/hooks/session-start.sh's own call to the same module,
+        # once per session, not here on every single reply. This module is
+        # repo-local to alex137/BestPractice (its own two-branch carry
+        # model), not a vendored engine file, so a consuming repo's copy of
+        # this gate script simply has no sibling to import and stays quiet.
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+            import precedent_beta_watermark_check as pbw
+            alert = pbw.remind(root)
+            if alert:
+                print(f"{alert}\n")
         except ImportError:
             pass
 
