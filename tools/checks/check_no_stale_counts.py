@@ -268,11 +268,31 @@ def _resolved_active_count() -> int | None:
     counted the 124 in PRACTICES_DIR.
 
     A repo whose declared sources are already fully materialized into
-    PRACTICES_DIR never reaches the merge below: sources_for_tracked_
-    block() only ever returns more than one tracked source for a repo
-    that is itself one of those sources (the shape above), so an ordinary
-    materializing consumer keeps taking the old, already-correct
-    PRACTICES_DIR-only path.
+    PRACTICES_DIR never reaches the merge below -- but sources_for_tracked_
+    block() alone does not say so: for a repo that is neither a practice
+    source nor declared public, its own branch tracks EVERY declared
+    source unconditionally (nothing is deferred there), so an ordinary
+    private consumer declaring two or more already-materialized sources
+    also gets `len(tracked) > 1`, the same as the shape above. What
+    actually tells the two apart is whether ROOT is itself one of the
+    tracked sources: precedent_materialize.py refuses to materialize a
+    source living at its own --out directory (a consuming repo's
+    materialize run always has out_dir == ROOT, so every tracked source's
+    content already landed in PRACTICES_DIR), and forces exactly this
+    shape's kind of source -- one whose own path IS out_dir -- to keep its
+    extra content in a separate directory instead. So the merge below is
+    only useful, and only entered, when some tracked source's path
+    resolves to this same repository; otherwise PRACTICES_DIR already is
+    the whole answer and re-resolving from scratch would just repeat, on
+    fresh input, all the filtering (retired status, blocked overrides,
+    engine-dev scoping) materialize() already applied once when it wrote
+    what is on disk. Confusing `len(tracked) > 1` for that condition on its
+    own reached this merge for an ordinary multi-source consumer with no
+    self-referential source at all, and applied the same-repository-only
+    exclusion below to a set of sources none of which was ROOT --
+    stripping engine-dev-scoped practices a second time out of a total
+    that had already excluded them on disk, undercounting a repo whose own
+    AGENTS.md and practices/ agreed.
 
     Raises _UnresolvedSources when more than one source contributes and
     this environment cannot fully resolve all of them (the engine is
@@ -306,6 +326,14 @@ def _resolved_active_count() -> int | None:
             f"split into tracked and deferred ({e}), so this repo's own "
             f"practice count could not be resolved")
     if len(tracked) <= 1:
+        return None
+    # The condition the docstring above actually needs -- not merely more
+    # than one tracked source, but ROOT itself being one of them. Every
+    # other repo already has all of `tracked` merged into PRACTICES_DIR by
+    # materialize() (out_dir == ROOT there), so re-resolving it here would
+    # only repeat that work and, worse, re-apply the engine-dev-scope
+    # exclusion below to a total that was already stripped once on disk.
+    if not any(pr.bv._same_repository(s["path"], ROOT) for s in tracked):
         return None
     try:
         res = pr.resolve(tracked)

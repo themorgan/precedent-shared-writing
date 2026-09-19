@@ -253,6 +253,48 @@ PY
        "universal (path \".\") and repo-local sources." >> README.md
 }
 
+fixture_ordinary_multi_source_consumer () {
+  # An ORDINARY consumer: not a practice source itself (no
+  # tools/ENGINE_MANIFEST.json), declares two sources that live OUTSIDE
+  # this repo (neither path is "." nor "local"), and is already fully
+  # materialized -- PRACTICES_DIR alone is the whole, correct count, same
+  # as every fixture above H. sources_for_tracked_block()'s own branch for
+  # a repo that is neither a practice source nor public tracks BOTH
+  # declared sources unconditionally (nothing here is private-excluded or
+  # self-deferred), so this also reaches `len(tracked) > 1` -- the same
+  # surface condition as the fixture above, for a repo where it means
+  # nothing: neither declared source is this repo, so nothing of theirs is
+  # missing from PRACTICES_DIR. Neither source path needs to resolve on
+  # disk: proving PRACTICES_DIR is trusted here means the check must never
+  # try to reach them at all.
+  rm -f process/manifest.json tools/ENGINE_MANIFEST.json
+  python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path('precedent.json')
+d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+d['visibility'] = 'private'
+srcs = d.setdefault('sources', [])
+for extra in ({'level': 'universal', 'name': 'precedent', 'path': '../unreachable-universal'},
+              {'level': 'team', 'name': 'a-team', 'path': '../unreachable-team'}):
+    if not any((s or {}).get('path') == extra['path'] for s in srcs):
+        srcs.append(extra)
+p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+PY
+  local total
+  total="$(python3 - <<'PY'
+import pathlib, re
+n = 0
+for f in pathlib.Path('practices').glob('*.md'):
+    if re.search(r'^status:\s+active\s*$', f.read_text(encoding='utf-8'), re.M):
+        n += 1
+print(n)
+PY
+)"
+  echo "" >> README.md
+  echo "This set has $total practices, correctly counted straight from" \
+       "PRACTICES_DIR -- neither declared source lives in this repo." >> README.md
+}
+
 fixture_no_practices_tree () {
   git rm -r -q practices
 }
@@ -332,6 +374,17 @@ run "F. a repo with no practices/ tree"                     skipped fixture_no_p
 # SKIPPED rather than guess and repeat the false violation.
 run "H. a repo whose own count spans >1 declared source"    clean   fixture_multi_source_own_count engine
 run "I. the same repo, no engine reachable -- SKIPPED"       skipped fixture_multi_source_own_count no-engine
+
+# J: an ORDINARY multi-source consumer (2026-09-19, the same-day follow-up
+# to H/I). `len(tracked) > 1` alone is not "this repo is one of its own
+# declared sources" -- sources_for_tracked_block()'s branch for a repo that
+# is neither a practice source nor public tracks every declared source
+# unconditionally, so a private consumer with two ordinary (non-self)
+# sources hits the same surface condition H does. Before this fix that
+# reached the merge here too, tried to resolve two sources that live
+# nowhere near this fixture, and reported SKIPPED for a repo whose
+# PRACTICES_DIR-only count was already correct and needed no merge at all.
+run "J. an ordinary multi-source consumer stays on PRACTICES_DIR" clean fixture_ordinary_multi_source_consumer engine
 
 # D': the §0 fixture WITHOUT the engine. This is the pre-2026-09-10
 # behaviour and it must still fire, or D proves nothing -- a silent D could
