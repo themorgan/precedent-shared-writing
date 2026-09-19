@@ -36,8 +36,6 @@ When naming anything that has a destination, in a document or a reply:
   rule-links — link anything mentioned that has a destination, on first use
 When root has accumulated three or more deliverable-content documents:
   content-subdirs — group deliverable content under a named subdirectory -- a recommendation
-When writing a date or timestamp anywhere:
-  buenos-aires-dates — dates and commit timestamps are Buenos Aires time, not UTC
 When writing or pasting text into any document under a repo's declared output_paths:
   curly-quotes — a straight " or ' in outward-facing prose becomes a typographic curly quote
 
