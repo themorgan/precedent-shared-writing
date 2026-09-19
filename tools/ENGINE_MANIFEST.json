@@ -66,11 +66,9 @@
     "precedent-universal-catalogue.sh": "7e6cb688df3bb09e44f603df099b83847f2576ee05aa48ffefe7d34585c2be22"
   },
   "ci_workflow_files": [
-    ".github/workflows/precedent-check.yml",
-    ".github/workflows/views-drift.yml"
+    ".github/workflows/precedent-check.yml"
   ],
   "ci_workflows_sha256": {
-    ".github/workflows/views-drift.yml": "3aa99545ed8deda0795d90242c73871e9f791e08ca86daa379bd40536e4a05c8",
-    ".github/workflows/precedent-check.yml": "84e092398b73aa2b93145a5195c891a1b3e0a02612ce0a7ec41257fc76568435"
+    ".github/workflows/precedent-check.yml": "237a77a6c360292decc01d61a266c5b2310e32977485e5cc6d2b17e2099eaebc"
   }
 }

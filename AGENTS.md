@@ -53,10 +53,12 @@ Before starting work of a kind named in the occasion index above, run `python3 t
   any practice change; it rebuilds [MAP.md](MAP.md) and
   [GLOSSARY.md](GLOSSARY.md) alongside it. Never hand-edit it.
 - **Before committing:** `python3 tools/precedent_check.py` — what matters
-  is `0 violated`, never the passed or skipped count. Since 2026-09-13
+  is `0 violated`, never the passed or skipped count. This is the ONLY
+  check a working branch gets:
   [`.github/workflows/precedent-check.yml`](.github/workflows/precedent-check.yml)
-  runs the same suite on every pull request, so a violation is caught either
-  way; running it yourself is how you find out before the push rather than
-  after.
+  ran on every push to every branch from 2026-09-14, but was narrowed to
+  `push: branches: [main]` on 2026-09-19 (billing; see the file's own
+  header), so a violation on a working branch is caught only if you run
+  this yourself before the push, same as before 2026-09-14.
 - **Approval** is a listed approver's own yes, in
   [approvers.json](approvers.json).
