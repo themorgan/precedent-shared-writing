@@ -13,7 +13,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from themorgan/HavrutaBrainstorm's repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths"
 strength:    decided
 ---
 ## Rule
@@ -58,7 +58,7 @@ default, instead of a session having to notice and fix it by eye each
 time.
 
 ## Story
-Raised by Morgan, 2026-09-18, in `themorgan/HavrutaBrainstorm`, in the
+Raised by Morgan, 2026-09-18, in a private repo, in the
 same thread that produced `hebrew-term-parenthetical` and `fix-typos-
 keep-ambiguity`, asking for a third standing practice specifically about
 converting straight quotes to curly ones. Writing the mechanical check
@@ -70,7 +70,7 @@ grandfathered rather than left `checked_by: null` or shipped in a form
 that would fail every future push until someone did an unplanned,
 unscoped rewrite of the whole cluster.
 
-Same day: Morgan asked whether `book-joseph/MANUSCRIPT.md` -- the file
+Same day: Morgan asked whether `book-example/MANUSCRIPT.md` -- the file
 the practice's own Why section pointed to as the house style's own
 example -- had actually been converted. It hadn't: it was sitting on the
 grandfather list from the initial audit, unconverted, and the Word export
@@ -80,7 +80,7 @@ double-quote pairs, all self-contained with no nesting; no straight
 apostrophes were present) and dropped from the list.
 
 **Moved to `precedent-team-writing` on 2026-09-18**, from
-`themorgan/HavrutaBrainstorm`'s repo-local set, alongside `create-word-
+a private repo-local set, alongside `create-word-
 doc` in the same reconsideration: the rule is about the craft of writing
 for a reader, not about that repo's subject. The move required real
 generalization, not a copy -- the original check imported that repo's
