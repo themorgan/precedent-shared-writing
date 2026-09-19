@@ -6,13 +6,12 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## The practice catalogue
 
-`practices/` holds 21 practice files (0 resident, 21 on-demand). One file per practice.
+`practices/` holds 20 practice files (0 resident, 20 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
 | [branch-links](practices/branch-links.md) | on-demand | naming a git branch in a document, reply, or status update |
-| [commit-author](practices/commit-author.md) | on-demand | making the first commit in a fresh clone or session |
 | [content-subdirs](practices/content-subdirs.md) | on-demand | root has accumulated three or more deliverable-content documents |
 | [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
 | [curly-quotes](practices/curly-quotes.md) | on-demand | writing or pasting text into any document under a repo's declared output_paths |
