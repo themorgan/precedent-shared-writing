@@ -83,33 +83,44 @@
 name: Precedent checks
 
 on:
-  # PUSH, ON EVERY BRANCH from 2026-09-14, RESTRICTED TO main FROM 2026-09-19.
+  # THIRD DESIGN, 2026-09-19 (same day as the second): pull_request +
+  # push:main, not push:main alone.
   #
-  # 2026-09-14: this was `pull_request:` alone until then, which means a
-  # session pushing straight to a source set's own branch -- the normal way
-  # work lands in a private, single-owner practice set -- ran no check
-  # whatsoever. The gate existed and simply never fired. Widening to every
-  # branch closed that gap.
+  # 2026-09-14: `pull_request:` alone until then meant a session pushing
+  # straight to a source set's own branch -- the normal way work lands in a
+  # private, single-owner practice set -- ran no check whatsoever. Widened
+  # to `push:`, every branch, to close that gap.
   #
-  # 2026-09-19: narrowed back to `branches: [main]`. Even debounced and
-  # merged into one job (see the header above), a push still bills a
+  # 2026-09-19, first: narrowed to `push: branches: [main]`. Even debounced
+  # and merged into one job (see the header above), a push still bills a
   # minimum run -- checkout plus the debounce decision -- and branch churn
-  # across these four repos' many session branches, not bursts on one
-  # branch that concurrency below already collapses, was the actual driver
-  # of the two-day Actions spike measured that day. This REOPENS the gap
-  # the 2026-09-14 change closed: a branch pushed to directly gets zero
-  # automatic verification again, checked only once it reaches main.
-  # Morgan's call, 2026-09-19, weighed against that gap and accepted it --
-  # `python3 tools/precedent_check.py` before pushing (see AGENTS.md) is
-  # what covers a working branch now, same as before 2026-09-14.
+  # across these four repos' many session branches was the actual driver of
+  # a two-day Actions spike. This reopened the 2026-09-14 gap: a branch
+  # pushed to directly got zero automatic verification, checked only once
+  # it reached main.
   #
-  # push rather than pull_request, not both, for the reason BestPractice's
-  # leak-gate.yml measured: a push run and a pull_request run test the same
-  # tree whenever the branch is current with its base, check runs attach to
-  # the head SHA whatever event produced them so the PR still shows this
-  # result, and running both fires every check twice on the same commit.
-  # A source set is private and nobody forks it, which is the one case that
-  # would argue the other way.
+  # 2026-09-19, second: that gap turned out to matter -- a different repo's
+  # CI (platform-docs-check.yml, not this one) caught a real error on an
+  # open PR the same day, exactly the case `branches: [main]` alone gives
+  # up on. `pull_request:` (opened, synchronize) restores it at close to
+  # zero added cost: a branch with NO open PR triggers nothing here at all
+  # -- GitHub does not even evaluate this workflow, let alone bill the
+  # debounce job's own minute, which is cheaper than debounce ever was. A
+  # branch WITH an open PR gets checked, debounced the same way repeated
+  # pushes to it already were. `push: branches: [main]` stays alongside it
+  # so main itself is still checked on every merge, including a direct
+  # push that bypasses a PR.
+  #
+  # push+pull_request together, not push alone, no longer double-bills: the
+  # reasoning that argued against running both (a push run and a
+  # pull_request run testing the identical tree) applied to push-on-every-
+  # branch overlapping pull_request:synchronize on that same branch. With
+  # push now scoped to main only, nothing here fires both events for the
+  # same commit -- a PR's branch only ever gets pull_request events, and
+  # main only ever gets push events (a PR's merge commit landing on main is
+  # a push to main, not a synchronize on the now-closed PR branch).
+  pull_request:
+    types: [opened, synchronize]
   push:
     branches: [main]
   workflow_dispatch:
