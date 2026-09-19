@@ -206,6 +206,53 @@ PY
   echo "This set has 999 practices, definitely not the real count." >> README.md
 }
 
+fixture_multi_source_own_count () {
+  # A practice SET whose own practices/ tree IS a declared source
+  # (universal, path ".") that ALSO declares a repo-local source living
+  # in its own separate directory -- the shape whose real total spans
+  # more than one directory, which PRACTICES_DIR alone undercounted
+  # (the alex137/BestPractice case this fixes: universal at "." plus
+  # repo-local at "local").
+  rm -f process/manifest.json
+  python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path('precedent.json')
+d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+srcs = d.setdefault('sources', [])
+if not any((s or {}).get('path') == '.' and (s or {}).get('level') == 'universal'
+           for s in srcs):
+    srcs.append({'level': 'universal', 'name': 'precedent', 'path': '.'})
+if not any((s or {}).get('path') == 'local' for s in srcs):
+    srcs.append({'level': 'repo-local', 'name': 'local', 'path': 'local'})
+p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+PY
+  mkdir -p local/practices
+  cat > local/practices/multi-source-fixture-practice.md <<'MD'
+---
+slug: multi-source-fixture-practice
+status: active
+---
+## Rule
+Fixture-only practice, planted to prove a repo-local source's active
+count is added to the universal (path ".") count this repo also
+declares -- never a real rule.
+MD
+  local base total
+  base="$(python3 - <<'PY'
+import pathlib, re
+n = 0
+for f in pathlib.Path('practices').glob('*.md'):
+    if re.search(r'^status:\s+active\s*$', f.read_text(encoding='utf-8'), re.M):
+        n += 1
+print(n)
+PY
+)"
+  total=$((base + 1))
+  echo "" >> README.md
+  echo "This set has $total practices, correctly counted across both its" \
+       "universal (path \".\") and repo-local sources." >> README.md
+}
+
 fixture_no_practices_tree () {
   git rm -r -q practices
 }
@@ -274,6 +321,17 @@ run "C+. the §1 mirror, engine present -- unchanged"        clean   fixture_sec
 run "D. the same count inside a §0 mirror (no manifest)"    clean   fixture_section0_mirror    engine
 run "E. a wrong count in a source set's own content"        fires   fixture_source_set         engine
 run "F. a repo with no practices/ tree"                     skipped fixture_no_practices_tree  no-engine
+
+# H/I: the multi-source undercount this change fixes (2026-09-19, closing
+# BestPractice's todo-2026-09-18-no-stale-counts-undercounts-a-multi-
+# source-catalogue.md). A repo whose own practices/ tree IS a declared
+# source and which ALSO declares a repo-local source has its real total
+# split across more than one directory -- H asserts the correct combined
+# figure now reads as current, not stale; I asserts that when this
+# environment cannot resolve every declared source, the check reports
+# SKIPPED rather than guess and repeat the false violation.
+run "H. a repo whose own count spans >1 declared source"    clean   fixture_multi_source_own_count engine
+run "I. the same repo, no engine reachable -- SKIPPED"       skipped fixture_multi_source_own_count no-engine
 
 # D': the §0 fixture WITHOUT the engine. This is the pre-2026-09-10
 # behaviour and it must still fire, or D proves nothing -- a silent D could
