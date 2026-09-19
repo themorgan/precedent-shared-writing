@@ -95,12 +95,6 @@
     "layered-practice-packs, registry-source-of-truth). Morgan's instruction,",
     "2026-09-10. practice: timestamps-carry-offset."
   ],
-  "not_binding": [
-    {
-      "slug": "todo-gotcha-stale-reference",
-      "reason": "One finding, explained in TODO.md item 4 (todo-gotcha-stale-reference-exempted): the instructional placeholder near the top of TODO.md that documents this file's own citation convention (`` `TODO.md#slug` ``), which is not a real link and will always match this pattern set. The genuinely stale link this exemption used to also cover (BestPractice's source-checks-adopt-engine-helpers item) was repointed 2026-09-19 once a BestPractice-rooted session traced and restored the item; confirmed clean by re-running this check with the exemption removed."
-    }
-  ],
   "grandfathered_commit_shas": [
     {
       "sha": "3971226d53cc574fd4e314ac68f300dff8bd28d5",

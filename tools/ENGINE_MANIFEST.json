@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "46669156550d438c969350b2a78bf8f4190a4935",
+  "source_commit": "cfd7ecb0dfa7915a5abd001f1a71142a6c3fd7d7",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -55,7 +55,7 @@
     "precedent_reply_check.py": "272b782d8583641150a923bc1374c4ca90b1014e46102849c555c4ac8cb770f4",
     "precedent_close_detect.py": "322666ce2024ca5786ec139857f91f8cf20ac2c34e66d615ebf854b6f30bddde",
     "build_todo_index.py": "c3b2837ae0889c6f478e11dc4b6e7a5cf3865f905c6df0fd869950b028c70828",
-    "todo_migrate.py": "e224d8f6607340cbdb96b4b727bcb758a4133dbf42ce4022338534a0e503f005",
+    "todo_migrate.py": "ea6e0167fac73bb32d1dc2d6a3e56fa312080b3acc70492d413939e90e203411",
     "title_case.py": "4378feaef7662cf3b6e0418221f28ee3cfb49820cc6830ae504a3e99bf04a06b",
     "precedent_vendor_engine.py": "7faccb7b48c73b6e9768e3af9558bb49f8dccedc8a6edbc9cf7573f83d18a5fb",
     "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"
