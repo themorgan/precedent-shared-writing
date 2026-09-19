@@ -200,6 +200,133 @@ class CannotRun(Exception):
     """
 
 
+def _declared_sources() -> list | None:
+    """Every source ROOT/precedent.json declares, path-resolved against
+    ROOT -- or None when there is no config, or it declares none.
+
+    Deliberately NOT precedent_resolve.load_config(): that function can
+    self-heal a missing universal or individual source by running a hook
+    or cloning a repository over the network, which is far more machinery
+    than a check that only wants to know how many sources contribute to
+    THIS repo's own count needs -- the same reasoning _mirrored_prefixes()
+    above gives (SIGNAL 3) for reading precedent.json directly rather than
+    calling load_config() itself.
+    """
+    config = ROOT / "precedent.json"
+    if not config.is_file():
+        return None
+    try:
+        raw = json.loads(config.read_text(encoding="utf-8")).get("sources") or []
+    except (ValueError, OSError):
+        return None
+    declared = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        level, path = entry.get("level"), entry.get("path")
+        if not level or not path:
+            continue
+        p = pathlib.Path(os.path.expandvars(str(path))).expanduser()
+        p = p if p.is_absolute() else (ROOT / p)
+        declared.append({"level": level, "name": entry.get("name", level),
+                         "path": str(p.resolve())})
+    return declared or None
+
+
+class _UnresolvedSources(Exception):
+    """More than one declared source contributes to this repo's own
+    tracked practice count, and this environment could not resolve all of
+    them. The caller must report SKIPPED rather than guess either number."""
+
+
+def _resolved_active_count() -> int | None:
+    """-> the real active-practice total for a repo whose own tracked
+    count is not just PRACTICES_DIR, or None when PRACTICES_DIR alone
+    already IS the whole answer (the ordinary case, and every consuming
+    repo whose declared sources are already materialized into one
+    practices/ tree).
+
+    MIRRORS how build_views.py's loader_practices() builds the very
+    "<N> of <M> practices" figure this check audits: sources_for_tracked_
+    block() (asked of the engine, never re-derived -- same reasoning as
+    _mirrored_prefixes() above) decides which of this repo's declared
+    sources actually count toward its own committed total, and
+    precedent_resolve.resolve() merges them the same way the generator
+    does, engine-dev scoping included.
+
+    THE SHAPE THIS FIXES. A practice SET whose own practices/ tree IS a
+    declared source (typically universal, `path: "."`) and which ALSO
+    declares a repo-local source keeps that second source in its OWN
+    separate directory (local/practices/) rather than merging it into
+    practices/ -- committing a merged copy would duplicate text that
+    source already owns (sources_for_tracked_block()'s own reasoning). So
+    PRACTICES_DIR is this repo's own catalogue, not necessarily its whole
+    COUNT. Reported 2026-09-18 against BestPractice: a universal source at
+    "." (124 active) plus a repo-local source at "local" (5 active) made
+    its own generated "11 of 129 practices" header -- verified correct by
+    `build_views.py --check` -- read as stale by a check that only ever
+    counted the 124 in PRACTICES_DIR.
+
+    A repo whose declared sources are already fully materialized into
+    PRACTICES_DIR never reaches the merge below: sources_for_tracked_
+    block() only ever returns more than one tracked source for a repo
+    that is itself one of those sources (the shape above), so an ordinary
+    materializing consumer keeps taking the old, already-correct
+    PRACTICES_DIR-only path.
+
+    Raises _UnresolvedSources when more than one source contributes and
+    this environment cannot fully resolve all of them (the engine is
+    unreachable, or a declared source is missing here) -- guessing either
+    number in that situation risks exactly the false violation this
+    exists to prevent.
+    """
+    declared = _declared_sources()
+    # A single declared source can never resolve to more than one tracked
+    # source below, whichever way sources_for_tracked_block() classifies
+    # it -- so the common case (one source, or none) never needs the
+    # engine at all, and an environment where it happens to be unreachable
+    # must not report SKIPPED over a question this repo never asked.
+    if not declared or len(declared) <= 1:
+        return None
+    for candidate in (ROOT / "tools", SOURCE_ROOT / "tools"):
+        if str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+    try:
+        import precedent_resolve as pr
+    except Exception as e:
+        raise _UnresolvedSources(
+            f"this repo declares more than one source contributing to its "
+            f"own practice count, but precedent_resolve.py could not be "
+            f"imported ({e}) to resolve them")
+    try:
+        tracked, _deferred, _notes = pr.bv.sources_for_tracked_block(ROOT, declared)
+    except Exception as e:
+        raise _UnresolvedSources(
+            f"{ROOT / 'precedent.json'}'s declared sources could not be "
+            f"split into tracked and deferred ({e}), so this repo's own "
+            f"practice count could not be resolved")
+    if len(tracked) <= 1:
+        return None
+    try:
+        res = pr.resolve(tracked)
+    except Exception as e:
+        raise _UnresolvedSources(
+            f"the {len(tracked)} sources this repo's own practice count is "
+            f"built from could not be resolved ({e})")
+    if res["missing"]:
+        names = ", ".join(f"{m['name']!r} ({m['reason']})" for m in res["missing"])
+        raise _UnresolvedSources(
+            f"this repo's own practice count is built from {len(tracked)} "
+            f"sources, and {names} could not be reached here, so it cannot "
+            f"be verified")
+    practices = res["practices"]
+    if not any(s["level"] == "universal" and pr.bv._same_repository(s["path"], ROOT)
+               for s in tracked):
+        practices = {slug: v for slug, v in practices.items()
+                     if not pr.bv._is_engine_dev_scoped(v["fm"])}
+    return len(practices)
+
+
 def _is_generated(rel: str) -> bool:
     try:
         with (ROOT / rel).open(encoding="utf-8") as fh:
@@ -298,14 +425,21 @@ def find_violations() -> list[str]:
     if not practice_files:
         raise CannotRun(f"{PRACTICES_DIR} holds no practice file, so nothing "
                         f"here has been materialized to count")
-    actual = 0
-    for f in practice_files:
-        try:
-            body = f.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if re.search(r"^status:\s+active\s*$", body, re.M):
-            actual += 1
+    try:
+        resolved_total = _resolved_active_count()
+    except _UnresolvedSources as e:
+        raise CannotRun(str(e))
+    if resolved_total is not None:
+        actual = resolved_total
+    else:
+        actual = 0
+        for f in practice_files:
+            try:
+                body = f.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if re.search(r"^status:\s+active\s*$", body, re.M):
+                actual += 1
     findings = []
     for rel in tracked_markdown():
         path = ROOT / rel
