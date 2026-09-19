@@ -81,7 +81,7 @@ yet. A stamp with a fabricated name is worse than no stamp.
    kind of question `mirrored_prefixes()` answered for mirrors; matching
    more path shapes *here* would re-create exactly the private
    re-derivation that
-   [BestPractice's `source-checks-adopt-engine-helpers` item](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/TODO.md#source-checks-adopt-engine-helpers)
+   [BestPractice's `source-checks-adopt-engine-helpers` item](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/todo/todo-2026-09-10-source-checks-adopt-engine-helpers.md)
    exists to remove. So this item stays open as a pointer: it is closed by
    an engine helper arriving, not by work in this repo.
    **Blocked-on:** that upstream helper.
@@ -97,16 +97,19 @@ yet. A stamp with a fabricated name is worse than no stamp.
    share code with its siblings that survives being copied alone; that
    convention belongs upstream, next to the copy-alone rule it has to
    satisfy.
-4. <a id="todo-gotcha-stale-reference-exempted"></a>**`todo-gotcha-stale-reference` flags this file, exempted for now.** The
-   2026-09-17 engine refresh brought in a check that flags any
-   `TODO.md#anchor` string. It caught two things here: the instructional
-   example near the top of this file (`` `TODO.md#slug` ``, a placeholder,
-   not a real link), and the link to BestPractice's own
-   `source-checks-adopt-engine-helpers` item two items up, which is
-   genuinely stale — that item is gone from BestPractice's current
-   `todo/` tree and its own `spec/TODO_GOTCHA_MIGRATION_MAP.md`, and
-   nothing found here confidently says where it went. Repointing that
-   link needs someone to trace it in BestPractice's own history, not a
-   guess made from this repo. Declared `not_binding` in `precedent.json`
-   until then. **Blocked-on:** tracing the real destination of the
-   `source-checks-adopt-engine-helpers` item in BestPractice.
+4. <a id="todo-gotcha-stale-reference-exempted"></a>**`todo-gotcha-stale-reference` flags this file, exempted.** The
+   2026-09-17 engine refresh brought in a check that flags any old-format
+   TODO anchor string. It caught two things here: the instructional
+   example near the top of this file (a placeholder, not a real link),
+   and the link to BestPractice's own
+   `source-checks-adopt-engine-helpers` item two items up, which was
+   genuinely stale — that item had gone missing from BestPractice's
+   current `todo/` tree and its own `spec/TODO_GOTCHA_MIGRATION_MAP.md`
+   during a migration that dropped it. A BestPractice-rooted session
+   traced it, restored the archive file, and fixed the migration map
+   (2026-09-19); the link two items up now points at the restored
+   `todo/todo-2026-09-10-source-checks-adopt-engine-helpers.md` and is no
+   longer stale. What remains is only the instructional placeholder,
+   which is not a real link and will always match this pattern set by
+   design — still declared `not_binding` in `precedent.json` for that one
+   reason.
