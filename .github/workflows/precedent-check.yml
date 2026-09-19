@@ -37,7 +37,18 @@ on:
   # result, and running both fires every check twice on the same commit.
   # A source set is private and nobody forks it, which is the one case that
   # would argue the other way.
+  #
+  # RESTRICTED TO main (2026-09-19): even debounced, a push still bills a
+  # minimum run -- checkout plus the debounce check itself -- on every push
+  # to every claude/* working branch. Measured against this account's usage
+  # report, branch churn across these four repos' many session branches was
+  # the actual driver of a two-day Actions spike, not bursts on one branch
+  # that concurrency above already collapses. This reopens the exact gap
+  # 2026-09-14 closed: a branch pushed to directly gets zero automatic
+  # verification again, checked only once it reaches main. Morgan's call,
+  # 2026-09-19, weighed against that gap and accepted it.
   push:
+    branches: [main]
   workflow_dispatch:
 
 # No `paths:` filter, for the same reason views-drift.yml gives: the inputs
@@ -95,17 +106,21 @@ jobs:
           # exactly that bug ran undetected on every push for days.
           fetch-depth: 0
 
-      # DEBOUNCE (2026-09-16): a set pushed to constantly pays for the whole
-      # suite on every push even with nothing ever overlapping enough for
-      # concurrency above to cancel it. Reads `ci_debounce_minutes` from
-      # this set's own identity.json (default 360 = 6 hours; 0 disables it;
-      # a TEAM set has no identity.json and always gets the default -- a
-      # known limit, not an oversight) and skips the rest of this job when
-      # the last COMPLETED run on this branch finished inside that window.
-      # spec/CI_MINUTES_PLAN.md's item 4: this is the whole-catalogue
-      # advisory check, not a security backstop, so a few hours of
-      # staleness between runs costs nothing nobody would notice by the
-      # next real one.
+      # DEBOUNCE (2026-09-16, window tightened 2026-09-19): a set pushed to
+      # constantly pays for the whole suite on every push even with nothing
+      # ever overlapping enough for concurrency above to cancel it. Reads
+      # `ci_debounce_minutes` from this set's own identity.json (default 30
+      # minutes, tightened 2026-09-19 from the upstream default of 360; 0
+      # disables it; a TEAM set has no identity.json and always gets the
+      # default -- a known limit, not an oversight) and skips the rest of
+      # this job when the last COMPLETED run on this branch finished inside
+      # that window. spec/CI_MINUTES_PLAN.md's item 4: this is the
+      # whole-catalogue advisory check, not a security backstop, so up to
+      # 30 minutes of staleness between runs costs nothing nobody would
+      # notice by the next real one -- shortened from the original 6-hour
+      # default alongside the branches:[main] restriction above, since main
+      # no longer benefits from a wide window once feature branches carry
+      # none of the load.
       - name: Skip if checked recently (debounce)
         id: debounce
         env:
@@ -119,9 +134,9 @@ jobs:
           except (OSError, ValueError):
               d = {}
           try:
-              v = int(d.get('ci_debounce_minutes', 360))
+              v = int(d.get('ci_debounce_minutes', 30))
           except (TypeError, ValueError):
-              v = 360
+              v = 30
           print(v)
           PY
           )"

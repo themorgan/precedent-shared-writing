@@ -72,7 +72,18 @@ on:
   # result, and running both fires every check twice on the same commit.
   # A source set is private and nobody forks it, which is the one case that
   # would argue the other way.
+  #
+  # RESTRICTED TO main (2026-09-19): even debounced, a push still bills a
+  # minimum run -- checkout plus the debounce check itself -- on every push
+  # to every claude/* working branch. Measured against this account's usage
+  # report, branch churn across these four repos' many session branches was
+  # the actual driver of a two-day Actions spike, not bursts on one branch
+  # that concurrency above already collapses. This reopens the exact gap
+  # 2026-09-14 closed: a branch pushed to directly gets zero automatic
+  # verification again, checked only once it reaches main. Morgan's call,
+  # 2026-09-19, weighed against that gap and accepted it.
   push:
+    branches: [main]
   workflow_dispatch:
 
 # No `paths:` filter on purpose. The check takes seconds, and the inputs to
@@ -113,11 +124,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           # fetch-depth left at the default: nothing here walks history.
 
-      # DEBOUNCE (2026-09-16): same field, same default, same reasoning as
-      # precedent-check.yml.template's own debounce step -- read there for
-      # the full rationale. This check takes seconds, so it is one of the
-      # cheapest jobs to over-run on a repo pushed to constantly, and one
-      # of the safest to space out: nothing here is a security backstop.
+      # DEBOUNCE (2026-09-16, window tightened to 30 minutes 2026-09-19):
+      # same field, same default, same reasoning as precedent-check.yml's
+      # own debounce step -- read there for the full rationale. This check
+      # takes seconds, so it is one of the cheapest jobs to over-run on a
+      # repo pushed to constantly, and one of the safest to space out:
+      # nothing here is a security backstop.
       - name: Skip if checked recently (debounce)
         id: debounce
         env:
@@ -131,9 +143,9 @@ jobs:
           except (OSError, ValueError):
               d = {}
           try:
-              v = int(d.get('ci_debounce_minutes', 360))
+              v = int(d.get('ci_debounce_minutes', 30))
           except (TypeError, ValueError):
-              v = 360
+              v = 30
           print(v)
           PY
           )"
