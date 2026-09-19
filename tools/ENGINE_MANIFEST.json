@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "c5d28432b40ffe9b7698767130fc330786004caa",
+  "source_commit": "1f1f5a29c671dfeadbb163537120ed60ce21f7d9",
   "files": [
     "build_views.py",
     "github_budget.py",
