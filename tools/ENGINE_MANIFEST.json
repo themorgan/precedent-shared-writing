@@ -69,6 +69,6 @@
     ".github/workflows/precedent-check.yml"
   ],
   "ci_workflows_sha256": {
-    ".github/workflows/precedent-check.yml": "3078a6aad65a064efa3cc885cc6d41a30e284975bc99ca6a5f2be0ffb6cd9d39"
+    ".github/workflows/precedent-check.yml": "237a77a6c360292decc01d61a266c5b2310e32977485e5cc6d2b17e2099eaebc"
   }
 }

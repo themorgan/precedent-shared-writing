@@ -64,14 +64,44 @@
 # `views-drift.yml` as a separate file is gone -- nothing here narrows
 # WHAT either check verifies, only how many jobs the decision to skip them
 # costs.
+#
+# STACKED WITH A SECOND FIX, SAME DAY: `push:` below is now restricted to
+# `branches: [main]`, and the debounce default is tightened from 360 to 30
+# minutes (see both below). That is a separate, earlier decision of
+# Morgan's from the same 2026-09-19 incident, made and merged to `main` in
+# a different session before this file's merge landed on top of it -- see
+# GITHUB_ACTIONS_BILLING_2026-09-19_FINDINGS.md in
+# precedent-team-repo-maintenance for both halves of the incident. It is a
+# DIFFERENT lever from the one-job-per-push fix above: that fix cuts the
+# floor cost of a push this workflow still runs on; this one cuts how many
+# pushes reach the workflow at all, by giving up automatic verification on
+# a branch pushed to directly (the exact gap the 2026-09-14 change closed --
+# reopened here deliberately, Morgan's call, not an oversight). The two
+# stack cleanly: fewer pushes trigger this workflow now, and each one that
+# does costs less than it used to.
 
 name: Precedent checks
 
 on:
-  # PUSH, ON EVERY BRANCH (2026-09-14). This was `pull_request:` alone until
-  # then, which means a session pushing straight to a source set's own branch
-  # -- the normal way work lands in a private, single-owner practice set --
-  # ran no check whatsoever. The gate existed and simply never fired.
+  # PUSH, ON EVERY BRANCH from 2026-09-14, RESTRICTED TO main FROM 2026-09-19.
+  #
+  # 2026-09-14: this was `pull_request:` alone until then, which means a
+  # session pushing straight to a source set's own branch -- the normal way
+  # work lands in a private, single-owner practice set -- ran no check
+  # whatsoever. The gate existed and simply never fired. Widening to every
+  # branch closed that gap.
+  #
+  # 2026-09-19: narrowed back to `branches: [main]`. Even debounced and
+  # merged into one job (see the header above), a push still bills a
+  # minimum run -- checkout plus the debounce decision -- and branch churn
+  # across these four repos' many session branches, not bursts on one
+  # branch that concurrency below already collapses, was the actual driver
+  # of the two-day Actions spike measured that day. This REOPENS the gap
+  # the 2026-09-14 change closed: a branch pushed to directly gets zero
+  # automatic verification again, checked only once it reaches main.
+  # Morgan's call, 2026-09-19, weighed against that gap and accepted it --
+  # `python3 tools/precedent_check.py` before pushing (see AGENTS.md) is
+  # what covers a working branch now, same as before 2026-09-14.
   #
   # push rather than pull_request, not both, for the reason BestPractice's
   # leak-gate.yml measured: a push run and a pull_request run test the same
@@ -81,6 +111,7 @@ on:
   # A source set is private and nobody forks it, which is the one case that
   # would argue the other way.
   push:
+    branches: [main]
   workflow_dispatch:
 
 # No `paths:` filter, for the same reason each check below gives on its own
@@ -124,18 +155,20 @@ jobs:
       # when it actually runs.
       - uses: actions/checkout@v4
 
-      # DEBOUNCE (2026-09-16, moved into its own job 2026-09-19): a set
-      # pushed to constantly pays for the whole suite on every push even
-      # with nothing ever overlapping enough for concurrency above to
-      # cancel it. Reads `ci_debounce_minutes` from this set's own
-      # identity.json (default 360 = 6 hours; 0 disables it; a TEAM set has
-      # no identity.json and always gets the default -- a known limit, not
-      # an oversight) and skips both checks below when the last COMPLETED
-      # run of this workflow on this branch finished inside that window.
-      # spec/CI_MINUTES_PLAN.md's item 4: this is the whole-catalogue
-      # advisory check, not a security backstop, so a few hours of
-      # staleness between runs costs nothing nobody would notice by the
-      # next real one.
+      # DEBOUNCE (2026-09-16, moved into its own job 2026-09-19, window
+      # tightened 360 -> 30 minutes the same day as the branches:[main]
+      # restriction above): a set pushed to constantly pays for the whole
+      # suite on every push even with nothing ever overlapping enough for
+      # concurrency above to cancel it. Reads `ci_debounce_minutes` from
+      # this set's own identity.json (default 30 minutes; 0 disables it; a
+      # TEAM set has no identity.json and always gets the default -- a
+      # known limit, not an oversight) and skips both checks below when the
+      # last COMPLETED run of this workflow on this branch finished inside
+      # that window. spec/CI_MINUTES_PLAN.md's item 4: this is the
+      # whole-catalogue advisory check, not a security backstop. The window
+      # was 6 hours while every branch was in scope; narrowed to 30 minutes
+      # once only main was, so main still gets checked promptly after a
+      # push lands rather than riding out most of a work day stale.
       - name: Skip if checked recently (debounce)
         id: debounce
         env:
@@ -149,9 +182,9 @@ jobs:
           except (OSError, ValueError):
               d = {}
           try:
-              v = int(d.get('ci_debounce_minutes', 360))
+              v = int(d.get('ci_debounce_minutes', 30))
           except (TypeError, ValueError):
-              v = 360
+              v = 30
           print(v)
           PY
           )"
