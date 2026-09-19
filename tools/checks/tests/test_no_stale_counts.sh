@@ -214,6 +214,26 @@ fixture_multi_source_own_count () {
   # (the alex137/BestPractice case this fixes: universal at "." plus
   # repo-local at "local").
   rm -f process/manifest.json
+  # This fixture clones precedent-team-writing itself and asks it to stand
+  # in for a universal source at path "." -- BestPractice's own shape, not
+  # this repo's. But the clone carries this repo's REAL precedent-source.json
+  # (name "precedent-team-writing", level "shared", added 2026-09-19 by
+  # practice: source-naming), and check_source_manifest() now refuses any
+  # declared source whose name or level disagrees with what the clone at its
+  # path calls itself. Left as-is, the fixture's own declaration (name
+  # "precedent", level "universal") stopped matching the thing it points at,
+  # so resolve() correctly refused it as a wrong-repository mismatch and the
+  # check reported SKIPPED instead of clean -- not the defect under test,
+  # but a second-order break from a later, unrelated practice landing on the
+  # same path this fixture already used. Overwriting the manifest here makes
+  # the clone answer to the identity the fixture declares, the same way a
+  # real BestPractice checkout would.
+  cat > precedent-source.json <<'JSON'
+{
+  "name": "precedent",
+  "level": "universal"
+}
+JSON
   python3 - <<'PY'
 import json, pathlib
 p = pathlib.Path('precedent.json')
@@ -251,6 +271,63 @@ PY
   echo "" >> README.md
   echo "This set has $total practices, correctly counted across both its" \
        "universal (path \".\") and repo-local sources." >> README.md
+}
+
+fixture_ordinary_multi_source_consumer () {
+  # An ORDINARY private consumer -- not a practice set, not self-sourcing --
+  # that declares three sources (universal plus two team sets) already
+  # materialized into this one practices/ tree. Reported 2026-09-19 against
+  # themorgan/CopyrightNewBrainstorming: sources_for_tracked_block() tracks
+  # ALL THREE here too (it defers a source only for reasons that do not
+  # apply to an ordinary private consumer -- see _resolved_active_count()'s
+  # own docstring), so the old `len(tracked) <= 1` gate let this shape
+  # through into the merge meant only for a repo that IS one of its own
+  # declared sources. That merge then wrongly stripped engine-dev-scoped
+  # practices a SECOND time (already dropped once at materialization),
+  # undercounting a correct "158 practices" by 16.
+  rm -f process/manifest.json
+  # repo_is_practice_source() reads tools/ENGINE_MANIFEST.json's `kind` --
+  # this very repo's copy says "source" (precedent-team-writing IS a
+  # practice set), which is wrong for a fixture standing in for an ordinary
+  # CONSUMER. Flip it, the same way precedent_vendor_engine.py would have
+  # written it into a consuming repo.
+  python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path('tools/ENGINE_MANIFEST.json')
+d = json.loads(p.read_text(encoding='utf-8'))
+d['kind'] = 'consumer'
+p.write_text(json.dumps(d, indent=2) + '\n', encoding='utf-8')
+PY
+  python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path('precedent.json')
+d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+d['visibility'] = 'private'
+srcs = d.setdefault('sources', [])
+# None of these paths is this repo's own -- and none of them need to exist
+# on disk: _resolved_active_count() must return None (PRACTICES_DIR alone
+# is the whole answer) without ever trying to reach them.
+for extra in ({'level': 'universal', 'name': 'precedent', 'path': '../not-this-repo-universal'},
+              {'level': 'team', 'name': 'team-one', 'path': '../not-this-repo-team-one'},
+              {'level': 'team', 'name': 'team-two', 'path': '../not-this-repo-team-two'}):
+    if not any((s or {}).get('path') == extra['path'] for s in srcs):
+        srcs.append(extra)
+p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+PY
+  local base
+  base="$(python3 - <<'PY'
+import pathlib, re
+n = 0
+for f in pathlib.Path('practices').glob('*.md'):
+    if re.search(r'^status:\s+active\s*$', f.read_text(encoding='utf-8'), re.M):
+        n += 1
+print(n)
+PY
+)"
+  echo "" >> README.md
+  echo "This set has $base practices, already fully materialized in" \
+       "practices/ -- not a merge across the other sources it happens to" \
+       "declare." >> README.md
 }
 
 fixture_no_practices_tree () {
@@ -332,6 +409,19 @@ run "F. a repo with no practices/ tree"                     skipped fixture_no_p
 # SKIPPED rather than guess and repeat the false violation.
 run "H. a repo whose own count spans >1 declared source"    clean   fixture_multi_source_own_count engine
 run "I. the same repo, no engine reachable -- SKIPPED"       skipped fixture_multi_source_own_count no-engine
+
+# J: the OPPOSITE shape from H/I, and the one that broke on top of that fix
+# (reported 2026-09-19 against themorgan/CopyrightNewBrainstorming). An
+# ordinary private consumer's declared sources are never deferred by
+# sources_for_tracked_block() -- that function only defers for two reasons,
+# neither of which applies to it -- so `tracked` comes back with all three
+# names on every run, and the old `len(tracked) <= 1` gate read that as the
+# H/I shape and merged three sources from scratch, silently double-stripping
+# engine-dev-scoped practices that materialization had already dropped once.
+# J asserts PRACTICES_DIR alone stays the whole answer here: no self-sourced
+# entry means no merge, however many sources happen to be tracked.
+run "J. an ordinary multi-source consumer never merges"     clean   fixture_ordinary_multi_source_consumer engine
+run "K. the same consumer, no engine reachable -- SKIPPED"   skipped fixture_ordinary_multi_source_consumer no-engine
 
 # D': the §0 fixture WITHOUT the engine. This is the pre-2026-09-10
 # behaviour and it must still fire, or D proves nothing -- a silent D could

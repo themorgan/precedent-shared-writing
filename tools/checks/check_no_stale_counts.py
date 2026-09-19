@@ -267,25 +267,54 @@ def _resolved_active_count() -> int | None:
     `build_views.py --check` -- read as stale by a check that only ever
     counted the 124 in PRACTICES_DIR.
 
-    A repo whose declared sources are already fully materialized into
-    PRACTICES_DIR never reaches the merge below: sources_for_tracked_
-    block() only ever returns more than one tracked source for a repo
-    that is itself one of those sources (the shape above), so an ordinary
-    materializing consumer keeps taking the old, already-correct
-    PRACTICES_DIR-only path.
+    THE GATE IS "IS THIS REPO ITSELF ONE OF ITS OWN TRACKED SOURCES", NOT
+    "DOES sources_for_tracked_block() RETURN MORE THAN ONE". This docstring
+    used to claim the second implies the shape above and that an ordinary
+    materializing consumer never reaches the merge below -- both false, and
+    disproved 2026-09-19 against a real multi-source consumer (universal +
+    2 team sources, already materialized into one practices/ tree):
+    sources_for_tracked_block() is not only about self-sourcing. Its own
+    docstring names two SEPARATE reasons a source is deferred rather than
+    tracked -- publishing someone's private text (repo_is_public()), and a
+    practice set avoiding a second committed copy of a source it IS
+    (repo_is_practice_source()) -- and an ordinary PRIVATE consumer hits
+    neither: it is not a practice set, so the first branch never runs; it
+    is not public, so the second never runs either; every declared source
+    falls through to the function's own last line, `return list(declared),
+    [], notes`, un-filtered. So a private consumer that declares three
+    sources gets `tracked` of length three purely because none of them
+    needed deferring -- nothing there says any of them is this repo's own
+    tree. Read as this shape anyway, that consumer's count was resolved by
+    merging three fresh trees from scratch and then WRONGLY stripping
+    engine-dev-scoped practices a second time (already dropped once during
+    materialization), undercounting a repo that stated a correct "158
+    practices" by 16 (the size of the engine-dev-scoped set) -- reproduced
+    against themorgan/CopyrightNewBrainstorming, 158 actual vs. 142
+    computed.
 
-    Raises _UnresolvedSources when more than one source contributes and
-    this environment cannot fully resolve all of them (the engine is
-    unreachable, or a declared source is missing here) -- guessing either
-    number in that situation risks exactly the false violation this
-    exists to prevent.
+    So the real gate is narrower and asked directly: does ANY tracked
+    source's path resolve to THIS repo (precedent_resolve.mirrored_
+    prefixes()'s same underlying question, `_same_repository()`)? Only
+    then is PRACTICES_DIR potentially a partial answer, because only then
+    is some OTHER declared source's count missing from it by construction
+    (the shape's own reasoning above: a set defers committing a second
+    copy of a source it already is). An ordinary consumer with no
+    self-sourced entry always has PRACTICES_DIR as the whole answer --
+    materialization already merged everything into it -- however many
+    sources sources_for_tracked_block() happens to track.
+
+    Raises _UnresolvedSources when this repo IS one of its own declared
+    sources, more than one source is tracked, and this environment cannot
+    fully resolve all of them (the engine is unreachable, or a declared
+    source is missing here) -- guessing either number in that situation
+    risks exactly the false violation this exists to prevent.
     """
     declared = _declared_sources()
-    # A single declared source can never resolve to more than one tracked
-    # source below, whichever way sources_for_tracked_block() classifies
-    # it -- so the common case (one source, or none) never needs the
-    # engine at all, and an environment where it happens to be unreachable
-    # must not report SKIPPED over a question this repo never asked.
+    # A single declared source can never make this repo one of TWO OR MORE
+    # tracked sources -- so the common case (one source, or none) never
+    # needs the engine at all, and an environment where it happens to be
+    # unreachable must not report SKIPPED over a question this repo never
+    # asked.
     if not declared or len(declared) <= 1:
         return None
     for candidate in (ROOT / "tools", SOURCE_ROOT / "tools"):
@@ -295,9 +324,9 @@ def _resolved_active_count() -> int | None:
         import precedent_resolve as pr
     except Exception as e:
         raise _UnresolvedSources(
-            f"this repo declares more than one source contributing to its "
-            f"own practice count, but precedent_resolve.py could not be "
-            f"imported ({e}) to resolve them")
+            f"this repo declares more than one source, and precedent_resolve.py "
+            f"could not be imported ({e}) to tell whether any of them is this "
+            f"repo's own tree -- so its own practice count could not be verified")
     try:
         tracked, _deferred, _notes = pr.bv.sources_for_tracked_block(ROOT, declared)
     except Exception as e:
@@ -305,7 +334,14 @@ def _resolved_active_count() -> int | None:
             f"{ROOT / 'precedent.json'}'s declared sources could not be "
             f"split into tracked and deferred ({e}), so this repo's own "
             f"practice count could not be resolved")
-    if len(tracked) <= 1:
+    # THE GATE: not "more than one tracked source" (an ordinary private
+    # consumer clears that on every run, since sources_for_tracked_block()
+    # only defers for reasons that do not apply to it) but "this repo is
+    # itself one of them" -- the one condition under which PRACTICES_DIR
+    # can legitimately be short of the real total. No self-sourced entry
+    # means no merge, whatever `tracked`'s length is.
+    self_sourced = [s for s in tracked if pr.bv._same_repository(s["path"], ROOT)]
+    if not self_sourced or len(tracked) <= 1:
         return None
     try:
         res = pr.resolve(tracked)
@@ -320,8 +356,7 @@ def _resolved_active_count() -> int | None:
             f"sources, and {names} could not be reached here, so it cannot "
             f"be verified")
     practices = res["practices"]
-    if not any(s["level"] == "universal" and pr.bv._same_repository(s["path"], ROOT)
-               for s in tracked):
+    if not any(s["level"] == "universal" for s in self_sourced):
         practices = {slug: v for slug, v in practices.items()
                      if not pr.bv._is_engine_dev_scoped(v["fm"])}
     return len(practices)
