@@ -214,6 +214,26 @@ fixture_multi_source_own_count () {
   # (the alex137/BestPractice case this fixes: universal at "." plus
   # repo-local at "local").
   rm -f process/manifest.json
+  # This fixture clones precedent-team-writing itself and asks it to stand
+  # in for a universal source at path "." -- BestPractice's own shape, not
+  # this repo's. But the clone carries this repo's REAL precedent-source.json
+  # (name "precedent-team-writing", level "shared", added 2026-09-19 by
+  # practice: source-naming), and check_source_manifest() now refuses any
+  # declared source whose name or level disagrees with what the clone at its
+  # path calls itself. Left as-is, the fixture's own declaration (name
+  # "precedent", level "universal") stopped matching the thing it points at,
+  # so resolve() correctly refused it as a wrong-repository mismatch and the
+  # check reported SKIPPED instead of clean -- not the defect under test,
+  # but a second-order break from a later, unrelated practice landing on the
+  # same path this fixture already used. Overwriting the manifest here makes
+  # the clone answer to the identity the fixture declares, the same way a
+  # real BestPractice checkout would.
+  cat > precedent-source.json <<'JSON'
+{
+  "name": "precedent",
+  "level": "universal"
+}
+JSON
   python3 - <<'PY'
 import json, pathlib
 p = pathlib.Path('precedent.json')
