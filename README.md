@@ -1,11 +1,16 @@
-<!-- Template: instantiated by `tools/precedent_bootstrap_source.py --level team`
+<!-- Template: instantiated by `tools/precedent_bootstrap_source.py --level shared`
      (Precedent, https://github.com/alex137/BestPractice). Placeholders
-     (precedent-team-writing, Morgan F, themorgan) are filled in at
+     (precedent-shared-writing, Morgan F, themorgan) are filled in at
      bootstrap time; edit this file freely afterward, it is yours. -->
 
-# precedent-team-writing — a team practice set
+# precedent-shared-writing — a shared practice set
 
-This is **precedent-team-writing's own private space** — one per team, holding the
+**Renamed 2026-09-19 from `precedent-team-writing`** — the `team` level
+itself was renamed `shared`; see
+[practices/source-naming.md](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/practices/source-naming.md)'s
+Story.
+
+This is **precedent-shared-writing's own private space** — one per team, holding the
 conventions that team has agreed on. Everyone on the team can read it;
 nobody else can.
 

@@ -22,13 +22,13 @@
     },
     {
       "level": "shared",
-      "name": "precedent-team-repo-maintenance",
-      "path": "../precedent-team-repo-maintenance"
+      "name": "precedent-shared-repo-maintenance",
+      "path": "../precedent-shared-repo-maintenance"
     },
     {
       "level": "shared",
-      "name": "precedent-team-working-style",
-      "path": "../precedent-team-working-style"
+      "name": "precedent-shared-working-style",
+      "path": "../precedent-shared-working-style"
     }
   ],
   "_commit_author_check_comment": [

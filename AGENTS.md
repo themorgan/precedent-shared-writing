@@ -1,6 +1,6 @@
 # Repository notes for agents
 
-This repo IS `precedent-team-writing` — a **team** source for
+This repo IS `precedent-shared-writing` — a **shared** source for
 [Precedent](https://github.com/alex137/BestPractice/tree/precedent-beta-v01),
 named for a **subject** rather than for a roster. Its subject is **the craft of writing for a human reader**: length and emphasis, when a list is really a list, drafting markers, citation and linking, and keeping a reader's material out of a deliverable that is not for them.
 
