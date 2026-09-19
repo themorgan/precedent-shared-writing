@@ -26,6 +26,8 @@ When drafting or reviewing prose meant to persuade or be judged:
   push-back — argue a real counter-case before building on a stated stance
 When leaving a placeholder or fill-in-later note mid-draft:
   draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️, bold and all caps
+When linking to a document in prose, a reply, or a table:
+  doc-link-text — link text is the doc's name -- keep the href as the .md file
 When making the first commit in a fresh clone or session:
   commit-author — git config user.name/email to Morgan F, don't ask
 When naming a git branch in a document, reply, or status update:
