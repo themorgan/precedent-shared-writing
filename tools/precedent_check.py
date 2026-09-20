@@ -2450,6 +2450,71 @@ def _declared_hooks_exist(ctx):
     return found
 
 
+# This repo dogfoods its own Claude Code template: these three hooks under
+# .claude/hooks/ carry no BestPractice-specific content, so the installed
+# copy is meant to BE templates/harness/claude-code/hooks/<name>, verbatim.
+# session-start.sh, stop-git-check.sh and reply-gate.sh are deliberately
+# NOT here -- each carries real repo-specific content (session-start.sh's
+# own package list, stop-git-check.sh's own tool-path story) and is
+# correctly expected to differ from its generic template counterpart.
+DOGFOODED_HOOKS_MATCH_TEMPLATE = (
+    'commit-identity.sh',
+    'freshness-guard.sh',
+    'precedent-paths.sh',
+)
+
+
+@check('dogfooded-hooks-match-template', 'tree',
+       'each hook in DOGFOODED_HOOKS_MATCH_TEMPLATE is byte-identical '
+       'between .claude/hooks/ and templates/harness/claude-code/hooks/',
+       'a hook this repo deliberately customizes (session-start.sh, '
+       'stop-git-check.sh, reply-gate.sh -- each carries real repo-'
+       'specific content and is correctly not in the list); whether '
+       'either copy is actually correct, only that the two agree',
+       practice_backed=False)
+def _dogfooded_hooks_match_template(ctx):
+    """A fix landed in only one copy on 2026-09-15 (freshness-guard.sh's
+    auto-reconcile feature, added to .claude/hooks/ alone) and nothing
+    caught it: parallel-artifact-ledger watches the three SHIPPED adapters
+    (claude-code/, codex/, gemini-cli/) against each other, and has no idea
+    this repo's own installed .claude/hooks/ copy exists at all -- that
+    relationship was simply unchecked. Four days later a real local commit
+    was discarded mid-session by exactly the half of the drifted file the
+    fix never reached
+    (gotchas/gotcha-2026-09-20-freshness-guard-s-user-prompt-mode-hard-resets-a-mid-sess.md).
+
+    Deliberately narrow and mechanical: byte equality, nothing editorial.
+    Unlike parallel-artifact-ledger (which asks whether a change SHOULD
+    transfer across three peer templates, a judgment call worth a dated
+    row), the three files named here have no legitimate reason to differ
+    at all, so equality is the whole check."""
+    tmpl_dir = ROOT / 'templates' / 'harness' / 'claude-code' / 'hooks'
+    live_dir = ROOT / '.claude' / 'hooks'
+    if not tmpl_dir.is_dir() or not live_dir.is_dir():
+        raise NotApplicable(f'this repo has no {live_dir.relative_to(ROOT)} '
+                            f'or no {tmpl_dir.relative_to(ROOT)} -- nothing '
+                            f'to compare')
+    found = []
+    for name in DOGFOODED_HOOKS_MATCH_TEMPLATE:
+        live = live_dir / name
+        tmpl = tmpl_dir / name
+        live_there, tmpl_there = live.exists(), tmpl.exists()
+        if not (live_there and tmpl_there):
+            found.append(Finding(
+                f'.claude/hooks/{name}',
+                f'one side is missing (installed: {live_there}, template: '
+                f'{tmpl_there}) -- either install the hook or drop it from '
+                f'DOGFOODED_HOOKS_MATCH_TEMPLATE'))
+            continue
+        if live.read_bytes() != tmpl.read_bytes():
+            found.append(Finding(
+                f'.claude/hooks/{name}',
+                f'differs from templates/harness/claude-code/hooks/{name} '
+                f'-- a fix landed in only one copy. Diff them, work out '
+                f'which side is current, and bring the other up to date'))
+    return found
+
+
 def _settings_hook_dirs():
     """-> [Path] every directory a .claude/settings*.json actually wires a
     hook out of, resolved against this repo.
@@ -3590,6 +3655,76 @@ def _unguarded_branch_inferences(text):
                   and fn.name not in guarded_callers)
 
 
+@check('workflow-file-outside-vendoring', 'tree',
+       "every .github/workflows/*.yml or *.yaml file that changed is either "
+       "the one file this repo's kind vendors through "
+       "precedent_vendor_engine.py, or already a known "
+       "RETIRED_CI_WORKFLOW_FILES entry -- anything else is named, once, as "
+       "worth a second look",
+       "whether a flagged file is actually a leftover or a legitimate "
+       "hand-authored check -- this function cannot tell, on purpose (see "
+       "precedent_vendor_engine._untracked_ci_workflow_files's own "
+       "docstring), so it never guesses. Fires only when this repo has a "
+       "tools/ENGINE_MANIFEST.json to compare against (never in "
+       "BestPractice itself, the engine's own origin) and only for the "
+       "'tree'-scope tiers this repo's own rotation/applies_to logic "
+       "selects, same as every other tree-scope check here.",
+       advisory=True)
+def _workflow_file_outside_vendoring(ctx):
+    import precedent_vendor_engine as pve
+
+    manifest = _engine_manifest()
+    if not manifest:
+        raise NotApplicable('no tools/ENGINE_MANIFEST.json -- this repo has '
+                            'never vendored the engine, or is the engine\'s '
+                            'own origin, so there is nothing to compare '
+                            'against')
+    untracked = pve._untracked_ci_workflow_files(ctx.root, manifest)
+
+    # DECLARED DECLINE (practice: checks-carry-a-declared-decline). A
+    # correct repo can legitimately carry an untracked workflow file on
+    # purpose -- a real dependent repo's own light-check.yml is the real
+    # incident this exists for -- so there has to be a clean way to say so
+    # once, with a reason, rather than being flagged on every touch forever.
+    # Same shape as filename_separator_exempt: mandatory reason, and an
+    # entry naming a path this run does NOT find untracked is reported
+    # rather than silently accepted -- an exemption that has outlived what
+    # it exempted is a hole nobody can see otherwise.
+    exempt = {}
+    try:
+        cfg = json.loads((ctx.root / 'precedent.json').read_text(encoding='utf-8'))
+        for e in cfg.get('ci_workflow_outside_vendoring_exempt') or []:
+            if e.get('reason') and e.get('path'):
+                exempt[e['path']] = e['reason']
+    except (OSError, ValueError):
+        pass
+
+    findings = []
+    for rel in untracked:
+        if rel in exempt:
+            continue
+        findings.append(Finding(
+            rel,
+            'not in this repo\'s tracked ci_workflow_files, and not a known '
+            'retired entry -- verify by content, never by name (practice: '
+            'workflow-file-outside-vendoring): if this is a deliberate, '
+            'hand-authored check, declare it in precedent.json\'s '
+            'ci_workflow_outside_vendoring_exempt with a reason; if it '
+            'turns out to be a leftover copy of something the vendored '
+            'engine already provides, retire it upstream rather than '
+            'deleting it here on a guess'))
+    stale_exempt = sorted(set(exempt) - set(untracked))
+    for rel in stale_exempt:
+        findings.append(Finding(
+            rel,
+            f'declared in ci_workflow_outside_vendoring_exempt '
+            f'("{exempt[rel]}"), but this run does not find it untracked -- '
+            f'either it is gone, or it is now tracked, or it is now a known '
+            f'retired entry. A stale exemption is a hole nobody sees '
+            f'otherwise; remove the entry once you have confirmed which.'))
+    return findings
+
+
 @check('declared-base-branch', 'tree',
        "every tool that resolves the repo's branch reads precedent.json's "
        "declared `base_branch` before falling back to inferring one from "
@@ -4058,18 +4193,21 @@ def _label_describes_content(ctx):
 # GETTING_STARTED.md, which root hygiene explicitly DOES place at the root.
 #
 # Both are read, rather than swapping one hard-coded filename for another.
-# GITHUB_ACTIONS.md stays a valid home for a repo that has its own --
-# BestPractice itself is exactly that repo, being the upstream, and its
-# root copy is its own document rather than a vendored one. A repo that
-# discloses in either has disclosed.
-DISCLOSURE_DOCS = ('GETTING_STARTED.md', 'GITHUB_ACTIONS.md')
+# A root GITHUB_ACTIONS.md stays a valid home for a repo that has its own --
+# distinct from a vendored copy, which root hygiene still forbids at a
+# dependent repo's root. BestPractice itself no longer IS that root case:
+# its own copy moved to documentation/GITHUB_ACTIONS.md on 2026-09-20 (the
+# same root-tidy pass that moved MOBILE.md and METHOD.md), so that path is
+# read too -- a repo that discloses in any of the three has disclosed.
+DISCLOSURE_DOCS = ('GETTING_STARTED.md', 'GITHUB_ACTIONS.md',
+                    'documentation/GITHUB_ACTIONS.md')
 
 
 @check('github-setup-disclosed', 'change',
        'a newly added GitHub Actions workflow file is named in '
        "GETTING_STARTED.md's administrator section -- the document a "
        "dependent repo's own people read -- or in a repo's own root "
-       'GITHUB_ACTIONS.md',
+       'GITHUB_ACTIONS.md, or in documentation/GITHUB_ACTIONS.md',
        'a workflow file that is EDITED rather than added (this only fires '
        "on new files, per no-version-suffix's ctx.added_files pattern); "
        'WHERE in the document the name appears, so a filename dropped '
@@ -4230,6 +4368,16 @@ REVISION_ANNOTATION_RE = re.compile(
 def _docs_are_current_state(ctx):
     out = []
     for f in _md_in_scope(ctx):
+        # Exemption (d) of the practice, the same one index-remembers-past
+        # honours: a document whose own stated purpose is a historical
+        # record -- the `<!--record-doc-->` marker, a record-shaped name, a
+        # records directory -- carries dates as its content. An open-items
+        # file that stamps when each item was opened is the origin case
+        # (2026-09-20): it declared itself a record and was still flagged
+        # for three item dates, because only the lineage check read the
+        # declaration.
+        if _is_historical_record(f):
+            continue
         text = ctx.read(f)
         for i, line in enumerate(text.splitlines(), 1):
             if REVISION_ANNOTATION_RE.search(line):
@@ -5179,7 +5327,21 @@ def _code_cites_practice(ctx):
                 fm, _sections = sp._read_practice_file(f)
             except sp.PracticeFileError:
                 continue
-            known[fm['slug']] = fm.get('status')
+            slug = fm['slug']
+            status = fm.get('status')
+            # A LOCAL `status: deduplicated` stub whose `in_force_at` names
+            # its OWN slug is the "promoted elsewhere, still in force under
+            # this name" idiom (`_sibling_not_in_force` above tests the same
+            # condition for links) -- it must not overwrite the materialized
+            # copy's real, active status. Without this, a citation of that
+            # slug in tools/ gets reported as citing a retired practice, when
+            # the practice is very much in force, just under a copy that sits
+            # earlier in this loop.
+            in_force_at = (fm.get('in_force_at') or 'null').strip().strip('"').strip("'")
+            if status == 'deduplicated' and in_force_at == slug and slug in known:
+                pass
+            else:
+                known[slug] = status
             # A slug some IN-FORCE practice declares it overrides is
             # superseded, not missing. In a consuming repo a higher-precedence
             # source can replace a universal practice under a different name

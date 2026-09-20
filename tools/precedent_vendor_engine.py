@@ -482,6 +482,14 @@ CONSUMER_ENGINE_FILES = ENGINE_FILES[:-1] + [
     #                       only split_practices and precedent_paths, both
     #                       already here.
     'doc_lint.py',
+    # doc_lint.py's own real-YAML frontmatter check imports this at module
+    # level (added 2026-09-20, shared with verify_harness.py's deep-check
+    # copy of the same check so the two never drift). Without it doc_lint.py
+    # itself fails to import in a consumer -- not a SKIPPED finding, a
+    # ModuleNotFoundError on every run, since the import is unconditional at
+    # the top of the file. Caught by check_tools_answer_help_without_writing,
+    # which copies only the tracked tree and runs every tool's --help there.
+    'frontmatter_yaml.py',
     'doc_sync.py',
     'routing_audit.py',
     # Move tracked files or directories and repoint every reference in the
@@ -1027,9 +1035,11 @@ CI_WORKFLOWS_SOURCE_DIR = 'templates/github-actions'
 CI_WORKFLOW_TEMPLATES = {
     'consumer': (
         ('doc-lint.yml.template', '.github/workflows/bestpractice-docs.yml'),
+        ('leak-gate.yml.template', '.github/workflows/leak-gate.yml'),
     ),
     'source': (
         ('precedent-check.yml.template', '.github/workflows/precedent-check.yml'),
+        ('leak-gate.yml.template', '.github/workflows/leak-gate.yml'),
     ),
 }
 
@@ -1057,13 +1067,28 @@ CI_WORKFLOW_TEMPLATES = {
 # is what makes automatic cleanup safe to do unconditionally rather than
 # guessing from absence.
 #
-# WHY THIS NEVER DELETES THE FILE ITSELF, unlike _remove_dropped_engine_
-# files for an ordinary tools/*.py engine file. refresh()'s own comment on
-# ci_incomplete says why: "deleting somebody's .github/workflows/*.yml out
-# from under them on a routine refresh is a different, larger decision than
-# this fix makes." A retired CI workflow file still on disk is reported
-# (see _remove_retired_ci_workflow_files below), never removed -- only the
-# stale manifest tracking is.
+# WHY THIS DELETES THE FILE WHEN IT IS SAFE TO, as of 2026-09-20 --
+# mirroring _remove_dropped_engine_files for an ordinary tools/*.py engine
+# file, not this mechanism's original "never deletes" design. refresh()'s
+# own comment on ci_incomplete still holds the reason a retired workflow
+# file is never deleted UNCONDITIONALLY: "deleting somebody's
+# .github/workflows/*.yml out from under them on a routine refresh is a
+# different, larger decision than this fix makes." What changed is that
+# _remove_retired_ci_workflow_files (below) now only ever deletes a copy
+# whose on-disk content still matches the hash the manifest last recorded
+# for it -- the untouched, stock retired template, and nothing else. A
+# hand-edited copy, or one the manifest never recorded a hash for, is kept
+# and reported exactly as before; only the manifest's stale tracking entry
+# is ever dropped unconditionally. Raised by Morgan
+# ("shouldn't we delete the files? ... it creates confusion and complexity
+# and risk and cost") against a live incident: a fresh usage-report pull
+# found several personal repos still billing real minutes against files
+# this mechanism already knew were retired. This closes the half of that
+# gap this mechanism can reach going forward -- a FUTURE rename/fold, the
+# same way views-drift.yml's own retirement was. It does NOT retroactively
+# clean up a file that predates this tombstone system entirely (nothing
+# ever recorded a hash for it to compare against) -- see
+# spec/CI_MINUTES_PLAN.md's Phase B sweep for that half.
 RETIRED_CI_WORKFLOW_FILES = {
     '.github/workflows/views-drift.yml':
         'folded into precedent-check.yml.template as its own job, 2026-09-19 '
@@ -1138,9 +1163,75 @@ def _ci_workflow_drift(dest_root, manifest):
     return drifted
 
 
+def _untracked_ci_workflow_files(dest_root, manifest):
+    """-> sorted [rel, ...] for every .github/workflows/*.yml or *.yaml file
+    on disk that this repo's manifest does not track under
+    ci_workflow_files, and that is not a known RETIRED_CI_WORKFLOW_FILES
+    entry either.
+
+    THIS IS NOT AN ORPHAN LIST. CI_WORKFLOW_TEMPLATES names exactly one
+    file per kind -- the template-installed workflow -- so almost any repo
+    with more than that single file will have entries here by design: a
+    practice set's own commit-identity.yml and engine-refresh.yml are
+    untracked by this exact definition and are completely legitimate,
+    intentionally never vendored through this mechanism. A hand-authored
+    check unrelated to Precedent is equally untracked and equally
+    legitimate. Reports enumerate; they do not judge -- see
+    spec/CI_WORKFLOW_RETIREMENT_PLAN.md's account of the false positive
+    (light-check.yml, mistaken for a retired duplicate by filename alone)
+    that this function's callers exist to never repeat. A caller decides
+    what these paths mean; this function only says which paths exist
+    outside what the manifest already tracks.
+
+    Returns [] where dest_root has no ENGINE_MANIFEST.json at all (this
+    repo has never vendored, or is the engine's own origin -- BestPractice
+    itself has no manifest to compare against)."""
+    manifest_path = dest_root / 'tools' / MANIFEST_NAME
+    if not manifest_path.is_file():
+        return []
+    tracked = set(manifest.get('ci_workflow_files') or ())
+    wf_dir = dest_root / '.github' / 'workflows'
+    if not wf_dir.is_dir():
+        return []
+    on_disk = sorted(
+        f'.github/workflows/{p.name}'
+        for p in wf_dir.iterdir()
+        if p.is_file() and p.suffix in ('.yml', '.yaml'))
+    return [rel for rel in on_disk
+            if rel not in tracked and rel not in RETIRED_CI_WORKFLOW_FILES]
+
+
 def _remove_retired_ci_workflow_files(dest_root, manifest):
     """Drop every RETIRED_CI_WORKFLOW_FILES entry from a manifest that still
-    carries one, and report (never delete) a retired file still on disk.
+    carries one, and delete a retired file still on disk -- but ONLY when
+    its current on-disk sha256 still matches the hash the manifest already
+    had recorded for it under ci_workflows_sha256.
+
+    WHAT "MATCHES THE RECORDED HASH" DOES AND DOES NOT PROVE. The recorded
+    hash is whatever this engine itself last wrote for this path -- from the
+    original record_ci_workflow_files() call at install/refresh time, or a
+    later hand-triggered `record-ci` re-baseline. A match proves the file
+    has not changed since the manifest last looked, which is everything
+    _ci_workflow_drift() means by "not drifted" elsewhere in this module --
+    the SAME standard, not a weaker one invented for this function. It does
+    NOT prove the file was never hand-edited at any point in its history:
+    someone could have edited it and then run `record-ci` to accept that
+    edit as correct (exactly what that subcommand exists for), which
+    updates the recorded hash to match the edit. If that same file's
+    workflow is later retired, this function reads it as "matches the
+    recorded hash" and deletes it -- a real, known gap, not a hypothetical
+    one: see spec/CI_WORKFLOW_RETIREMENT_PLAN.md's "Touched, precisely"
+    section for the full tradeoff and why it was left open rather than
+    closed here.
+
+    A path this function never even considers: one ci_workflows_sha256 has
+    no entry for at all (this kind never vendored it, ci_workflows was
+    disabled, or the file predates this tracking system entirely, like the
+    pre-2026-09-14 legacy templates spec/CI_MINUTES_PLAN.md's Phase B still
+    has to sweep by hand). `dropped` below is built only from paths that ARE
+    manifest keys, so an untracked file is structurally invisible here --
+    this function can delete a file it was already watching, never one it
+    was not.
 
     Idempotent and safe to call unconditionally: a manifest with no such
     entry writes nothing and returns []. Called at the very top of refresh(),
@@ -1149,7 +1240,8 @@ def _remove_retired_ci_workflow_files(dest_root, manifest):
     see that dict's own comment for the incident.
 
     Returns the list of rel paths dropped from the manifest, for refresh()'s
-    own reporting."""
+    own reporting -- deleted or merely reported, both count as dropped from
+    TRACKING; whether the file itself is gone is reported separately."""
     manifest_path = dest_root / 'tools' / MANIFEST_NAME
     if not manifest_path.is_file():
         return []
@@ -1157,14 +1249,27 @@ def _remove_retired_ci_workflow_files(dest_root, manifest):
     dropped = sorted(rel for rel in recorded if rel in RETIRED_CI_WORKFLOW_FILES)
     if not dropped:
         return []
+    deleted, kept = [], []
     for rel in dropped:
-        recorded.pop(rel, None)
-        if (dest_root / rel).is_file():
+        recorded_hash = recorded.pop(rel, None)
+        f = dest_root / rel
+        if not f.is_file():
+            continue                      # already gone: nothing to report
+        if recorded_hash and _sha256(f) == recorded_hash:
+            f.unlink()
+            deleted.append(rel)
+        else:
+            kept.append(rel)
             print(f"WARN: precedent_vendor_engine: {rel} was retired "
-                  f"({RETIRED_CI_WORKFLOW_FILES[rel]}) but is still on disk -- "
-                  f"left in place, not deleted (a CI workflow file is never "
-                  f"removed automatically). Safe to delete by hand once its "
-                  f"replacement is confirmed working.", file=sys.stderr)
+                  f"({RETIRED_CI_WORKFLOW_FILES[rel]}) and has been hand-"
+                  f"edited since the manifest last recorded its hash -- left "
+                  f"in place, not deleted. Move the edit upstream, then "
+                  f"delete it by hand once its replacement is confirmed "
+                  f"working.", file=sys.stderr)
+    if deleted:
+        print(f"precedent_vendor_engine refresh: deleted {len(deleted)} "
+              f"retired CI workflow file(s), unmodified since the manifest "
+              f"last recorded them ({', '.join(deleted)}).")
     live = json.loads(manifest_path.read_text(encoding='utf-8'))
     live['ci_workflow_files'] = sorted(recorded)
     live['ci_workflows_sha256'] = recorded
