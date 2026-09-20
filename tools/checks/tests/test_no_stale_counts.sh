@@ -334,6 +334,40 @@ fixture_no_practices_tree () {
   git rm -r -q practices
 }
 
+fixture_closed_todo_item () {
+  # A closed todo/ item's own historical prose keeps a wrong count from
+  # whatever it actually measured, at the time -- the shape L asserts is
+  # silent.
+  mkdir -p todo
+  cat > todo/todo-2020-01-01-fixture-closed-item.md <<'MD'
+---
+slug:   todo-2020-01-01-fixture-closed-item
+status: done
+closed: "2020-01-01"
+---
+## What
+Materialized 999 practices, definitely not the real count -- a historical
+record of what one past run measured, not a current claim.
+MD
+}
+
+fixture_open_todo_item () {
+  # Same filename shape and same wrong count as L, but the item is still
+  # OPEN -- must still fire, or the exclusion is keyed on the todo/
+  # filename alone rather than on the item actually being closed.
+  mkdir -p todo
+  cat > todo/todo-2020-01-01-fixture-open-item.md <<'MD'
+---
+slug:   todo-2020-01-01-fixture-open-item
+status: open
+closed: null
+---
+## What
+Materialized 999 practices, definitely not the real count -- still open,
+so this is an ongoing claim, not a historical record.
+MD
+}
+
 # --- The runner -----------------------------------------------------------
 #
 # expect is one of: fires | clean | skipped. A non-zero exit is not evidence
@@ -398,6 +432,16 @@ run "C+. the §1 mirror, engine present -- unchanged"        clean   fixture_sec
 run "D. the same count inside a §0 mirror (no manifest)"    clean   fixture_section0_mirror    engine
 run "E. a wrong count in a source set's own content"        fires   fixture_source_set         engine
 run "F. a repo with no practices/ tree"                     skipped fixture_no_practices_tree  no-engine
+
+# L/M: the closed-todo/-item carve-out added 2026-09-20 (themorgan/
+# HavrutaPlanning's todo-2026-09-19-migration-split-defeats-diff-based-
+# checks-and-surfaces-a-stale-count.md, option A). L asserts a closed
+# item's own historical count is silent; M is the negative control -- the
+# identical wrong count, same todo/ filename shape, but the item still
+# OPEN -- proving the exclusion is keyed on the item actually being
+# closed, not on the filename alone.
+run "L. a closed todo/ item's own historical count"         clean   fixture_closed_todo_item   no-engine
+run "M. the same shape, item still OPEN -- must still fire" fires   fixture_open_todo_item     no-engine
 
 # H/I: the multi-source undercount this change fixes (2026-09-19, closing
 # BestPractice's todo-2026-09-18-no-stale-counts-undercounts-a-multi-

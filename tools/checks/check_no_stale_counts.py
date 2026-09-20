@@ -388,10 +388,46 @@ def _foreign_practice(rel: str) -> bool:
     return False
 
 
+# A closed todo/ item is this repo's own OPEN_ITEM_AND_GOTCHA_PLAN.md
+# format: one file per item, `status: done` or `status: dropped` once
+# closed, and `todo_migrate.py`'s own convention is to write that prose
+# once and never hand-rewrite it afterward. A count sitting in one is not
+# the ongoing claim this practice's Rule targets -- it is the historical
+# record of what that specific run actually measured, at the time, which
+# is exactly the "genuinely tied to what it counts" case the Rule's own
+# Detail section already exempts; the gap was that this check did not
+# know a closed todo/ item from an ordinary live sentence. Narrowed to the
+# todo/ item filename shape and its own `status:` key, rather than any
+# `status: done` anywhere: that key means something else entirely inside a
+# practice file's frontmatter (retirement, not closure), and this
+# exemption is not about those.
+#
+# Added 2026-09-20 (Morgan F, via Push Directly), closing
+# themorgan/HavrutaPlanning's own todo-2026-09-19-migration-split-defeats-
+# diff-based-checks-and-surfaces-a-stale-count.md, option A of the two it
+# parked: this carve-out, over hand-editing the closed line it found.
+_TODO_ITEM_RE = re.compile(r"^todo/todo-.*\.md$")
+_CLOSED_STATUS_RE = re.compile(r"^status:\s*(?:done|dropped)\s*$", re.M)
+
+
+def _is_closed_todo_item(rel: str) -> bool:
+    if not _TODO_ITEM_RE.match(rel):
+        return False
+    try:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return False
+    return bool(_CLOSED_STATUS_RE.search(parts[1]))
+
+
 def not_actionable_here(rel: str) -> bool:
     prefixes = _mirrored_prefixes()
     return (bool(prefixes) and rel.startswith(prefixes)) \
-        or _foreign_practice(rel) or _is_generated(rel)
+        or _foreign_practice(rel) or _is_generated(rel) \
+        or _is_closed_todo_item(rel)
 
 def rule_text() -> str:
     # A materialized check runs in whatever repo its source was resolved
