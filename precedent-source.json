@@ -1,7 +1,7 @@
 {
   "name": "precedent-shared-writing",
   "level": "shared",
-  "visibility": "private",
+  "visibility": "public",
   "subject": "the craft of writing for a human reader",
   "code": [],
   "_comment": [
