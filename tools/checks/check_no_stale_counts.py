@@ -289,8 +289,7 @@ def _resolved_active_count() -> int | None:
     engine-dev-scoped practices a second time (already dropped once during
     materialization), undercounting a repo that stated a correct "158
     practices" by 16 (the size of the engine-dev-scoped set) -- reproduced
-    against themorgan/CopyrightNewBrainstorming, 158 actual vs. 142
-    computed.
+    against a private consuming repo, 158 actual vs. 142 computed.
 
     So the real gate is narrower and asked directly: does ANY tracked
     source's path resolve to THIS repo (precedent_resolve.mirrored_
@@ -402,10 +401,9 @@ def _foreign_practice(rel: str) -> bool:
 # practice file's frontmatter (retirement, not closure), and this
 # exemption is not about those.
 #
-# Added 2026-09-20 (Morgan F, via Push Directly), closing
-# themorgan/HavrutaPlanning's own todo-2026-09-19-migration-split-defeats-
-# diff-based-checks-and-surfaces-a-stale-count.md, option A of the two it
-# parked: this carve-out, over hand-editing the closed line it found.
+# Added 2026-09-20 (Morgan F, via Push Directly), closing a private
+# consuming repo's own todo-2026-09-19-migration-split-defeats-diff-based-
+# checks-and-surfaces-a-stale-count.md, option A of the two it parked: this carve-out, over hand-editing the closed line it found.
 _TODO_ITEM_RE = re.compile(r"^todo/todo-.*\.md$")
 _CLOSED_STATUS_RE = re.compile(r"^status:\s*(?:done|dropped)\s*$", re.M)
 

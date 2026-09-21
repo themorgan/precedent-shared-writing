@@ -29,7 +29,7 @@ Retitle only the *anchor text*, never the surrounding sentence's flow -- "see th
 `[GLOSSARY.md](GLOSSARY.md)` makes the reader parse a filename as if it were a word in the sentence, twice over -- once in the brackets, once implied by the destination. Docs get names for a reason; using the name in place of the reader lets the sentence read naturally and the link still does its job.
 
 ## Story
-Raised by Morgan, 2026-09-19: across both `HavrutaPlanning` and `TodoMorgan` the habit had been to link a document as its own filename -- `[GLOSSARY.md](GLOSSARY.md)`, `[MAP.md](MAP.md)` -- everywhere it was mentioned, because that was the quickest thing to type once `rule-links` said "link it." The href was always right; only the visible text was ever the filename standing in for the name.
+Raised by Morgan, 2026-09-19: across two of his own private projects the habit had been to link a document as its own filename -- `[GLOSSARY.md](GLOSSARY.md)`, `[MAP.md](MAP.md)` -- everywhere it was mentioned, because that was the quickest thing to type once `rule-links` said "link it." The href was always right; only the visible text was ever the filename standing in for the name.
 
 This is the same shape of gap `branch-links` closed for a git branch: `rule-links` says destinations get linked, not what the link text should say once they do. Landed directly -- Morgan is this set's proposer and its sole approver (`approvers.json`), so per this repo's own `README.md` ("Approval"), his yes here is the record.
 

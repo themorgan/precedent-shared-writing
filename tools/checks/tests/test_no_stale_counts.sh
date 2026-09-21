@@ -277,7 +277,7 @@ fixture_ordinary_multi_source_consumer () {
   # An ORDINARY private consumer -- not a practice set, not self-sourcing --
   # that declares three sources (universal plus two team sets) already
   # materialized into this one practices/ tree. Reported 2026-09-19 against
-  # themorgan/CopyrightNewBrainstorming: sources_for_tracked_block() tracks
+  # a private consuming repo: sources_for_tracked_block() tracks
   # ALL THREE here too (it defers a source only for reasons that do not
   # apply to an ordinary private consumer -- see _resolved_active_count()'s
   # own docstring), so the old `len(tracked) <= 1` gate let this shape
@@ -433,8 +433,8 @@ run "D. the same count inside a §0 mirror (no manifest)"    clean   fixture_sec
 run "E. a wrong count in a source set's own content"        fires   fixture_source_set         engine
 run "F. a repo with no practices/ tree"                     skipped fixture_no_practices_tree  no-engine
 
-# L/M: the closed-todo/-item carve-out added 2026-09-20 (themorgan/
-# HavrutaPlanning's todo-2026-09-19-migration-split-defeats-diff-based-
+# L/M: the closed-todo/-item carve-out added 2026-09-20 (a private
+# consuming repo's todo-2026-09-19-migration-split-defeats-diff-based-
 # checks-and-surfaces-a-stale-count.md, option A). L asserts a closed
 # item's own historical count is silent; M is the negative control -- the
 # identical wrong count, same todo/ filename shape, but the item still
@@ -455,7 +455,7 @@ run "H. a repo whose own count spans >1 declared source"    clean   fixture_mult
 run "I. the same repo, no engine reachable -- SKIPPED"       skipped fixture_multi_source_own_count no-engine
 
 # J: the OPPOSITE shape from H/I, and the one that broke on top of that fix
-# (reported 2026-09-19 against themorgan/CopyrightNewBrainstorming). An
+# (reported 2026-09-19 against a private consuming repo). An
 # ordinary private consumer's declared sources are never deferred by
 # sources_for_tracked_block() -- that function only defers for two reasons,
 # neither of which applies to it -- so `tracked` comes back with all three
