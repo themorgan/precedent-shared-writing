@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "4afb297f5c794b2239cf8d4ff4396c58b8647fd7",
+  "source_commit": "b14c8e41b06f0bae56db811f35f99d61338d4d8e",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -74,22 +74,24 @@
     "parse_check.py": "8a31053457bd1517eca7c59da56bf0f699f2775a7e3021c1581bb0e45bb45292",
     "precedent_bootstrap_source.py": "bcc8e34dff012666a7f40ecf59b8a44584dffad494311933e69831507e7376fa",
     "precedent_engine_freshness.py": "0a916f71dfd23d4ea9c7d02dacfbd720fcf38396f84d988195abdd7c231c0a09",
-    "doc_lint.py": "c3194f6294a4067a12619b60d289dcb8424af6fcf09457f02a94ee33b77d5ff8",
+    "doc_lint.py": "1d707cd7ac7ed4470649120f428d4a5323131c912898f5b49d1a395d2cc63887",
     "frontmatter_yaml.py": "a61369647f6fa6eaa1a088db9482bc44bb06c17fec70f73b861e9ae55564f2a8",
     "full_practice_audit.py": "81dc6012dc9a0863281a9601bcbe881f0d37f5d539d9655919830d947e1d9e40",
     "session_load_trend.py": "4162194394ff7ac4454945a4fff6ab44674eeb1445b049fc3be99a9ac12412f4",
     "todo_progress.py": "71a6611e998a37b5920153a3e46e4c604ad1f37b4ac98be7613c304cb77948e8",
-    "precedent_vendor_engine.py": "5126156ee014992006d0044a5ae7d43a516f5ae813bf061a5d5ea7c4cb0abde1",
+    "precedent_vendor_engine.py": "144fcb30a79c83c2a5ec3ee45d3e37f176f844430060a4249ad8a1bd7046aa01",
     "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"
   },
   "_note": "The vendored Precedent source-repo engine (see tools/precedent_vendor_engine.py's own docstring, and spec/BOOTSTRAP_NEW_SOURCES.md / INSTALL.md). Never hand-edit a file this manifest lists -- run 'python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>' instead (kind is read back from this manifest -- no --kind flag needed for status/refresh); a hand-edit is detected as drift (sha256 mismatch) and refused without --force.",
   "hook_files": [
     "commit-identity.sh",
+    "doc-lint-gate.sh",
     "freshness-guard.sh",
     "precedent-universal-catalogue.sh"
   ],
   "hooks_sha256": {
     "commit-identity.sh": "317b75803f2d6966be96e2ac6f466f17ea01f9c6fd65be5d1d04e38d515bdf8a",
+    "doc-lint-gate.sh": "22c653110707f3e1d7981ec3a0ce660bf48177511d5be28503da61e35e6b4c76",
     "freshness-guard.sh": "5ef6829404a540e8b2da238151151c5e6b873bdca27cd4cd7f85b7714237baef",
     "precedent-universal-catalogue.sh": "9b241f9ecebfeb5a4bd94ffe10d1cf4fc65943f3f60a62d24173dfb1fa33d1a6"
   },
