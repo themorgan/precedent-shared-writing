@@ -42,6 +42,8 @@ None. No practice in this catalogue has been retired or deduplicated yet -- when
 | [tools/build_codeowners.py](tools/build_codeowners.py) | CODEOWNERS, generated -- a practice set's from its approvers.json, a project's from the maintainers and owned_paths in its precedent.json |
 | [tools/build_todo_index.py](tools/build_todo_index.py) | todo/TODO.md and todo/CLOSED.md, generated from todo/*.md's frontmatter |
 | [tools/build_views.py](tools/build_views.py) | This file, GLOSSARY.md, and AGENTS.md's loader block — generated views |
+| [tools/doc_lint.py](tools/doc_lint.py) | Markdown hygiene checks — strikethrough, links, acronyms |
+| [tools/frontmatter_yaml.py](tools/frontmatter_yaml.py) | The real-YAML frontmatter parser doc_lint.py and verify_harness.py both check against, shared so the two never drift |
 | [tools/full_practice_audit.py](tools/full_practice_audit.py) | The full practice audit — on-demand, whole-catalogue sweep across every source |
 | [tools/github_budget.py](tools/github_budget.py) | What this account has left of GitHub's API allowances and what each tool spent -- read off the X-RateLimit headers of calls already being made, because /rate_limit answers a pristine window from inside a session |
 | [tools/leak_gate.py](tools/leak_gate.py) | The push-time leak gate — structural rules always, private-term blocklist when configured |
