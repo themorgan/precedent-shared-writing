@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "b14c8e41b06f0bae56db811f35f99d61338d4d8e",
+  "source_commit": "918aca5a67786bf41f62498251d855ad49cdcf96",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -44,7 +44,7 @@
     "routing_scope.json"
   ],
   "sha256": {
-    "build_views.py": "85891263df5550a9452d22618c57b010b587369d04ad4364ad839ac8224ea496",
+    "build_views.py": "dde61cfa890189ac588058feaa9ef518f9e02a7d133a292f08fff2f7e6b8cde1",
     "github_budget.py": "dea63fa55af3483015a0675be1ece4bc35fb164c97abc37f65e2eb3b6d81f386",
     "glossary_terms.json": "b241a97f63131c88b60c7025b434ce59a0fc3b6c76068a47827f44eeea06be1c",
     "build_codeowners.py": "eb35501d8f9db5a85a5ac26c83c4eed26a95205da750770f2de68f6d99142a8d",
@@ -54,7 +54,7 @@
     "split_practices.py": "ca76434960c9dd4b234bed1af680f6bad71cc7764b98bfc9df4e3e80597e4893",
     "precedent_migrate_status.py": "63dd3d93e7cd56dc842a3cda2435f480f4b830b9e31bd7d9e0bdb6d389bb7636",
     "precedent_decommission.py": "cda0924f7077d395410a7beedf0ef069d6f776c7dd43a88997b6b7e98f8b3486",
-    "precedent_check.py": "aae93f76d833b6d5322dbcb11bec8e17e18137502b31b8007d9e89c577227c3a",
+    "precedent_check.py": "237c444a65a4a9ad83da9dcc1c2f8df201d8b3574d8e075713e7d09ae8dbd9b9",
     "precedent_source_credentials.py": "1be669c4deed2c11bff78c8013abc6a20c3c110d999b0fb36d019d93f69f1469",
     "precedent_source_bootstrap.py": "25c8c34f9e15ba922d43cb2941e8e8222a8162d297ddb280d8feec9b8222567f",
     "precedent_time.py": "7808e962faea32cb2233b04ccf39f9b4d60a3a777b7b251ce5bcf593fd8eb21b",
@@ -72,7 +72,7 @@
     "leak-blocklist.default.txt": "886d6bc6b1c49bf845e6834d72008d2eb3edab7825319efd1cf5df20cd4681b4",
     "very_deep_check.py": "30f153b5d923a8aaa4a62a2ee281fe12649bd383332742871188c9e31fafcbea",
     "parse_check.py": "8a31053457bd1517eca7c59da56bf0f699f2775a7e3021c1581bb0e45bb45292",
-    "precedent_bootstrap_source.py": "bcc8e34dff012666a7f40ecf59b8a44584dffad494311933e69831507e7376fa",
+    "precedent_bootstrap_source.py": "f567ac3f57e061d9643adeefb049b67028d783688a713d53c37ba21b103caf1e",
     "precedent_engine_freshness.py": "0a916f71dfd23d4ea9c7d02dacfbd720fcf38396f84d988195abdd7c231c0a09",
     "doc_lint.py": "1d707cd7ac7ed4470649120f428d4a5323131c912898f5b49d1a395d2cc63887",
     "frontmatter_yaml.py": "a61369647f6fa6eaa1a088db9482bc44bb06c17fec70f73b861e9ae55564f2a8",
