@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "2bc1d04b25397e76b779def3e5c021712dbca4f8",
+  "source_commit": "652f69b123bc2a898974c13cff2417f537ad7655",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -52,7 +52,7 @@
     "split_practices.py": "ca76434960c9dd4b234bed1af680f6bad71cc7764b98bfc9df4e3e80597e4893",
     "precedent_migrate_status.py": "63dd3d93e7cd56dc842a3cda2435f480f4b830b9e31bd7d9e0bdb6d389bb7636",
     "precedent_decommission.py": "cda0924f7077d395410a7beedf0ef069d6f776c7dd43a88997b6b7e98f8b3486",
-    "precedent_check.py": "f116aae8e3badfa389d6939675d45e5ec2dda019d8499742e7d2d6adcca1ba6b",
+    "precedent_check.py": "60447f520a27de8870d542e2c83da8fb0bc140b2027ca0a6177109aea4da36a8",
     "precedent_source_credentials.py": "1be669c4deed2c11bff78c8013abc6a20c3c110d999b0fb36d019d93f69f1469",
     "precedent_source_bootstrap.py": "25c8c34f9e15ba922d43cb2941e8e8222a8162d297ddb280d8feec9b8222567f",
     "precedent_time.py": "7808e962faea32cb2233b04ccf39f9b4d60a3a777b7b251ce5bcf593fd8eb21b",
@@ -75,7 +75,7 @@
     "full_practice_audit.py": "81dc6012dc9a0863281a9601bcbe881f0d37f5d539d9655919830d947e1d9e40",
     "session_load_trend.py": "4162194394ff7ac4454945a4fff6ab44674eeb1445b049fc3be99a9ac12412f4",
     "todo_progress.py": "71a6611e998a37b5920153a3e46e4c604ad1f37b4ac98be7613c304cb77948e8",
-    "precedent_vendor_engine.py": "9ec294d0a25c077a311f1d26b5d00178832a2f92e2c92b652a7c1ab1dcbe415b",
+    "precedent_vendor_engine.py": "15e55de74093b7efc9f724ba5ebb3eb4fdee5017b844506f7c92a5407070aafe",
     "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"
   },
   "_note": "The vendored Precedent source-repo engine (see tools/precedent_vendor_engine.py's own docstring, and spec/BOOTSTRAP_NEW_SOURCES.md / INSTALL.md). Never hand-edit a file this manifest lists -- run 'python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>' instead (kind is read back from this manifest -- no --kind flag needed for status/refresh); a hand-edit is detected as drift (sha256 mismatch) and refused without --force.",
@@ -94,7 +94,7 @@
     ".github/workflows/precedent-check.yml"
   ],
   "ci_workflows_sha256": {
-    ".github/workflows/precedent-check.yml": "58e5dead9d722ec65f7565352d80059222d54513ef5c62660c6c14289aa1fea0",
-    ".github/workflows/leak-gate.yml": "65d648166743c4a8251046b2c2e047e3ead27d01f5dfabd7cdd9d630dccf7dca"
+    ".github/workflows/precedent-check.yml": "28b78ad912ba7953cf675dc5d0da46f533f6733f05578bfd966b66e0b6c5daf3",
+    ".github/workflows/leak-gate.yml": "f2914c7f39a7ca7f64b749bcf58ebf01617540726b90c20631007f033a78825b"
   }
 }
