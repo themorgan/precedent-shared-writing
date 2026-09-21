@@ -3725,6 +3725,259 @@ def _workflow_file_outside_vendoring(ctx):
     return findings
 
 
+@check('vocabulary-reaches-the-consumer', 'tree',
+       "every practice that declares a standing COMMAND is actually "
+       "reachable where the engine is vendored -- not withheld from a "
+       "consuming repo's tree by scope, and every tools/ script its own "
+       "text names is in the engine file list that repo receives",
+       "whether the command WORKS once delivered -- only that the practice "
+       "and its named scripts arrive. It reads `tools/NAME.py` literals out "
+       "of the practice's own text, so a tool reached by a path this parser "
+       "does not see is invisible to it, and a script named only as "
+       "background reading counts the same as one the command runs. A "
+       "finding here is real; a clean run is not proof of completeness.",
+       practice_backed=False)
+def _vocabulary_reaches_the_consumer(ctx):
+    """A standing command a session cannot carry out is worse than one that
+    does not exist.
+
+    THE INCIDENT (2026-09-21). `very-deep-check` and `full-practice-audit`
+    each declare a `command:` -- "Very deep check", "Practice check" -- and
+    each carried `scope: engine-dev`, which precedent_materialize withholds
+    from a consuming repo's materialized practices/. So a person said the
+    words in their own project, the session had no such practice, and
+    nothing happened for a reason nobody in that room could see. The tools
+    had been vendored the day before; the practices had not followed.
+
+    Three more commands named scripts that were in neither engine list:
+    "Practice check" needs full_practice_audit.py, "Reduction pass" needs
+    session_load_trend.py, "Three Things" needs todo_progress.py.
+
+    NOBODY WAS GOING TO NOTICE. Every check in the suite passes in a repo
+    where a command is silently inert: the practice file is well-formed,
+    the vocabulary listing prints it, and the tool's absence only shows
+    when a person says the word. This is the mechanism.
+
+    WHY IT RUNS WHERE THE ENGINE IS AUTHORED. It compares practices/
+    against ENGINE_FILES/CONSUMER_ENGINE_FILES, which exist only here. A
+    consuming repo has the delivered result, not the lists, so its own copy
+    declines rather than passing vacuously.
+    """
+    import re as _re
+    practices_dir = ctx.root / 'practices'
+    if not practices_dir.is_dir():
+        raise NotApplicable(
+            'no practices/ in this repo root -- nothing here declares the '
+            'commands this check is about')
+    try:
+        import precedent_vendor_engine as pve
+    except ImportError:
+        raise NotApplicable('precedent_vendor_engine.py did not import, so '
+                            'the engine file lists cannot be read')
+    consumer = getattr(pve, 'CONSUMER_ENGINE_FILES', None)
+    if not consumer:
+        raise NotApplicable('this engine carries no CONSUMER_ENGINE_FILES '
+                            'to compare -- it predates that registry')
+    consumer = set(consumer)
+
+    # A practice's own text may name a tool as background reading rather
+    # than as the thing the command runs, and this check deliberately does
+    # not try to tell those apart: over-reporting a tool that ought to ship
+    # anyway is cheap, and the alternative is the parser guessing at intent.
+    # What it DOES exclude is the harness, which is this repo's own and has
+    # nothing to verify in a consumer (precedent_vendor_engine's own list
+    # says so), and this check's own file.
+    #
+    # UPSTREAM-ONLY TOOLS ARE DECLARED, WITH A REASON, not inferred. The
+    # first version inferred: it took only tools named in COMMAND position
+    # (`python3 tools/x.py`), on the theory that a prose mention is
+    # background reading. Measured against this catalogue, that theory
+    # dropped two of the three real gaps it was written to catch --
+    # full_practice_audit.py and todo_progress.py are each named as a link,
+    # not as a command line, and each was genuinely missing from both
+    # engine lists. A parser that guesses at intent gets intent wrong.
+    #
+    # So: strict by default, and an exception is a line here that somebody
+    # has to write and a reviewer can see. Same discipline as
+    # leak_structural_exempt and ci_workflow_outside_vendoring_exempt, for
+    # the same reason -- an exemption nobody can see is a hole.
+    UPSTREAM_ONLY = {
+        'verify_harness.py':
+            'this repo\'s own harness for this repo\'s own engine; a '
+            'consumer has nothing for it to verify',
+        'precedent_install.py':
+            'installs Precedent INTO a project; the project that already '
+            'has it does not run it',
+        'precedent_upstream_check.py':
+            'compares this repo against its own origin/main watermark -- a '
+            'fact about the engine\'s repository, not about a consumer',
+        'precedent_simulate.py':
+            'authoring aid for writing practices here; named in '
+            'very-deep-check as the subject of a pass, not as a step a '
+            'consumer runs',
+        'precedent_move.py':
+            'moves a practice between SOURCE sets, which is an authoring '
+            'operation on the catalogue rather than anything a consuming '
+            'repo does',
+        'light_check.py':
+            'very-deep-check names it as "that repo\'s own light check" -- '
+            'each repo declares its own under two-check-levels, and it is '
+            'deliberately not one file shipped from here',
+    }
+    NEVER_VENDORED = set(UPSTREAM_ONLY)
+
+    findings = []
+    for path in sorted(practices_dir.glob('*.md')):
+        text = path.read_text(encoding='utf-8', errors='replace')
+        cmd = _re.search(r'^command:\s*(.+)$', text, _re.M)
+        if not cmd or cmd.group(1).strip() in ('null', '~', ''):
+            continue
+        slug = path.stem
+        scope = _re.search(r'^scope:\s*(\S+)', text, _re.M)
+        if scope and scope.group(1).strip() not in ('null', '~'):
+            findings.append(Finding(
+                f'practices/{slug}.md',
+                f'declares a standing command but carries '
+                f'scope: {scope.group(1).strip()}, which withholds it from '
+                f'a consuming repo\'s materialized practices/. The person '
+                f'can say the word there and the session will not have the '
+                f'practice. Drop the scope, or drop the command.'))
+        named = sorted({m for m in _re.findall(r'tools/([A-Za-z0-9_]+\.py)',
+                                               text)})
+        for script in named:
+            if script in NEVER_VENDORED or script in consumer:
+                continue
+            findings.append(Finding(
+                f'practices/{slug}.md',
+                f'declares a standing command and names tools/{script}, '
+                f'which is in neither ENGINE_FILES nor '
+                f'CONSUMER_ENGINE_FILES -- a repo that vendors the engine '
+                f'gets the practice and not the script it points at. Add '
+                f'it to the engine file list; or, if it genuinely only '
+                f'runs upstream, add it to this check\'s UPSTREAM_ONLY '
+                f'with the reason, so the exception is visible.'))
+    return findings
+
+
+@check('shipped-template-carries-its-script', 'tree',
+       "every script a vendored CI workflow template actually RUNS is in "
+       "the engine file list for each kind that template ships to -- so a "
+       "repo installing the workflow receives the thing it executes",
+       "a script the workflow reaches by a path this parser does not "
+       "recognise (a variable, a multi-line shell pipeline, a composite "
+       "action). It reads `tools/NAME` literals out of `run:` steps and "
+       "nothing cleverer, so a finding here is real and a clean run is not "
+       "proof of completeness. It also says nothing about whether the "
+       "script WORKS once delivered -- only that it is delivered.",
+       practice_backed=False)
+def _shipped_template_carries_its_script(ctx):
+    """A vendored CI workflow template must not reference a tools/ script
+    that the kinds it ships to do not receive.
+
+    THE INCIDENT (2026-09-21). CI_WORKFLOW_TEMPLATES listed
+    leak-gate.yml.template for BOTH 'consumer' and 'source' from 2026-09-20.
+    That workflow's only substantive step is
+    `python3 tools/leak_gate.py --structural-only`. Neither leak_gate.py nor
+    its leak-blocklist.default.txt was in ENGINE_FILES (25 names) or
+    CONSUMER_ENGINE_FILES (34), and no step in the workflow fetched them.
+
+    The workflow shipped without the thing it runs. Any repo installing it
+    got a guaranteed red check and a billed runner-minute per trigger -- on
+    the public repositories that gate exists to protect, where the scan
+    failing open is exactly the case it was written for.
+
+    Nothing caught it. It was found by a session TOLD to install the
+    workflow, which read both engine lists first, found neither name, and
+    refused on a broken premise rather than proceeding. That is a person
+    (or an agent) being careful, which is not a mechanism. This is the
+    mechanism.
+
+    WHY THIS RUNS IN THE ENGINE'S OWN REPO AND NOWHERE ELSE. The subject is
+    templates/github-actions/*.template against KINDS -- both of which exist
+    only where the engine is authored. A consuming repo has the installed
+    workflow, not the template, and its own copy of this check has nothing
+    to look at, so it declines rather than passing vacuously.
+    """
+    import re as _re
+    tmpl_dir = ctx.root / 'templates' / 'github-actions'
+    if not tmpl_dir.is_dir():
+        raise NotApplicable(
+            'no templates/github-actions/ -- this repo does not author the '
+            'CI workflow templates, so there is nothing here to compare '
+            'against the engine file lists')
+    try:
+        import precedent_vendor_engine as pve
+    except ImportError:
+        raise NotApplicable('precedent_vendor_engine.py did not import, so '
+                            'the engine file lists cannot be read')
+    ship = getattr(pve, 'CI_WORKFLOW_TEMPLATES', None)
+    kinds = getattr(pve, 'KINDS', None)
+    if not ship or not kinds:
+        raise NotApplicable('this engine carries no CI_WORKFLOW_TEMPLATES/'
+                            'KINDS to compare -- it predates the registries '
+                            'this check reads')
+
+    # Which kinds each template ships to, from the registry itself rather
+    # than from a second list that could drift away from it.
+    ships_to = {}
+    for kind, pairs in ship.items():
+        for tmpl_name, _installed_as in pairs:
+            ships_to.setdefault(tmpl_name, set()).add(kind)
+
+    findings = []
+    for tmpl_name, kind_set in sorted(ships_to.items()):
+        tmpl = tmpl_dir / tmpl_name
+        if not tmpl.is_file():
+            findings.append(Finding(
+                f'templates/github-actions/{tmpl_name}',
+                'named in CI_WORKFLOW_TEMPLATES but not present in '
+                'templates/github-actions/ -- the registry ships a file '
+                'that does not exist here'))
+            continue
+        body = tmpl.read_text(encoding='utf-8', errors='replace')
+        # COMMAND POSITION, NOT MERE MENTION -- and this precision was not
+        # designed in, it was forced. The first version of this check
+        # matched any `tools/NAME.py` in a non-comment line and fired on its
+        # own first run against precedent-check.yml.template, which names
+        # `'python3 tools/precedent_sync_views.py --repo . --check'` INSIDE
+        # an echo, as advice to a human reading a failure message. Nothing
+        # executes it; that template is correct.
+        #
+        # A detector that cries wolf on its first real run is one nobody
+        # runs twice (gotcha-2026-09-21-github-actions-rejects-yaml-anchors-
+        # python-accepts, whose own recipe was corrected for exactly this).
+        # So: the interpreter must sit in COMMAND position -- line start, or
+        # after a pipe/semicolon/&&/subshell -- and must not be preceded by
+        # a quote, which is what puts the advisory mention inside a string.
+        lines = [l for l in body.splitlines() if not l.lstrip().startswith('#')]
+        # `run: python3 tools/x.py` is the common single-line form and was
+        # MISSED by the first command-position attempt, which only accepted
+        # line-start and shell separators -- so the check came back clean
+        # against a fixture reproducing the actual leak_gate.py incident.
+        # Caught by testing the dirty direction; it had already passed the
+        # clean one.
+        invoked = _re.compile(
+            r'''(?:^|[|;&(]|\$\(|\brun:)\s*(?<!['"])python3?\s+tools/'''
+            r'''([A-Za-z0-9_.-]+\.py)\b''')
+        wanted = sorted({m for l in lines for m in invoked.findall(l)})
+        for script in wanted:
+            missing = sorted(k for k in kind_set
+                             if script not in set(kinds.get(k, ())))
+            if missing:
+                findings.append(Finding(
+                    f'templates/github-actions/{tmpl_name}',
+                    f'runs `tools/{script}`, and ships to '
+                    f'{", ".join(sorted(kind_set))} -- but {script} is not '
+                    f'in the engine file list for '
+                    f'{", ".join(missing)}. A repo of that kind installing '
+                    f'this workflow receives it WITHOUT the script it '
+                    f'executes: a guaranteed red check and a billed '
+                    f'runner-minute per trigger. Add {script} to the '
+                    f'matching list in precedent_vendor_engine.py, or stop '
+                    f'shipping this template to that kind.'))
+    return findings
+
+
 @check('declared-base-branch', 'tree',
        "every tool that resolves the repo's branch reads precedent.json's "
        "declared `base_branch` before falling back to inferring one from "
@@ -6534,7 +6787,7 @@ def _touched_files():
     return sorted(out)
 
 
-def _scoped_tree_slugs(tree_slugs):
+def _scoped_tree_slugs(tree_slugs, buckets=None):
     """-> the subset of `tree_slugs` (all `scope: 'tree'` CHECKS keys) to
     actually run this invocation, per Morgan's 2026-09-18 direction: don't
     sweep every tree-scope check every time, but never leave one uncovered
@@ -6546,10 +6799,17 @@ def _scoped_tree_slugs(tree_slugs):
          one of the practice's own `applies_to` globs (narrower than
          `**`; a practice whose only glob is `**` can never be "indirectly"
          matched by a specific file, so it always falls to tier 3).
-      3. A ROTATING 1/ROTATION_BUCKETS slice of whatever's left, keyed by
-         `git rev-list --count HEAD` mod ROTATION_BUCKETS -- deterministic,
-         not random, so ROTATION_BUCKETS consecutive commits cover the
-         whole remaining set exactly once each, not "probably."
+      3. A ROTATING slice of whatever's left, keyed by `git rev-list
+         --count HEAD` mod ROTATION_BUCKETS -- deterministic, not random,
+         so ROTATION_BUCKETS consecutive commits cover the whole remaining
+         set exactly once each, not "probably."
+
+    `buckets` is normally left as `None`, which selects the single current
+    bucket (`commit_count % ROTATION_BUCKETS`) exactly as before. Passing
+    an explicit set of bucket indices instead selects the UNION of those
+    buckets' slices -- the knob `_run_with_coverage_retry` turns when the
+    single current bucket comes back covering nothing (see its docstring
+    for why a single bucket can do that on a small catalogue).
 
     Retired/deduplicated practices are never scheduled at all (tier 3
     would otherwise round-robin dead checks). A slug with no resolvable
@@ -6587,14 +6847,66 @@ def _scoped_tree_slugs(tree_slugs):
     remaining = sorted(set(active) - directly - indirectly)
 
     if remaining:
-        commit_count = int(_git('rev-list', '--count', 'HEAD').stdout.strip() or 0)
-        bucket = commit_count % ROTATION_BUCKETS
+        if buckets is None:
+            commit_count = int(_git('rev-list', '--count', 'HEAD').stdout.strip() or 0)
+            buckets = {commit_count % ROTATION_BUCKETS}
         round_robin = {s for i, s in enumerate(remaining)
-                       if i % ROTATION_BUCKETS == bucket}
+                       if i % ROTATION_BUCKETS in buckets}
     else:
         round_robin = set()
 
     return sorted(directly | indirectly | round_robin)
+
+
+def _run_with_coverage_retry(tree_slugs, other_slugs, ctx, scopes, exempt):
+    """-> (slugs, results, scoped_tree, buckets_added) for the default (not
+    --only, not --full-sweep/--all) selection path, widening the tree-scope
+    rotation slice when the first slice selected turns out to cover nothing.
+
+    Why this exists (practice: cite-the-incident). `_scoped_tree_slugs`'s
+    rotation guarantees coverage of the WHOLE tree-scope catalogue across
+    ROTATION_BUCKETS commits, but says nothing about any SINGLE commit --
+    a repo whose practice catalogue is small relative to the full CHECKS
+    registry (a source set, not BestPractice itself, where most checks bind
+    a practice the set does not carry) can land on a bucket where every
+    slug the rotation slice picked, and every always-run non-tree check
+    besides, is inapplicable there. Measured 2026-09-20 against two real
+    PRs: precedent-shared-repo-maintenance PR #102 (commit count 253,
+    bucket 3) and precedent-shared-writing PR #57 (commit count 146,
+    bucket 6) both reported `0 passed` under the plain default selection,
+    on commits with real, passing coverage elsewhere in the same
+    catalogue -- `--full-sweep` against the identical trees found 19 and 17
+    passing checks respectively. Checked out each repo's pre-change `main`
+    tip too, with the identical zero-passed result, which rules out either
+    PR's own diff as the cause: this is a property of how the rotation
+    interacts with a sparse catalogue, not something either PR introduced.
+
+    The CI backstop ("Refuse a run that checked nothing") did exactly its
+    job given what it was handed -- it saw a summary line with `0 passed`
+    and correctly refused it. The gap is upstream of the backstop, in what
+    got selected to run in the first place, so the fix belongs here rather
+    than in the backstop's bash (fixing it there would only help that one
+    caller; every other caller of this module still gets the false alarm).
+
+    One additional bucket is folded in at a time -- never straight to
+    --full-sweep -- so a repo that is genuinely covered by its second
+    bucket still only pays for two slices, not the whole tree. If every
+    bucket has been folded in and the run STILL reports nothing but SKIPPED
+    and EXEMPT, that is no longer an unlucky rotation number; it is a
+    catalogue with nothing checkable at all, and main()'s own `0 passed`
+    refusal is the correct, loud outcome -- this function must not paper
+    over that by looping forever or manufacturing a result."""
+    commit_count = int(_git('rev-list', '--count', 'HEAD').stdout.strip() or 0)
+    base_bucket = commit_count % ROTATION_BUCKETS
+    buckets = {base_bucket}
+    while True:
+        scoped_tree = _scoped_tree_slugs(tree_slugs, buckets)
+        slugs = sorted(set(other_slugs) | set(scoped_tree))
+        results = run(slugs, ctx, scopes, exempt=exempt)
+        covered = any(r[1] in ('PASS', 'VIOLATION', 'ERROR') for r in results)
+        if covered or len(buckets) >= ROTATION_BUCKETS:
+            return slugs, results, scoped_tree, len(buckets) - 1
+        buckets.add((base_bucket + len(buckets)) % ROTATION_BUCKETS)
 
 
 def run(slugs, ctx, scopes, exempt=None):
@@ -6712,8 +7024,11 @@ def main():
         scopes = {'tree', 'change', 'turn-end'}
     ctx = Ctx(paths=paths, rng=rng, whole_tree='--all' in flags)
     tree_scope_note = None
+    coverage_note = None
+    exempt, refused_exemptions = load_exemptions()
     if only:
         slugs = [only]
+        results = run(slugs, ctx, scopes, exempt=exempt)
     else:
         tree_slugs = sorted(s for s in CHECKS if CHECKS[s]['scope'] == 'tree')
         other_slugs = sorted(s for s in CHECKS if CHECKS[s]['scope'] != 'tree')
@@ -6723,20 +7038,29 @@ def main():
         # (which already means "treat everything as changed" for ctx).
         if '--full-sweep' in flags or '--all' in flags:
             slugs = sorted(set(other_slugs) | set(tree_slugs))
+            results = run(slugs, ctx, scopes, exempt=exempt)
         else:
-            scoped_tree = _scoped_tree_slugs(tree_slugs)
-            slugs = sorted(set(other_slugs) | set(scoped_tree))
+            slugs, results, scoped_tree, buckets_added = _run_with_coverage_retry(
+                tree_slugs, other_slugs, ctx, scopes, exempt)
             skipped_this_run = sorted(set(tree_slugs) - set(scoped_tree))
             if skipped_this_run:
                 tree_scope_note = (
                     f'{len(skipped_this_run)} of {len(tree_slugs)} tree-scope '
                     f'check(s) not run this invocation (not directly or '
-                    f'indirectly touched, and not this commit\'s rotation '
-                    f'slice -- covered within {ROTATION_BUCKETS} commits): '
+                    f'indirectly touched, and not in this commit\'s rotation '
+                    f'slice{" (widened -- see the coverage note below)" if buckets_added else ""} '
+                    f'-- covered within {ROTATION_BUCKETS} commits): '
                     f'{", ".join(skipped_this_run)}. Run --full-sweep for all '
                     f'of them.')
-    exempt, refused_exemptions = load_exemptions()
-    results = run(slugs, ctx, scopes, exempt=exempt)
+            if buckets_added:
+                coverage_note = (
+                    f"this commit's own rotation bucket reported nothing to "
+                    f"verify (every check it selected was SKIPPED or EXEMPT), "
+                    f"so {buckets_added} additional rotation bucket(s) were "
+                    f"pulled in to find real coverage before reporting a "
+                    f"result (practice: cite-the-incident -- see "
+                    f"_run_with_coverage_retry's docstring for the incident "
+                    f"this closes).")
 
     all_violated = [r for r in results if r[1] == 'VIOLATION']
     skipped = [r for r in results if r[1] == 'SKIPPED']
@@ -6803,6 +7127,8 @@ def main():
         print(f'note: {ctx.scope_reason}')
     if tree_scope_note:
         print(f'note: {tree_scope_note}')
+    if coverage_note:
+        print(f'note: {coverage_note}')
 
     n_uv = sum(len(r[4]) for r in unverified)
     print(f'\nprecedent_check: {len(passed)} passed, {len(violated)} violated, '

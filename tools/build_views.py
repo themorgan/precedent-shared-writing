@@ -747,6 +747,38 @@ def _within(path, root):
     return path == root or root in path.parents
 
 
+def placed_practice_file(repo_root, slug, source_file, planned=()):
+    """-> the path a practice's Rule links are placed relative to.
+
+    THE ONE PLACE THAT ANSWERS "where does this practice live, for the
+    purpose of repointing its links". Two callers render AGENTS.md's loader
+    block -- this module for `--repo DIR --check`, and
+    precedent_sync_views.py for the install step -- and they used to answer
+    it differently: sync_views passed the MATERIALIZED path
+    (`<repo>/practices/<slug>.md`), this module passed the SOURCE clone's
+    (`<repo>/precedent/universal/practices/<slug>.md`). Both exist on disk
+    in a consuming repo, so neither was reported unplaceable; they simply
+    rendered a sibling citation two different ways, and
+    `generated-artifact-provenance` then reported an AGENTS.md the
+    documented install step had just written as hand-edited, with no state
+    of the repo able to satisfy it. Found 2026-09-21, after eight merges
+    red; the fix is one function, not two that agree.
+
+    The materialized path wins wherever the run has it: it is inside the
+    repo the block lands in, so the link works for a reader with no source
+    clone at all. `planned` covers the run that is ABOUT to write it --
+    materialize() empties practices/ before refilling it, so asking the
+    disk mid-run answers a question about the previous run
+    (_place_rule_links carries the same argument for the same reason).
+    Where neither holds -- an engine-dev practice withheld from the tree, a
+    source that materializes nothing -- the source path is returned
+    unchanged and _place_rule_links makes its own call about it."""
+    placed = pathlib.Path(repo_root) / 'practices' / f'{slug}.md'
+    if placed.exists() or f'practices/{slug}.md' in planned:
+        return placed
+    return pathlib.Path(source_file)
+
+
 def _place_rule_links(text, practice_file, block_dir, repo_root=None,
                       planned=()):
     """-> (rewritten Rule text, [unplaceable link targets]).
@@ -980,6 +1012,38 @@ def build_loader_block(practices, source_levels=None, defers_sources=False,
         lines.append(f"## Resident block (~{token_count} of {budget} token budget, "
                      f"{count_detail})")
         lines.append('')
+        # SAY WHEN THIS TREE IS MACHINE-DEPENDENT, and only then.
+        #
+        # An INDIVIDUAL source resolves through a user-level config, not
+        # through this project's own precedent.json -- by design, decided
+        # 2026-09-21: a person's own practices follow them into every
+        # project they touch, which is the whole point of having them.
+        # What was wrong was that it happened SILENTLY. The same install,
+        # same commit, materialized 142 practices on one machine and 125
+        # with HOME emptied, and the only way to find out was to diff two
+        # trees. That difference masked a real one-line bug for a day.
+        #
+        # So the block discloses it where it is TRUE and stays byte-identical
+        # where it is not: a repo with no individual practice in force (this
+        # one, every public set, every CI checkout) renders exactly as
+        # before. Whoever wants a rule in some repos and not others makes a
+        # SHARED set and declares it per repo --
+        # documentation/SHARED_PRACTICE_SETS.md.
+        _individual = sorted(slug for slug, lvl in (source_levels or {}).items()
+                             if lvl == 'individual')
+        if _individual:
+            lines.append(
+                f"**{len(_individual)} of these practices came from an "
+                f"INDIVIDUAL source**, which resolves through this machine's "
+                f"user-level config rather than through this repository's "
+                f"own `precedent.json`. That is deliberate -- a person's own "
+                f"practices follow them into every project they touch -- but "
+                f"it means this generated tree is **machine-dependent**: the "
+                f"same commit installed by somebody else resolves a "
+                f"different set. A rule you want in SOME repositories and "
+                f"not others belongs in a shared set you declare per "
+                f"repository, not in your individual one.")
+            lines.append('')
         lines.append(resident_text)
         lines.append('')
     if index_text:
@@ -1411,8 +1475,9 @@ def loader_practices(root, own_practices):
                for s in declared):
         resolved = {slug: v for slug, v in resolved.items()
                     if not _is_engine_dev_scoped(v['fm'])}
-    practices = [(v['fm'], v['sections'], v['file'])
-                 for v in resolved.values()]
+    practices = [(v['fm'], v['sections'],
+                  placed_practice_file(root, slug, v['file']))
+                 for slug, v in resolved.items()]
     levels = {slug: v['level'] for slug, v in resolved.items()}
     return practices, levels
 
@@ -1777,6 +1842,7 @@ TOOLS_DESCRIPTIONS = {
     'build_gotcha_index.py': "gotchas/INDEX.md, generated from gotchas/*.md's frontmatter and Symptom sections -- not loaded by AGENTS.md",
     'verify_harness.py': "The verification harness — run before trusting any change here",
     'very_deep_check.py': "The very deep check — on-demand whole-repo coherence review, distinct from full-practice-audit",
+    'precedent_engine_freshness.py': "Says whether this repo's VENDORED engine has fallen behind upstream — the one check that looks outward; prints, never refreshes",
 }
 
 
