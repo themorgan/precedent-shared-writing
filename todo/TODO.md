@@ -6,14 +6,15 @@
 
 | Item | What | Age | Disposition | Blocked on |
 |---|---|---|---|---|
-| [`todo-2026-09-10-internal-link-pattern-assumes-section-1-layout`](todo-2026-09-10-internal-link-pattern-assumes-section-1-layout.md) | `INTERNAL_LINK` in the deliverables check names §1's paths. | 9d | wait | that upstream helper. |
-| [`todo-2026-09-10-mirrored-prefixes-helper-duplicated`](todo-2026-09-10-mirrored-prefixes-helper-duplicated.md) | The `_mirrored_prefixes()` wrapper is duplicated in two checks. | 9d | wait | a way for a check to share code with its siblings that survives being copied alo… |
+| [`todo-2026-09-10-internal-link-pattern-assumes-section-1-layout`](todo-2026-09-10-internal-link-pattern-assumes-section-1-layout.md) | `INTERNAL_LINK` in the deliverables check names §1's paths. | 11d | wait | that upstream helper. |
+| [`todo-2026-09-10-mirrored-prefixes-helper-duplicated`](todo-2026-09-10-mirrored-prefixes-helper-duplicated.md) | The `_mirrored_prefixes()` wrapper is duplicated in two checks. | 11d | wait | a way for a check to share code with its siblings that survives being copied alo… |
+| [`todo-2026-09-21-no-stale-counts-fixtures-cannot-import-the-engine`](todo-2026-09-21-no-stale-counts-fixtures-cannot-import-the-engine.md) | Five of `tools/checks/tests/test_no_stale_counts.sh`'s cases fail, because the fixture repositories cannot import `prece | 0d | wait | nothing technical -- deliberately deferred on Morgan's instruction, 2026-09-21, … |
 
 ## Manual (Needs a Person to Act)
 
 | Item | What | Age | Disposition | Blocked on |
 |---|---|---|---|---|
-| [`todo-2026-09-10-engine-cases-need-a-bestpractice-clone`](todo-2026-09-10-engine-cases-need-a-bestpractice-clone.md) | The mirror-exclusion test cases need a BestPractice clone, and skip without one. | 9d | wait |  |
+| [`todo-2026-09-10-engine-cases-need-a-bestpractice-clone`](todo-2026-09-10-engine-cases-need-a-bestpractice-clone.md) | The mirror-exclusion test cases need a BestPractice clone, and skip without one. | 11d | wait |  |
 
 ## Unblocked Work
 
