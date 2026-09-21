@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "8b4faedf30ca68cc5af594fb3c7211d97803cae0",
+  "source_commit": "d49831f211633b8b4c281d67f2d6d99ac79972a8",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -48,7 +48,7 @@
     "github_budget.py": "dea63fa55af3483015a0675be1ece4bc35fb164c97abc37f65e2eb3b6d81f386",
     "glossary_terms.json": "b241a97f63131c88b60c7025b434ce59a0fc3b6c76068a47827f44eeea06be1c",
     "build_codeowners.py": "eb35501d8f9db5a85a5ac26c83c4eed26a95205da750770f2de68f6d99142a8d",
-    "precedent_gate.py": "eb1c113337df175f5c16ac62758bd5b8772f9bad8a2b706451ac6bbc4ac3b70d",
+    "precedent_gate.py": "09031f5be7a4497de9e2a52345babde48c4be462df504a2cadd31f561b4dca41",
     "precedent_paths.py": "aa38220b371250300a9730ae421b33306f247823cd2ea6ff2a1128bda57159ec",
     "precedent_show.py": "9e0e78d56f90ce6f736aac9d19cc1f47ce0ef4c9ea5aed5e1d5d5d81a73a1dd8",
     "split_practices.py": "ca76434960c9dd4b234bed1af680f6bad71cc7764b98bfc9df4e3e80597e4893",
@@ -63,23 +63,23 @@
     "precedent_session_practices.py": "26aa101744fc358ef29854b894e2679d7a6b6d44a5f6fbf0ebf8822086208074",
     "precedent_access_check.py": "8628105ccfb2f71ec02145be0afa3df36624cde741b858dba4885c77e46615d3",
     "precedent_vocabulary.py": "c0fc443e39d421927a39fcc78d4b7ef02f54ca61321813207915e6a57c17b7f2",
-    "precedent_reply_check.py": "17d4d6db642218b08a62ea6dd551efb648cdbebde1118e8b18131c52270f9fed",
+    "precedent_reply_check.py": "d2b9d6b9b5e926e0b544b4d896d393a98b6bcab6ecc97db8ac49e3d80fed21a7",
     "precedent_close_detect.py": "322666ce2024ca5786ec139857f91f8cf20ac2c34e66d615ebf854b6f30bddde",
     "build_todo_index.py": "c3b2837ae0889c6f478e11dc4b6e7a5cf3865f905c6df0fd869950b028c70828",
     "todo_migrate.py": "3ed0599058264f24293cab53c03ebd250da4219054cd850abf8947b2b015074a",
-    "title_case.py": "4378feaef7662cf3b6e0418221f28ee3cfb49820cc6830ae504a3e99bf04a06b",
+    "title_case.py": "eebce1ef001c63f9ccc707548005fe6c28fb221fa9d3fe06f14979e224b7bfd0",
     "leak_gate.py": "7d945cf46b26b05248c2da21ec1eb73e4b5b5803eb670f5ea112eed6c566531e",
     "leak-blocklist.default.txt": "886d6bc6b1c49bf845e6834d72008d2eb3edab7825319efd1cf5df20cd4681b4",
-    "very_deep_check.py": "d73813abd5e0c4d50802d1ac4647c003a24072a69d842ed4dd6e7eba2b6ac7d4",
+    "very_deep_check.py": "6c085faa94ace79a38f37cf1135e020634cb7080fff5cf8e249eefd5139d4bca",
     "parse_check.py": "8a31053457bd1517eca7c59da56bf0f699f2775a7e3021c1581bb0e45bb45292",
-    "precedent_bootstrap_source.py": "f567ac3f57e061d9643adeefb049b67028d783688a713d53c37ba21b103caf1e",
+    "precedent_bootstrap_source.py": "c1a47920a2da68192e63246e7023842d154dfdb0d76d41a3b48e67fe7546d5dc",
     "precedent_engine_freshness.py": "0a916f71dfd23d4ea9c7d02dacfbd720fcf38396f84d988195abdd7c231c0a09",
     "doc_lint.py": "1d707cd7ac7ed4470649120f428d4a5323131c912898f5b49d1a395d2cc63887",
     "frontmatter_yaml.py": "a61369647f6fa6eaa1a088db9482bc44bb06c17fec70f73b861e9ae55564f2a8",
     "full_practice_audit.py": "81dc6012dc9a0863281a9601bcbe881f0d37f5d539d9655919830d947e1d9e40",
     "session_load_trend.py": "4162194394ff7ac4454945a4fff6ab44674eeb1445b049fc3be99a9ac12412f4",
     "todo_progress.py": "71a6611e998a37b5920153a3e46e4c604ad1f37b4ac98be7613c304cb77948e8",
-    "precedent_vendor_engine.py": "144fcb30a79c83c2a5ec3ee45d3e37f176f844430060a4249ad8a1bd7046aa01",
+    "precedent_vendor_engine.py": "b4fcf8c1186cb1aa1645fa1a4e9477c9c043e138443d59c18b308a17b2b33fd5",
     "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"
   },
   "_note": "The vendored Precedent source-repo engine (see tools/precedent_vendor_engine.py's own docstring, and spec/BOOTSTRAP_NEW_SOURCES.md / INSTALL.md). Never hand-edit a file this manifest lists -- run 'python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>' instead (kind is read back from this manifest -- no --kind flag needed for status/refresh); a hand-edit is detected as drift (sha256 mismatch) and refused without --force.",
@@ -94,13 +94,5 @@
     "doc-lint-gate.sh": "22c653110707f3e1d7981ec3a0ce660bf48177511d5be28503da61e35e6b4c76",
     "freshness-guard.sh": "5ef6829404a540e8b2da238151151c5e6b873bdca27cd4cd7f85b7714237baef",
     "precedent-universal-catalogue.sh": "9b241f9ecebfeb5a4bd94ffe10d1cf4fc65943f3f60a62d24173dfb1fa33d1a6"
-  },
-  "ci_workflow_files": [
-    ".github/workflows/leak-gate.yml",
-    ".github/workflows/precedent-check.yml"
-  ],
-  "ci_workflows_sha256": {
-    ".github/workflows/precedent-check.yml": "28b78ad912ba7953cf675dc5d0da46f533f6733f05578bfd966b66e0b6c5daf3",
-    ".github/workflows/leak-gate.yml": "f2914c7f39a7ca7f64b749bcf58ebf01617540726b90c20631007f033a78825b"
   }
 }

@@ -1155,10 +1155,43 @@ CI_WORKFLOW_TEMPLATES = {
     'consumer': (
         ('leak-gate.yml.template', '.github/workflows/leak-gate.yml'),
     ),
-    'source': (
-        ('precedent-check.yml.template', '.github/workflows/precedent-check.yml'),
-        ('leak-gate.yml.template', '.github/workflows/leak-gate.yml'),
-    ),
+    # A PRACTICE SOURCE RUNS NO CI AT ALL (2026-09-21, Morgan, strength:
+    # decided): "the sets don't need CI; maybe we define the default to be
+    # that the precedent-individual and precedent-shared-* do NOT get CI.
+    # That could be the default rule, for future individual and shared
+    # source repos."
+    #
+    # MEASURED, from his own GitHub usage export for that day. 127 of 143
+    # billed minutes -- 89% -- came from four practice sets running these
+    # two workflows. The twelve CONSUMING repos, all on the one-job
+    # light-check, cost 16 minutes between them. The sets' share had gone
+    # 2% -> 89% in eleven days while the absolute number stayed flat,
+    # because every Update Vendors pass pushes a branch to four repos and
+    # each push fires both workflows in each.
+    #
+    # WHY A SOURCE IS THE RIGHT PLACE TO STOP. Every change to a set
+    # arrives through a session that runs the full gate suite before it
+    # pushes -- the deep check is what gates a push (two-check-levels), and
+    # the commit gate already ran doc_lint. CI there re-checks a tree that
+    # was checked seconds earlier by the same tools. And most of what it
+    # runs does not apply: a set carries few of the practices the registry
+    # binds, so precedent-check SKIPS most of its catalogue there, which is
+    # how two real sets came to report `0 passed` on an ordinary commit.
+    # We were paying per-job minutes, rounded up, for a second opinion that
+    # was mostly skips.
+    #
+    # A CONSUMER IS DIFFERENT and keeps its leak gate. A consuming repo can
+    # receive a contribution from a fork, whose pushes never fire `push` in
+    # the receiving repository -- so without the workflow a contributed
+    # branch reaches it unscanned. A source set is single-owner and takes
+    # no forks.
+    #
+    # The empty tuple is not an oversight and is READ as a decision:
+    # _remove_retired_ci_workflow_files sweeps whatever a kind no longer
+    # ships, and only for a kind it recognises, so `source` being present
+    # and empty propagates the deletion to every set on its next refresh
+    # while an unknown kind still triggers nothing.
+    'source': (),
 }
 
 # CI-workflow analog of RETIRED_ENGINE_FILES above -- a relative path this
@@ -1277,6 +1310,56 @@ def record_ci_workflow_files(dest_root, kind):
     return [manifest_path]
 
 
+LOCAL_CI_WORKFLOWS_KEY = 'local_ci_workflows'
+
+
+def local_ci_workflows(dest_root):
+    """-> {rel: reason} for CI workflow files this repo declares as its OWN,
+    read from its precedent.json. Never raises: a malformed config must not
+    take a refresh down, and an unreadable declaration is treated as no
+    declaration -- the refusal it would have waived is the safe direction.
+
+    WHY THIS EXISTS, and why the two escapes that already existed are not
+    escapes. A consuming repo may have a genuine reason to diverge one
+    vendored workflow -- 2026-09-21's case was an identity fold plus a
+    deliberate note about a flag the repo does not want. `refresh` refuses,
+    correctly, because it cannot tell that edit from an accident. But both
+    routes out DESTROY the divergence: `--force` overwrites it on the spot,
+    and `record-ci` re-baselines the hash so the NEXT refresh overwrites it
+    silently, which is worse. The session that hit it swapped the template
+    in, ran the refresh, and put the file back by hand -- a manoeuvre that
+    works exactly once and leaves nothing behind for the next person, who
+    will meet the same wall with no hint that anyone has been here.
+
+    So the divergence becomes a DECLARATION instead of a fight:
+
+        "local_ci_workflows": {
+          ".github/workflows/precedent-check.yml": "why this one is ours"
+        }
+
+    A REASON IS REQUIRED, not optional. A bare list would be an opt-out
+    nobody has to justify, which is how an exemption stops being read; an
+    entry with an empty reason is ignored, exactly as if it were absent,
+    and refresh says so rather than honouring it silently.
+
+    A declared file is then: never overwritten, never drift, never
+    "untracked" -- and PRINTED ON EVERY RUN with its reason, so the
+    exemption stays visible instead of becoming invisible infrastructure.
+    That last part is the whole difference between this and --force.
+    """
+    cfg = dest_root / 'precedent.json'
+    try:
+        declared = json.loads(cfg.read_text(encoding='utf-8')).get(
+            LOCAL_CI_WORKFLOWS_KEY) or {}
+    except (OSError, ValueError, AttributeError):             # noqa: BLE001
+        return {}
+    if not isinstance(declared, dict):
+        return {}
+    return {str(rel): str(reason).strip()
+            for rel, reason in declared.items()
+            if isinstance(rel, str) and str(reason).strip()}
+
+
 def _ci_workflow_drift(dest_root, manifest):
     """CI-workflow analog of _hook_drift: [(rel, why)] for a vendored CI
     workflow file the manifest's `ci_workflows_sha256` already records a
@@ -1291,8 +1374,14 @@ def _ci_workflow_drift(dest_root, manifest):
     before this function ever runs) rather than refusing the whole run over
     a file whose disappearance a previous, correct fix already caused."""
     drifted = []
+    _local = local_ci_workflows(dest_root)
     for rel, recorded_hash in (manifest.get('ci_workflows_sha256') or {}).items():
         if rel in RETIRED_CI_WORKFLOW_FILES:
+            continue
+        # A file this repo DECLARES as its own is not drift. Its divergence
+        # is the point, and it is reported every run rather than refused
+        # (local_ci_workflows' own docstring has the incident).
+        if rel in _local:
             continue
         path = dest_root / rel
         if not path.is_file():
@@ -1337,8 +1426,12 @@ def _untracked_ci_workflow_files(dest_root, manifest):
         f'.github/workflows/{p.name}'
         for p in wf_dir.iterdir()
         if p.is_file() and p.suffix in ('.yml', '.yaml'))
+    # A file this repo DECLARES as its own is known, not stray. Reporting
+    # it as untracked would be the same wall under another name.
+    _local = local_ci_workflows(dest_root)
     return [rel for rel in on_disk
-            if rel not in tracked and rel not in RETIRED_CI_WORKFLOW_FILES]
+            if rel not in tracked and rel not in RETIRED_CI_WORKFLOW_FILES
+            and rel not in _local]
 
 
 def _remove_retired_ci_workflow_files(dest_root, manifest, kind=None):
@@ -1535,8 +1628,17 @@ def _refresh_ci_workflow_files(dest_root, kind, ci_workflows_dir, manifest):
                for _t, rel in CI_WORKFLOW_TEMPLATES.get(kind, ())):
         return [], []
     recorded = dict(manifest.get('ci_workflows_sha256') or {})
+    _local = local_ci_workflows(dest_root)
     refreshed, catchup = [], []
     for template, rel in CI_WORKFLOW_TEMPLATES.get(kind, ()):
+        # DECLARED LOCAL: not written, and its recorded hash is DROPPED
+        # rather than updated. Leaving a hash behind would re-arm the
+        # refusal the declaration exists to retire; updating one would
+        # quietly bless whatever the file says today, which is exactly what
+        # `record-ci` does and exactly why it is not an escape.
+        if rel in _local:
+            recorded.pop(rel, None)
+            continue
         path = dest_root / rel
         if not path.is_file():
             continue
@@ -1837,6 +1939,12 @@ def status(clone):
     ci_drift = _ci_workflow_drift(ROOT, manifest)
     for rel, why in ci_drift:
         print(f"  LOCAL DRIFT: {rel} -- {why}")
+    # Declared-local workflows are reported here too, for the same reason
+    # refresh prints them: an exemption that stops being visible stops
+    # being reviewed, and `status` is where somebody looks to find out what
+    # this repo's relationship to upstream actually is.
+    for rel, why in sorted(local_ci_workflows(ROOT).items()):
+        print(f"  LOCAL BY DECLARATION (never refreshed): {rel} -- {why}")
     if not manifest.get('ci_workflows_sha256'):
         print(f"  NOTE: this manifest has no ci_workflows_sha256 recorded yet -- vendored "
               f"before CI workflow files were tracked. `refresh` will record a baseline "
@@ -2184,7 +2292,16 @@ def refresh(clone, force=False, ref=None):
                      "workflow file was hand-edited since the last seed/refresh -- "
                      "refreshing would silently discard that edit. Move the edit "
                      "upstream into BestPractice instead (this engine has no local "
-                     "variance by design), or pass --force to overwrite anyway.")
+                     "variance by design), or pass --force to overwrite anyway.\n"
+                     "       A CI WORKFLOW THIS REPO MEANS TO KEEP is a third "
+                     "option, and the right one when the divergence is "
+                     "deliberate: declare it in this repo's precedent.json as\n"
+                     '         "' + LOCAL_CI_WORKFLOWS_KEY + '": '
+                     '{".github/workflows/<name>.yml": "why it is ours"}\n'
+                     "       and refresh will leave it alone and say so on every "
+                     "run. A reason is required. Do NOT reach for `record-ci` "
+                     "here: it re-baselines the hash, so the NEXT refresh "
+                     "overwrites the file silently.")
 
     new_commit, engine_dir = _source_tools_at(clone, kind, ref=ref,
                                               fetch=ref is None)
@@ -2316,6 +2433,12 @@ def refresh(clone, force=False, ref=None):
     if ci_refreshed:
         print(f"precedent_vendor_engine refresh: refreshed {len(ci_refreshed)} CI "
               f"workflow file(s) to the current template ({', '.join(ci_refreshed)}).")
+    # EVERY RUN, with the reason. This is the whole difference between a
+    # declared local workflow and `--force`: force is a decision taken once
+    # and never seen again, while a declaration announces itself for as long
+    # as it stands, so nobody inherits an exemption they cannot see.
+    for rel, why in sorted(local_ci_workflows(ROOT).items()):
+        print(f"LOCAL (not refreshed, by declaration): {rel} -- {why}")
     if ci_catchup:
         print(f"NOTICE: precedent_vendor_engine refresh: recording a baseline hash "
               f"for {len(ci_catchup)} CI workflow file(s) this manifest never tracked "
