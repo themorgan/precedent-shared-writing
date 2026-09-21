@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "e0e2123fcd1a3c3f6adf77aacc8fa0697351f4d7",
+  "source_commit": "8a7882533704830ad6de4708af5598ae2a3557fd",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -63,12 +63,12 @@
     "build_todo_index.py": "c3b2837ae0889c6f478e11dc4b6e7a5cf3865f905c6df0fd869950b028c70828",
     "todo_migrate.py": "3ed0599058264f24293cab53c03ebd250da4219054cd850abf8947b2b015074a",
     "title_case.py": "4378feaef7662cf3b6e0418221f28ee3cfb49820cc6830ae504a3e99bf04a06b",
-    "leak_gate.py": "7417b2d902b2d7ea9ea3eb082fb93034b5702ec6d6eb0416d65c0fa38688cde7",
+    "leak_gate.py": "7d945cf46b26b05248c2da21ec1eb73e4b5b5803eb670f5ea112eed6c566531e",
     "leak-blocklist.default.txt": "886d6bc6b1c49bf845e6834d72008d2eb3edab7825319efd1cf5df20cd4681b4",
     "very_deep_check.py": "30f153b5d923a8aaa4a62a2ee281fe12649bd383332742871188c9e31fafcbea",
     "parse_check.py": "8a31053457bd1517eca7c59da56bf0f699f2775a7e3021c1581bb0e45bb45292",
     "precedent_bootstrap_source.py": "7a2912755632cb957c60bcb59573f20498e74d2149bc8836c5d184b63ad67cbd",
-    "precedent_engine_freshness.py": "3e17e27b4b0575e6947e3fdf78f775578d5977ab4ef943fddade8b483e07c258",
+    "precedent_engine_freshness.py": "0a916f71dfd23d4ea9c7d02dacfbd720fcf38396f84d988195abdd7c231c0a09",
     "precedent_vendor_engine.py": "93d5dd8797215d27af753b77ba618035ae5fa9ef1b61f1823553fea34e5f7b01",
     "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"
   },
@@ -84,9 +84,11 @@
     "precedent-universal-catalogue.sh": "9b241f9ecebfeb5a4bd94ffe10d1cf4fc65943f3f60a62d24173dfb1fa33d1a6"
   },
   "ci_workflow_files": [
+    ".github/workflows/leak-gate.yml",
     ".github/workflows/precedent-check.yml"
   ],
   "ci_workflows_sha256": {
-    ".github/workflows/precedent-check.yml": "58e5dead9d722ec65f7565352d80059222d54513ef5c62660c6c14289aa1fea0"
+    ".github/workflows/precedent-check.yml": "58e5dead9d722ec65f7565352d80059222d54513ef5c62660c6c14289aa1fea0",
+    ".github/workflows/leak-gate.yml": "65d648166743c4a8251046b2c2e047e3ead27d01f5dfabd7cdd9d630dccf7dca"
   }
 }
