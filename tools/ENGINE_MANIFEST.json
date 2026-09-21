@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "4381875b6b0d277512d7852a96d2640620334f95",
+  "source_commit": "8b4faedf30ca68cc5af594fb3c7211d97803cae0",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -70,7 +70,7 @@
     "title_case.py": "4378feaef7662cf3b6e0418221f28ee3cfb49820cc6830ae504a3e99bf04a06b",
     "leak_gate.py": "7d945cf46b26b05248c2da21ec1eb73e4b5b5803eb670f5ea112eed6c566531e",
     "leak-blocklist.default.txt": "886d6bc6b1c49bf845e6834d72008d2eb3edab7825319efd1cf5df20cd4681b4",
-    "very_deep_check.py": "30f153b5d923a8aaa4a62a2ee281fe12649bd383332742871188c9e31fafcbea",
+    "very_deep_check.py": "d73813abd5e0c4d50802d1ac4647c003a24072a69d842ed4dd6e7eba2b6ac7d4",
     "parse_check.py": "8a31053457bd1517eca7c59da56bf0f699f2775a7e3021c1581bb0e45bb45292",
     "precedent_bootstrap_source.py": "f567ac3f57e061d9643adeefb049b67028d783688a713d53c37ba21b103caf1e",
     "precedent_engine_freshness.py": "0a916f71dfd23d4ea9c7d02dacfbd720fcf38396f84d988195abdd7c231c0a09",
