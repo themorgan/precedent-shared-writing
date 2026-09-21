@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "precedent-beta-v01",
-  "source_commit": "be5ae8e7b454f3b64ddb3d2de29a8844bdb90121",
+  "source_commit": "f11f8959d1ae2e81108ab7dc46054ec2adf742ce",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -75,6 +75,6 @@
     ".github/workflows/precedent-check.yml"
   ],
   "ci_workflows_sha256": {
-    ".github/workflows/precedent-check.yml": "f60966bd0bd12a27bd825f27ed121f3f9046f9187b7094015d7a323caeced251"
+    ".github/workflows/precedent-check.yml": "58e5dead9d722ec65f7565352d80059222d54513ef5c62660c6c14289aa1fea0"
   }
 }
