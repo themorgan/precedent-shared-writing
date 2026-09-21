@@ -2457,8 +2457,186 @@ def _declared_hooks_exist(ctx):
 # NOT here -- each carries real repo-specific content (session-start.sh's
 # own package list, stop-git-check.sh's own tool-path story) and is
 # correctly expected to differ from its generic template counterpart.
+@check('shipped-hook-carries-its-script', 'tree',
+       "every tools/ script a shipped hook actually RUNS is in the engine "
+       "file list for each kind that hook reaches -- so a repo receiving "
+       "the hook also receives the thing it executes",
+       "a script the hook reaches by a path this parser does not recognise "
+       "(a variable, a computed path). It reads `tools/NAME.py` literals "
+       "out of shell assignments and command positions and nothing "
+       "cleverer, so a finding here is real and a clean run is not proof "
+       "of completeness. It also says nothing about whether the script "
+       "WORKS once delivered -- only that it is delivered.",
+       practice_backed=False)
+def _shipped_hook_carries_its_script(ctx):
+    """A hook that lands without the tool it runs fails open, silently.
+
+    THE INCIDENT (2026-09-21, the same day and the same mistake twice).
+    The Markdown lint was removed from GitHub Actions because
+    doc-lint-gate.sh replaced it. The first bug was that the hook lived
+    outside the mirrored directory and could reach nobody;
+    `wired-hooks-can-reach-a-consumer` now catches that.
+
+    The SECOND bug survived that fix. doc_lint.py was in
+    CONSUMER_ENGINE_FILES and not ENGINE_FILES, so a practice SET received
+    the hook and not the linter. The hook's own
+    `[[ -f "$script" ]] || exit 0` then fired on every commit -- failing
+    open exactly as designed, gating nothing, saying nothing. Four sets had
+    neither the CI check nor its replacement.
+
+    Both bugs are the same shape: a mechanism that cannot do its job where
+    it lands. The first check asks whether the hook can travel. This one
+    asks whether what it RUNS can, which is the question that was still
+    unasked after the first fix.
+
+    WHY IT RUNS WHERE THE ENGINE IS AUTHORED. It reads HOOK_SOURCE_DIR
+    against ENGINE_FILES and CONSUMER_ENGINE_FILES, all three of which
+    exist only here.
+    """
+    import re as _re
+    try:
+        import precedent_vendor_engine as pve
+    except ImportError:
+        raise NotApplicable('precedent_vendor_engine.py did not import, so '
+                            'the engine file lists cannot be read')
+    hook_dir_rel = getattr(pve, 'HOOK_SOURCE_DIR', None)
+    engine = getattr(pve, 'ENGINE_FILES', None)
+    consumer = getattr(pve, 'CONSUMER_ENGINE_FILES', None)
+    if not (hook_dir_rel and engine and consumer):
+        raise NotApplicable('this engine predates the HOOK_SOURCE_DIR / '
+                            'engine-file registries this check reads')
+    hook_dir = ctx.root / hook_dir_rel
+    if not hook_dir.is_dir():
+        raise NotApplicable(
+            f'{hook_dir_rel}/ does not exist here, so this repo does not '
+            f'author the harness adapter and ships no hooks')
+    engine, consumer = set(engine), set(consumer)
+
+    # `script="$project_dir/tools/doc_lint.py"` and `python3 tools/x.py`
+    # both count; a bare mention in a comment does not.
+    ref = _re.compile(r'tools/([A-Za-z0-9_]+\.py)')
+    findings = []
+    hooks = sorted(hook_dir.glob('*.sh')) + sorted(hook_dir.glob('*.sh.template'))
+    for hook in hooks:
+        body = hook.read_text(encoding='utf-8', errors='replace')
+        live = [l for l in body.splitlines() if not l.lstrip().startswith('#')]
+        for script in sorted({m for l in live for m in ref.findall(l)}):
+            missing = sorted(k for k, names in (('source', engine),
+                                                ('consumer', consumer))
+                             if script not in names)
+            if missing:
+                findings.append(Finding(
+                    f'{hook_dir_rel}/{hook.name}',
+                    f'runs tools/{script}, which is not in the engine file '
+                    f'list for kind(s) {", ".join(missing)} -- a repo of '
+                    f'that kind receives this hook and not the script it '
+                    f'executes. The hook then fails open and gates '
+                    f'nothing, which is the failure that looks exactly '
+                    f'like success. Add it to ENGINE_FILES (both kinds) or '
+                    f'CONSUMER_ENGINE_FILES (consumers only)'))
+    return findings
+
+
+@check('wired-hooks-can-reach-a-consumer', 'tree',
+       "every hook this repo's own .claude/settings.json wires is present "
+       "in the directory the vendoring engine mirrors "
+       "(precedent_vendor_engine.HOOK_SOURCE_DIR), so a repo that installs "
+       "the engine actually receives it",
+       "whether the hook WORKS once delivered, and whether a consumer's "
+       "own settings.json wires it -- only that the file can reach one at "
+       "all. It also says nothing about hooks a consumer wires itself.",
+       practice_backed=False)
+def _wired_hooks_can_reach_a_consumer(ctx):
+    """A hook wired here but absent from HOOK_SOURCE_DIR reaches nobody.
+
+    THE INCIDENT (2026-09-21, and it is the worst shape this failure
+    takes). The Markdown lint was removed from GitHub Actions that day on
+    the argument that .claude/hooks/doc-lint-gate.sh replaced it -- a
+    commit gate that refuses unlinted Markdown, strictly better than the
+    CI check because it fires before the commit rather than after the
+    push.
+
+    The hook was written into this repo's own .claude/hooks/ and wired in
+    this repo's own settings.json, and it was put in NEITHER the directory
+    the engine mirrors NOR the shipped settings template. So a consuming
+    repo taking the update lost the workflow and gained nothing. The
+    replacement could not reach a single one of them.
+
+    Found by a consuming repo's session that went looking for the hook
+    after the vendor update, rather than by anything here. Every check in
+    this suite passed the day it shipped, because every one of them looks
+    at whether a file is correct and none asked whether it can travel.
+
+    WHY IT RUNS WHERE THE ENGINE IS AUTHORED. It compares this repo's
+    settings.json against HOOK_SOURCE_DIR, both of which exist only here.
+    A consuming repo has the delivered result, not the source directory,
+    so its own copy declines rather than passing vacuously.
+    """
+    import json as _json
+    settings = ctx.root / '.claude' / 'settings.json'
+    if not settings.is_file():
+        raise NotApplicable(
+            'no .claude/settings.json here, so nothing wires a hook whose '
+            'shippability this could check')
+    try:
+        import precedent_vendor_engine as pve
+    except ImportError:
+        raise NotApplicable('precedent_vendor_engine.py did not import, so '
+                            'HOOK_SOURCE_DIR cannot be read')
+    hook_dir_rel = getattr(pve, 'HOOK_SOURCE_DIR', None)
+    if not hook_dir_rel:
+        raise NotApplicable('this engine declares no HOOK_SOURCE_DIR -- it '
+                            'predates the registry this check reads')
+    hook_dir = ctx.root / hook_dir_rel
+    if not hook_dir.is_dir():
+        raise NotApplicable(
+            f'{hook_dir_rel}/ does not exist here, so this repo does not '
+            f'author the harness adapter and has no hooks to ship')
+
+    try:
+        doc = _json.loads(settings.read_text(encoding='utf-8'))
+    except Exception as e:
+        return [Finding('.claude/settings.json',
+                        f'does not parse as JSON ({e}), so which hooks it '
+                        f'wires cannot be read')]
+
+    # Every command string under every event, reduced to a basename. A
+    # command carries arguments ("freshness-guard.sh pre-write main"), so
+    # the script name is the first whitespace-delimited token's basename.
+    wired = set()
+    for _event, blocks in (doc.get('hooks') or {}).items():
+        for block in blocks or ():
+            for h in block.get('hooks') or ():
+                cmd = (h.get('command') or '').strip()
+                if not cmd:
+                    continue
+                first = cmd.split()[0]
+                name = first.rsplit('/', 1)[-1]
+                if name.endswith('.sh'):
+                    wired.add(name)
+
+    shipped = {p.name for p in hook_dir.glob('*.sh')}
+    # A .sh.template instantiates to a .sh of the same stem -- shipped as a
+    # template on purpose, so it counts as reachable.
+    shipped |= {p.name[:-len('.template')]
+                for p in hook_dir.glob('*.sh.template')}
+
+    findings = []
+    for name in sorted(wired - shipped):
+        findings.append(Finding(
+            '.claude/settings.json',
+            f'wires {name}, which is not in {hook_dir_rel}/ -- the '
+            f'directory the vendoring engine mirrors. This repo runs it; '
+            f'no repo that installs the engine can receive it. Copy it '
+            f'there (and add it to DOGFOODED_HOOKS_MATCH_TEMPLATE so the '
+            f'two copies cannot drift), or, if it is deliberately local '
+            f'to this repo, say so in its own header'))
+    return findings
+
+
 DOGFOODED_HOOKS_MATCH_TEMPLATE = (
     'commit-identity.sh',
+    'doc-lint-gate.sh',
     'freshness-guard.sh',
     'precedent-paths.sh',
 )
