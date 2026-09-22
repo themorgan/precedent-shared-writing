@@ -214,6 +214,21 @@ def rule_of(slug):
                     f'{slug}\'s own text, so the Rule cannot be printed here. '
                     f'It binds what this repo publishes all the same. Read it '
                     f'at: {where})')
+        # Same shape, other gate: a check this repo opted into by keeping the
+        # registry that carries the rule (check()'s `binds_when`). The text is
+        # upstream by design here too -- the repo declared a number, it did not
+        # vendor the practice -- so name where to read it rather than reporting
+        # a gap the repo does not have.
+        opted = [rel for rel in (reg.get('binds_when') or ())
+                 if (ROOT / rel).exists()]
+        if opted:
+            where = _upstream_practice_url(slug) or (
+                f'practices/{slug}.md in the repository this engine was '
+                f'vendored from')
+            return (f'(this repo opted into {slug} by keeping '
+                    f'{opted[0]}, and does not vendor the practice\'s own '
+                    f'text, so the Rule cannot be printed here. The finding '
+                    f'above carries the remedy. Read the Rule at: {where})')
         return f'(no practice file for {slug})'
     try:
         _fm, sections = sp._read_practice_file(path)
@@ -261,7 +276,7 @@ CHECKS = {}
 
 
 def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
-          binds_publishers=False):
+          binds_publishers=False, binds_when=(), selects_on=()):
     """Register a check. `blind_to` is what it does NOT catch, printed by
     --explain -- a check's limits belong beside it, not in a document that
     drifts from it.
@@ -293,6 +308,57 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
     source set -- the flag removes the gate, it does not make a check
     that needs resolved sources suddenly work without them.
 
+    `binds_when` is a tuple of repo-relative paths whose PRESENCE is the
+    repo's own opt-in, and lifts the same gate. Some rules are carried by
+    a registry file a repo maintains rather than by the practice text: a
+    repo that wrote a number down has asked for it to be enforced, and
+    making it ALSO vendor the practice file is a second, undocumented
+    condition nobody meets on purpose.
+
+    The cost, measured 2026-09-22: `precedent-individual` declares its
+    surfaces and their ceilings in `tools/session_load_budgets.json` and
+    does not carry `practices/session-load-budget.md`. So `AGENTS.md`
+    sat at 2,276 tokens against the 1,800 that registry declares -- 476
+    tokens, 26% over -- with every check green, and the skip line read
+    "this check belongs to a source this repo does not resolve", which is
+    true of the practice and wrong about the registry: the registry was
+    right there.
+    It surfaced because somebody ran `tools/session_load_trend.py` by
+    hand.
+
+    The same reasoning as `binds_publishers` and the same bar: set it
+    only where the named file really is the subject, and only where the
+    check FUNCTIONS without the practice text -- a check whose findings
+    quote a Rule the repo cannot read has not been helped by running.
+    `rule_of` still prints "(no practice file for ...)" there, so a check
+    binding this way owes its whole remedy in its own finding text, the
+    way this one's does.
+
+    `selects_on` is a tuple of path globs naming the files this check's
+    verdict actually depends on. A commit touching any of them SELECTS this
+    check for that run, the same way a practice's own `applies_to` globs
+    already select a practice-backed one (`_scoped_tree_slugs`, tier 2).
+
+    WHY IT EXISTS, and it is the hole `practice_backed=False` opened
+    without anyone noticing. Tier 2 reads its globs off
+    `practices/<slug>.md` -- and a check enforcing a property of the ENGINE
+    has no practice file by design. So every one of those checks fell
+    straight through to tier 3, the rotation, and could be reached ONLY by
+    its turn coming up: no file you touched could ever summon it. Measured
+    2026-09-22, on 18 of them at once.
+
+    The cost, same day: a fix to `.claude/hooks/freshness-guard.sh` landed
+    in that copy and not in the template every other repo installs.
+    `dogfooded-hooks-match-template` exists for precisely that, was not in
+    that commit's rotation slice, and stayed silent. It surfaced only
+    because a session ran it by name on a hunch -- which is not a mechanism
+    (practice: durable-fix). One commit later and the drifted template
+    would have shipped.
+
+    An over-broad glob costs a little runtime; a missing one leaves the
+    rotation exactly as it was. So this only ever ADDS selection, and
+    getting it wrong is never how a check stops running.
+
     `advisory=True` is distinct from a practice's own frontmatter
     `severity:` field (precedent_resolve.py's `severity: blocking`, about
     which SOURCE wins when two levels disagree) -- this is about whether
@@ -305,7 +371,9 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
         CHECKS[slug] = dict(slug=slug, scope=scope, fn=fn, what=what,
                             blind_to=blind_to, advisory=advisory,
                             practice_backed=practice_backed,
-                            binds_publishers=binds_publishers)
+                            binds_publishers=binds_publishers,
+                            binds_when=tuple(binds_when),
+                            selects_on=tuple(selects_on))
         return fn
     return deco
 
@@ -613,6 +681,28 @@ class Ctx:
 # Native checks
 # --------------------------------------------------------------------------
 
+def _strip_relative_prefix(path):
+    """Drop leading `./` and `../` SEGMENTS from a relative path.
+
+    NOT `lstrip('./')`. lstrip takes a character SET, so it eats every
+    leading `.` and `/` it finds: `../.claude/hooks/x.sh` comes back as
+    `claude/hooks/x.sh`, and the suggested GitHub URL built from it 404s on
+    exactly the dotfile paths a harness adapter is made of.
+
+    That bug shipped twice. It was found and fixed inline in the
+    declined-adapters reader on 2026-09-21, and the identical expression
+    survived in the travel check's suggested-fix line until a session
+    vendoring a `.claude/hooks/` push gate was handed the mangled URL and
+    reported it. One helper now, so there is no third site to miss."""
+    while True:
+        if path.startswith('./'):
+            path = path[2:]
+        elif path.startswith('../'):
+            path = path[3:]
+        else:
+            return path
+
+
 _MD_LINK_RE = re.compile(r'\[([^\]\n]*)\]\([^)\s]*\)')
 
 
@@ -682,7 +772,11 @@ def _rule_was_rewritten(old_sections, new_sections):
        'a practice file whose Rule is new or changed must carry a non-empty '
        '## Story',
        'a Story that is present but says nothing. It tests that the incident '
-       'was recorded, not that it was the right incident.')
+       'was recorded, not that it was the right incident.',
+       # The subject IS the practice file. A source set is the one place a new
+       # practice is actually written, and the only place this can fire at all.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _cite_the_incident(ctx):
     out = []
     for f in ctx.changed_matching(r'^practices/.*\.md$'):
@@ -1136,7 +1230,8 @@ def _practice_links_travel(ctx):
                     and (ROOT / base[3:]).exists()):
                 continue                        # this source's own check script
             fix = (f'https://github.com/{slug}/blob/{branch or "<branch>"}/'
-                   f'{base.lstrip("./")}' if slug else 'an absolute URL')
+                   f'{_strip_relative_prefix(base)}' if slug
+                   else 'an absolute URL')
             out.append(Finding(
                 where, f'`{target}` does not travel with this file -- it is '
                        f'live here and dead in every repository that receives '
@@ -1149,7 +1244,10 @@ def _practice_links_travel(ctx):
        'suffix in its name',
        'a versioned name that was already committed, and a version token that '
        'is not at the END of the name. It gates what a change ADDS, one file '
-       'at a time.')
+       'at a time.',
+       # A practice file added under a versioned name is published under it.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _no_version_suffix(ctx):
     out = []
     for f in ctx.added_files():
@@ -1197,7 +1295,10 @@ _SKILL_LABEL_RE = re.compile(r'(?:^|[/_\-])(non[_\-]?technical|technical)[/_\-]?
        'by a person-noun (a nontechnical-contributor-guide names a person '
        'and is correct). It reads names only -- it cannot see a per-person '
        'rule written into a shared file, which is the failure the name leads '
-       'to.')
+       'to.',
+       # A practice filename is a published path.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _technical_describes_people(ctx):
     out = []
     # practices/ names files after their SLUG, and a rule about this label
@@ -1255,7 +1356,12 @@ ENGINE_FIXED_FILENAMES = frozenset({'precedent-source.json'})
        'required filename, a slug, or the file this one generates. Those are '
        'exempted by precedent.json\'s filename_separator_exempt, which '
        'requires a stated reason; this check cannot tell an inherited name '
-       'from a chosen one on its own, and does not guess.')
+       'from a chosen one on its own, and does not guess.',
+       # practices/ is a directory of one kind of file, and its names are
+       # published. First run under this flag, 2026-09-22, found a real
+       # mixed-separator group in a source set -- recorded in the audit.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _filename_separator(ctx):
     import collections
     exempt = {}
@@ -1645,7 +1751,12 @@ def _generated_edit_goes_upstream(ctx):
        'the GitHub repository names themselves, which may be anything. It '
        'sees declared names in tracked configuration and the manifests of '
        'sources it can reach, which is the layer a check can reach; the rest '
-       'of the practice is disclosure, carried by the occasion index.')
+       'of the practice is disclosure, carried by the occasion index.',
+       # Its entire subject is BEING a declared source set. The gate was
+       # backwards for this one from the day it was written: the only repos it
+       # can meaningfully check are exactly the repos it was skipping.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _source_naming(ctx):
     out = []
     sys.path.insert(0, str(ROOT / 'tools'))
@@ -2405,7 +2516,10 @@ def _access_probe_is_wired(ctx):
        'templates/harness/*/settings.json: those declare paths for the repo '
        'they are installed INTO, so resolving them against this tree would '
        'report a template as broken for being a template.',
-       practice_backed=False)
+       practice_backed=False,
+       # Its whole subject is this repo's hook wiring and the hook
+       # files themselves; nothing outside .claude/ changes its verdict.
+       selects_on=('.claude/**',))
 def _declared_hooks_exist(ctx):
     """A hook whose path does not exist is not an error anybody sees.
 
@@ -2649,7 +2763,11 @@ DOGFOODED_HOOKS_MATCH_TEMPLATE = (
        'stop-git-check.sh, reply-gate.sh -- each carries real repo-'
        'specific content and is correctly not in the list); whether '
        'either copy is actually correct, only that the two agree',
-       practice_backed=False)
+       practice_backed=False,
+       # Both sides of every pair it compares. Touch either copy of a
+       # dogfooded hook and this runs, instead of waiting for its rotation
+       # turn -- which is how the 2026-09-22 template drift got through.
+       selects_on=('.claude/hooks/**', 'templates/harness/claude-code/hooks/**'))
 def _dogfooded_hooks_match_template(ctx):
     """A fix landed in only one copy on 2026-09-15 (freshness-guard.sh's
     auto-reconcile feature, added to .claude/hooks/ alone) and nothing
@@ -2873,7 +2991,10 @@ def _settings_hook_dirs():
        'runs. A hook the repo DECLINED on purpose is satisfied by its '
        "declared reason in precedent.json's declined_adapters, never by "
        'wiring it.',
-       practice_backed=False)
+       practice_backed=False,
+       # Its whole subject is this repo's hook wiring and the hook
+       # files themselves; nothing outside .claude/ changes its verdict.
+       selects_on=('.claude/**',))
 def _hooks_on_disk_are_reachable(ctx):
     """A hook nothing names is off, and from inside a session that looks
     exactly like a hook that is working.
@@ -2991,12 +3112,7 @@ def _hooks_on_disk_are_reachable(ctx):
     for e in cfg.get('declined_adapters') or []:
         if not isinstance(e, dict) or not e.get('path'):
             continue
-        # NOT lstrip('./') -- that strips CHARACTERS, so a path beginning
-        # `.claude/` loses its leading dot and matches nothing. Measured
-        # here by the decline cases failing before this shipped.
-        path = str(e['path'])
-        while path.startswith('./'):
-            path = path[2:]
+        path = _strip_relative_prefix(str(e['path']))
         if str(e.get('reason') or '').strip():
             declined[path] = e['reason']
         else:
@@ -3140,6 +3256,108 @@ def _no_hardcoded_git_identity(ctx):
         'per-machine) if it is a personal override, drop it and let '
         'commit-identity.sh resolve it if not, or add a root identity.json '
         'if this repo really is somebody\'s individual practice source.')]
+
+
+@check('workflow-yaml-github-can-parse', 'tree',
+       'no GitHub Actions workflow file, and no workflow template this repo '
+       'ships, uses a YAML anchor or alias -- GitHub\'s own workflow '
+       'parser rejects them outright, and a workflow it refuses to parse '
+       'does not fail, it never runs',
+       'everything else GitHub\'s parser is stricter about than PyYAML is. '
+       'This tests the one divergence that has actually cost a workflow '
+       'here; it is not a reimplementation of GitHub\'s schema, and a file '
+       'that clears it can still be rejected for another reason. Also '
+       'blind to a workflow PyYAML itself cannot parse -- that is '
+       'parse_check.py\'s finding, not this one\'s.',
+       practice_backed=False)
+def _workflow_yaml_github_can_parse(ctx):
+    """A YAML anchor (`&name`) and alias (`*name`) are core YAML 1.1 and
+    PyYAML resolves them without complaint. GitHub Actions does not support
+    them in workflow files.
+
+    THE INCIDENT (2026-09-21, gotcha-2026-09-21-github-actions-rejects-yaml-
+    anchors-python-accepts). A workflow merging two repos' checks into one
+    job needed the same `paths:` list on its `push:` and `pull_request:`
+    triggers and used an anchor, which is what any YAML author would write.
+    `python3 -c "import yaml; yaml.safe_load(...)"` -- the exact command
+    this repository's own templates and pull-request bodies recommend --
+    accepted it.
+
+    WHAT MAKES IT WORTH A CHECK RATHER THAN A NOTE. The failure is not a red
+    run. GitHub refuses the file, so the workflow does not appear at all,
+    and the branch reads as having no CI rather than broken CI. Every local
+    verification this project teaches passes it, which means the belief "it
+    parses locally, so it will run" is true for indentation, true for tabs,
+    true for a missing colon, and false for exactly this.
+
+    Detected through PyYAML's own event stream rather than by matching `&`
+    and `*` in the text: a workflow is full of `&&`, `2>&1` and `*.md`, and
+    a detector that cried wolf on those is one nobody would run twice."""
+    import re as _re
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+    targets = []
+    wf = ctx.root / '.github' / 'workflows'
+    if wf.is_dir():
+        targets += sorted(x for x in wf.iterdir()
+                          if x.suffix in ('.yml', '.yaml'))
+    tmpl = ctx.root / 'templates' / 'github-actions'
+    if tmpl.is_dir():
+        # The templates ship INTO other repos' .github/workflows/, so an
+        # anchor here is the same defect with a blast radius.
+        targets += sorted(x for x in tmpl.iterdir() if x.is_file())
+    if not targets:
+        raise NotApplicable('no .github/workflows/ and no '
+                            'templates/github-actions/ here -- this repo '
+                            'neither runs nor ships a workflow file')
+    # THE FALLBACK IS NOT A CONVENIENCE, IT IS THE POINT. The first version
+    # of this check raised NotApplicable without PyYAML, and CI -- which
+    # does not install it -- skipped the check and failed its own planted
+    # case on the very first run. A check that silently declines in the one
+    # environment that gates every pull request is not a check
+    # (practice: durable-fix). So: the event stream where PyYAML exists, and
+    # where it does not, a STRUCTURAL match that only accepts an anchor or
+    # alias in a position YAML would read as one -- a bare `key: &name` or
+    # `- *name` line. `echo "a && b" 2>&1; ls *.md` matches none of them,
+    # which is the property the planted case exists to prove.
+    structural = _re.compile(
+        r'^\s*(?:-\s+)?(?:[A-Za-z0-9_.<-]+:\s*|-\s*)[&*][A-Za-z0-9_-]+'
+        r'\s*(?:#.*)?$')
+    findings = []
+    for path in targets:
+        try:
+            text = path.read_text(encoding='utf-8')
+        except OSError:
+            continue
+        how = 'PyYAML event stream'
+        if yaml is not None:
+            try:
+                marks = [(getattr(ev, 'anchor', None), ev.start_mark.line + 1)
+                         for ev in yaml.parse(text)]
+            except yaml.YAMLError:
+                # Unparseable is parse_check.py's finding. A template
+                # carrying substitution placeholders may land here too.
+                continue
+            hits = sorted({line for name, line in marks if name})
+        else:
+            how = 'structural match (no PyYAML here)'
+            hits = sorted(i for i, line in enumerate(text.splitlines(), 1)
+                          if structural.match(line))
+        if hits:
+            findings.append(Finding(
+                str(path.relative_to(ctx.root)),
+                f'uses a YAML anchor or alias at line'
+                f'{"s" if len(hits) > 1 else ""} '
+                f'{", ".join(str(h) for h in hits)} ({how}). PyYAML '
+                f'resolves these; '
+                f'GitHub Actions rejects the file outright, and a workflow '
+                f'GitHub refuses to parse does not show up as a failing run '
+                f'-- it does not run at all, so the branch looks like it has '
+                f'no CI rather than broken CI. Write the repeated block out '
+                f'literally on both sides.'))
+    return findings
 
 
 @check('engine-plus-host-shims', 'tree',
@@ -4082,6 +4300,7 @@ def _vocabulary_reaches_the_consumer(ctx):
     declines rather than passing vacuously.
     """
     import re as _re
+    import build_views as _bv
     practices_dir = ctx.root / 'practices'
     if not practices_dir.is_dir():
         raise NotApplicable(
@@ -4178,8 +4397,17 @@ def _vocabulary_reaches_the_consumer(ctx):
     findings = []
     for path, text in command_practices:
         slug = path.stem
+        # ONLY `engine-dev` withholds. This read `not in ('null', '~')`
+        # until 2026-09-22, so it fired on any non-empty value -- including
+        # `any-adopter`, the legal default, which withholds nothing --
+        # with a message stating the opposite of what that value does. It
+        # surfaced the moment two practices wrote the default out in full
+        # rather than leaving it blank, which spec/PRACTICE_FORMAT.md's
+        # `scope` section now asks for where the default is a decision.
+        # A gate that refuses correct work teaches the next session to
+        # ignore it (practice: checkable-gets-checked).
         scope = _re.search(r'^scope:\s*(\S+)', text, _re.M)
-        if scope and scope.group(1).strip() not in ('null', '~'):
+        if scope and scope.group(1).strip().strip('"') == _bv.ENGINE_DEV_SCOPE:
             findings.append(Finding(
                 f'practices/{slug}.md',
                 f'declares a standing command but carries '
@@ -4506,7 +4734,11 @@ def _md_in_scope(ctx):
        'a changed document must not render an accidental strikethrough span '
        '— use the approximately sign, never a tilde',
        'the other half of this practice. Whether a file reference is a link '
-       'is a WARNING in doc_lint, not a gate, and this check inherits that.')
+       'is a WARNING in doc_lint, not a gate, and this check inherits that.',
+       # A tilde span renders as strikethrough wherever the practice lands, not
+       # only in the set that wrote it.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _doc_references_are_links(ctx):
     dl = _doc_lint()
     if not dl.HAVE_GFM:
@@ -4529,7 +4761,11 @@ def _doc_references_are_links(ctx):
        'than one level deeper than the one before it',
        'whether a heading sits at the RIGHT level for its meaning; only '
        'whether the outline it makes is well-formed. A section demoted by '
-       'accident to a level that happens not to skip reads as fine here.')
+       'accident to a level that happens not to skip reads as fine here.',
+       # A practice file has a fixed heading structure; a skipped level there is
+       # a malformed document in every repo that receives it.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _heading_outline(ctx):
     dl = _doc_lint()
     files = _md_in_scope(ctx)
@@ -4655,7 +4891,12 @@ def _token_preexisted_in_base(base, token, known):
        'version and still unglossed here is pre-existing debt, not this '
        "change's doing -- same reasoning as doc_lint's own opt-in numbers "
        'gate, applied here without needing an opt-in marker because the '
-       "diff itself is the scope.")
+       "diff itself is the scope.",
+       # A practice file is read in every repo that resolves this set, so an
+       # acronym left unexpanded here arrives unexpanded there, next to a
+       # GLOSSARY.md the consumer cannot see.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _acronyms_glossary(ctx):
     dl = _doc_lint()
     known = dl.load_known_acronyms()
@@ -4696,7 +4937,10 @@ def _acronyms_glossary(ctx):
        'a reader-facing document in scope carries no process residue — no '
        'verify-later flag, claims-to-source apparatus or decision provenance',
        'apparatus written in words its pattern list does not know. It catches '
-       'the recurring forms, not the idea.')
+       'the recurring forms, not the idea.',
+       # Process residue written into a practice file ships with the practice.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _deliverables_look_like_output(ctx):
     dl = _doc_lint()
     files = _md_in_scope(ctx)
@@ -4731,7 +4975,10 @@ ONE_PARA_CLAIM_RE = re.compile(
        'a claim made in running prose rather than a heading or bold '
        'lead-in — the practice covers both, this check only the labelled '
        'form, because prose mentions of "one-line" are not a label on a '
-       'section and free text has no reliable block boundary to measure.')
+       'section and free text has no reliable block boundary to measure.',
+       # A practice file's own headings and bold lead-ins.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _label_describes_content(ctx):
     out = []
     for f in _md_in_scope(ctx):
@@ -4962,7 +5209,11 @@ REVISION_ANNOTATION_RE = re.compile(
        'exemptions (dated decision records, volatile-fact freshness '
        'stamps, legally load-bearing markers, as-shipped artifacts), which '
        'this check does not try to distinguish -- it only catches the '
-       'literal annotation forms named in the Rule.')
+       'literal annotation forms named in the Rule.',
+       # An "(added <date>)" tag annotated into a practice file travels with it,
+       # into repos whose history does not contain that date.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _docs_are_current_state(ctx):
     out = []
     for f in _md_in_scope(ctx):
@@ -5066,7 +5317,11 @@ def _phrase_preexisted_in_base(base, line):
        'deliberate, correct appendix) plus anything doc_lint calls a record '
        'doc -- a <!--record-doc--> marker, a record-shaped filename, or a '
        'records directory. A document that wrongly claims to be a record '
-       'buys itself silence here, and nothing checks that claim.')
+       'buys itself silence here, and nothing checks that claim.',
+       # Inline lineage in a practice file travels to consumers; the index that
+       # should have carried it instead does not.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _index_remembers_past(ctx):
     out = []
     for f in _md_in_scope(ctx):
@@ -6572,7 +6827,11 @@ def _names_an_approver(block):
        'ABSENCE: an unmarked approval is a defined state (unknown), so '
        'silence is never reported here -- which means this check cannot '
        'tell a catalogue that considered the question from one that has '
-       'never heard of it.')
+       'never heard of it.',
+       # Reads `strength:` out of practice files, which a source set has and
+       # every consumer of it receives.
+       # Audit: spec/PUBLISHER_GATE_AUDIT.md.
+       binds_publishers=True)
 def _decision_strength(ctx):
     files = []
     for glob in STRENGTH_FILE_GLOBS:
@@ -6843,7 +7102,10 @@ def _session_load_budgets():
        'VERBATIM and nothing else: the same point made again in fresh words '
        'costs a session exactly as much and is invisible to it. It also sees '
        'only THIS repo -- the sum across every attached source is '
-       "very_deep_check.py's SESSION LOAD section.")
+       "very_deep_check.py's SESSION LOAD section.",
+       binds_when=('tools/session_load_budgets.json',),
+       selects_on=('AGENTS.md', 'CLAUDE.md',
+                   'tools/session_load_budgets.json'))
 def _session_load_budget(ctx):
     reg = _session_load_budgets()
     if reg is None:
@@ -7176,20 +7438,31 @@ def _scoped_tree_slugs(tree_slugs, buckets=None):
     active = []
     globs_by_slug = {}
     for slug in tree_slugs:
+        # A check's OWN declared paths, which exist whether or not it has a
+        # practice file -- the only tier-2 route open to an engine-property
+        # check (see check()'s `selects_on` docstring for the 2026-09-22
+        # incident this closes). Collected before the practice file is even
+        # looked for, so the `p is None` path below keeps them.
+        declared = [g for g in (CHECKS.get(slug, {}).get('selects_on') or ())
+                    if g != '**']
         p = _practice_file(slug)
         if p is None:
             active.append(slug)
+            if declared:
+                globs_by_slug[slug] = declared
             continue
         try:
             fm, _sections = sp._read_practice_file(p)
         except sp.PracticeFileError:
             active.append(slug)
+            if declared:
+                globs_by_slug[slug] = declared
             continue
         if not _bv.is_in_force(fm):
             continue
         active.append(slug)
-        globs_by_slug[slug] = [g for g in pp._globs(fm.get('applies_to', '[]'))
-                               if g != '**']
+        globs_by_slug[slug] = declared + [
+            g for g in pp._globs(fm.get('applies_to', '[]')) if g != '**']
 
     directly = {s for s in active if f'practices/{s}.md' in touched_set}
     indirectly = {s for s in active if s not in directly
@@ -7293,9 +7566,13 @@ def run(slugs, ctx, scopes, exempt=None):
         # is upstream by design rather than absent by accident. Without
         # this, the repositories that PUBLISH the catalogue are the least
         # checked repositories in the system.
+        # The other exception: a check the repo opted into by keeping the
+        # registry file that carries the rule (see check()'s `binds_when`).
         if (c['practice_backed'] and _practice_file(slug) is None
                 and not (c.get('binds_publishers')
-                         and _publishes_practices())):
+                         and _publishes_practices())
+                and not any((ROOT / rel).exists()
+                            for rel in c.get('binds_when') or ())):
             results.append((slug, 'SKIPPED', [],
                             f'no practices/{slug}.md in this repo, so the '
                             f'practice is not in force here -- this check '
