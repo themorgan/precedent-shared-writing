@@ -22,8 +22,6 @@ When a standing constraint on one file gets stated a second time:
   doc-recipe — present-tense rules for one file, in doc-recipes/<name>.recipe.md
 When about to commit a document that characterizes a real, identifiable person:
   sensitive-characterization-scrub — soften or ask before committing a blunt description of a real person
-When drafting or reviewing prose meant to persuade or be judged:
-  push-back — argue a real counter-case before building on a stated stance
 When leaving a placeholder or fill-in-later note mid-draft:
   draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️, bold and all caps
 When linking to a document in prose, a reply, or a table:

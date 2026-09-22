@@ -6,7 +6,7 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## The practice catalogue
 
-`practices/` holds 20 practice files (0 resident, 20 on-demand). One file per practice.
+`practices/` holds 19 practice files (0 resident, 19 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
@@ -25,7 +25,6 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 | [list-restraint](practices/list-restraint.md) | on-demand | about to format connected prose as bullet points |
 | [no-stale-counts](practices/no-stale-counts.md) | on-demand | writing a sentence that cites an exact, changeable count |
 | [proportional-emphasis](practices/proportional-emphasis.md) | on-demand | reviewing a draft's balance before calling it done |
-| [push-back](practices/push-back.md) | on-demand | drafting or reviewing prose meant to persuade or be judged |
 | [resolved-issue-note-updates](practices/resolved-issue-note-updates.md) | on-demand | a commit fixes, closes, or resolves something a document names in prose as a known, open issue |
 | [rule-links](practices/rule-links.md) | on-demand | naming anything that has a destination, in a document or a reply |
 | [sensitive-characterization-scrub](practices/sensitive-characterization-scrub.md) | on-demand | about to commit a document that characterizes a real, identifiable person |
@@ -33,7 +32,11 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## Withdrawn practices
 
-None. No practice in this catalogue has been retired or deduplicated yet -- when one is, its file stays and it is listed here.
+1 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
+
+| Practice | Status | Now in force at | Why it was withdrawn |
+|---|---|---|---|
+| [push-back](practices/push-back.md) | deduplicated | [push-back](practices/push-back.md) | Migrated here from RepoPersonalPreferences by the phase-3 private-set migration. |
 
 ## The engine
 
