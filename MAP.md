@@ -6,7 +6,7 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## The practice catalogue
 
-`practices/` holds 19 practice files (0 resident, 19 on-demand). One file per practice.
+`practices/` holds 20 practice files (0 resident, 20 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
@@ -23,6 +23,7 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 | [file-mention-links](practices/file-mention-links.md) | on-demand | mentioning a repo file in a chat reply, PR description, or commit message |
 | [list-item-parity](practices/list-item-parity.md) | on-demand | drafting or revising a list, or a document with list-like sections |
 | [list-restraint](practices/list-restraint.md) | on-demand | about to format connected prose as bullet points |
+| [name-the-branch](practices/name-the-branch.md) | on-demand | naming a branch in a reply, a commit message, a pull request, or a GitHub comment |
 | [no-stale-counts](practices/no-stale-counts.md) | on-demand | writing a sentence that cites an exact, changeable count |
 | [proportional-emphasis](practices/proportional-emphasis.md) | on-demand | reviewing a draft's balance before calling it done |
 | [resolved-issue-note-updates](practices/resolved-issue-note-updates.md) | on-demand | a commit fixes, closes, or resolves something a document names in prose as a known, open issue |
