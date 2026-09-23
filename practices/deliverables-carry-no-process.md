@@ -6,6 +6,7 @@ severity:    error
 applies_to:  ["**"]
 occasion:    "writing or editing a document in a declared output path -- anything an outside reader will see"
 gates:       ["push"]
+index_required: true
 index_clause: "an output document carries no attribution stamps, practice slugs or convention notes -- the practice layer keeps that record"
 checked_by:  tools/checks/check_deliverables_carry_no_process.py
 defines:     []
