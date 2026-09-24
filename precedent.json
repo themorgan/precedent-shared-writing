@@ -151,5 +151,14 @@
       "sha": "825726ea43186bfbc63efb7bfe0aaa929303d386",
       "note": "'Add pull_request trigger alongside push: branches: [main]', 2026-09-19 16:45:07 +0000, pushed straight to main. Same session and cause as the entry above, forty minutes later. Parallels 14a51800 in precedent-individual's identity.json. Already on main; exempted rather than rewritten (no-rewrite-for-warnings)."
     }
+  ],
+  "ci_every_hours": 0,
+  "_ci_every_hours_comment": [
+    "0 = GitHub CI checks EVERY push to this repository, whatever a",
+    "person's own ci_every_hours in their identity.json says. Every session",
+    "in every repo reads this repo at session start, so a broken commit here",
+    "spreads before a delayed CI run would ever see it -- this repo's own 0",
+    "wins over any personal number. Why, and how the cadence works:",
+    "https://github.com/alex137/BestPractice/blob/precedent-beta-v01/spec/CI_CADENCE_PLAN.md"
   ]
 }
