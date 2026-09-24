@@ -1860,6 +1860,7 @@ TOOLS_DESCRIPTIONS = {
     'practice_audit.py': "Audits the practice-export layer for a repo that vendors one (this repo does not)",
     'practice_simulation.py': "Synthetic scenario generation for routing quality — invented cases, never a replayed benchmark",
     'precedent_check.py': "The ENFORCED loading channel — runs every practice's `checked_by` script",
+    'precedent_ci_verified.py': "Did CI actually run, and pass, on the commit about to be merged — advisory, one API call",
     'precedent_gate.py': "The GATE-TRIGGERED loading channel — Rules for a named moment (merge, review, push, reply)",
     'precedent_reply_check.py': "The reply gate's BLOCKING half — refuses a stop when the reply missed what a source's reply_check.json requires",
     'precedent_container_safe.py': "Would anything be lost if this container went away? Scans every git checkout in it for uncommitted, untracked and unpushed work",
@@ -1914,7 +1915,7 @@ TOOLS_DESCRIPTIONS = {
     'build_gotcha_index.py': "gotchas/INDEX.md, generated from gotchas/*.md's frontmatter and Symptom sections -- not loaded by AGENTS.md",
     'verify_harness.py': "The verification harness — run before trusting any change here",
     'very_deep_check.py': "The very deep check — on-demand whole-repo coherence review, distinct from full-practice-audit",
-    'precedent_engine_freshness.py': "Says whether this repo's VENDORED engine has fallen behind upstream — the one check that looks outward; prints, never refreshes",
+    'precedent_engine_freshness.py': "Says whether anything this repo vendors or resolves live has fallen behind its upstream — every source precedent.json declares (the engine, each vendored tree, each live sibling clone), one row each; the one check that looks outward; prints, never refreshes",
 }
 
 

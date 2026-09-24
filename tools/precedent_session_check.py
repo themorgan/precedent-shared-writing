@@ -353,7 +353,25 @@ def checks(offline=False):
     raw = os.environ.get('PRECEDENT_FRESHNESS_ALSO')
     name = 'PRECEDENT_FRESHNESS_ALSO names repositories that are there'
     want = _attachable_sources()
-    suggestion = ('Set it to: PRECEDENT_FRESHNESS_ALSO='
+    # COMPUTED FOR THIS DISK, and that sentence is load-bearing.
+    #
+    # 2026-09-21: a known-good value was passed from one container to
+    # another and was wrong in the second one. Both had a duplicated
+    # source; they duplicated DIFFERENT ones. In the first, `~` held the
+    # only copy of the individual set and the stale copies of the shared
+    # sets; in the second, `~` held the STALE individual set and the shared
+    # sets were single. So a line that correctly names `~/precedent-
+    # individual` on one machine names the copy holding no work on the
+    # other -- silently, because an also-list entry that resolves to a real
+    # git repository is never questioned again.
+    #
+    # The value below is read off the directories actually present here,
+    # which is the only way it can be right; the warning is what stops it
+    # being copied somewhere it is not.
+    suggestion = ('Set it to (computed from the clones on THIS disk -- never '
+                  'paste a value from another container, even a known-good '
+                  'one, because which copy of a source is the live one '
+                  'differs per machine): PRECEDENT_FRESHNESS_ALSO='
                   + ';'.join(f'{path}={base}' for path, base in want)) if want else ''
     if raw is None:
         out.append((name, None,
@@ -380,7 +398,236 @@ def checks(offline=False):
                     '; '.join(bad) + '. Each of these is SKIPPED, silently by '
                     'design -- the variable reads as coverage and covers '
                     'nothing. ' + suggestion))
+
+    # 9. One source, one clone.
+    #
+    # Two clones of the SAME practice source on one disk is the quietest
+    # failure in this file. Everything keeps working: the resolver picks
+    # one, the freshness guard checks whichever the also-list names, a
+    # session edits whichever it happened to cd into, and nothing anywhere
+    # says the other exists. Then they diverge, and a practice somebody
+    # wrote this morning is simply not in force, with no error to read.
+    #
+    # Measured 2026-09-21 on this project's own container: three shared
+    # sets were cloned twice, once under $HOME and once beside this repo,
+    # and one of the three (`precedent-shared-writing`) had ALREADY
+    # diverged between its two copies. The also-list suggestion above was
+    # dutifully naming both, which is honest and is also the tell -- a
+    # suggestion listing seven entries for four sources is reporting a
+    # duplicate nobody had noticed.
+    #
+    # Reports and never repairs: which copy is canonical is a judgment
+    # about which one holds work (practice: fail-gracefully). Deleting the
+    # wrong one loses commits.
+    #
+    # THE REMEDY THIS ROW USED TO GIVE WAS WRONG, and a session proved it by
+    # experiment the same day. It said to remove the copy that does not hold
+    # the work. That cannot hold: the source self-heal re-clones whatever
+    # path the user-level config names, so the directory reappeared within
+    # the minute, twice. The directory was never the cause --
+    # ~/.config/precedent/config.json's individual.path pointed at one copy
+    # while the working tree was the other. Repointing that one field is
+    # what closed it. (The session that found it named leak_gate.py as the
+    # re-cloner; leak_gate.py runs one bounded `git pull --ff-only` and
+    # clones nothing, so the re-clone is the resolve-time self-heal running
+    # underneath it -- worth stating, because the next person will go
+    # looking in leak_gate.py for a clone call that is not there.)
+    name = 'each practice source is cloned exactly once on this disk'
+    by_name = {}
+    for shown, _base in _attachable_sources():
+        by_name.setdefault(pathlib.Path(shown).name, []).append(shown)
+    # COUNT WORKING TREES, NOT PATH NAMES. Two paths for one source are only a
+    # duplicate when they are two separate clones; when one is a symlink to
+    # the other there is a single tree, a single place to commit into, and
+    # nothing that can silently diverge -- which is the entire failure this
+    # row exists to catch. precedent_source_bootstrap._clone_elsewhere_on_disk
+    # resolves the sibling-path collision that way on purpose (2026-09-22), so
+    # a row that still called the result a duplicate would be red forever on
+    # exactly the containers that had just fixed it -- and a row that is never
+    # green is a row sessions stop reading.
+    def _tree(shown):
+        try:
+            return str(_expand_source_path(shown).resolve())
+        except Exception:
+            return shown
+    dupes = {n: paths for n, paths in by_name.items()
+             if len({_tree(p) for p in paths}) > 1}
+    if not dupes:
+        out.append((name, True, ''))
+    else:
+        detail = []
+        for n, paths in sorted(dupes.items()):
+            heads = []
+            for shown in paths:
+                real = _expand_source_path(shown)
+                code, head = _git_head(real)
+                heads.append(f'{shown} @ {head or "unreadable"}')
+            agree = len({h.split(" @ ")[1] for h in heads}) == 1
+            detail.append(f'{n}: ' + ', '.join(heads)
+                          + ('' if agree else
+                             ' -- THESE HAVE DIVERGED; work is in one copy '
+                             'and not the other'))
+        out.append((name, False, '; '.join(detail) + '. Nothing reports '
+                    'which copy the loader read, so a practice written in '
+                    'one may simply not be in force. FOR A SHARED SET, THE '
+                    'CAUSE IS USUALLY THE SIBLING PATH: every repo declares '
+                    'its sources at ../<name>, so a consumer and an '
+                    'individual set with different parents each resolve the '
+                    'same set into their own parent and clone it twice. '
+                    'Re-running the source bootstrap links the second path '
+                    'to the first tree instead of cloning it again '
+                    '(precedent_source_bootstrap._clone_elsewhere_on_disk); '
+                    'deleting a stray by hand does not hold, because '
+                    'whatever resolved that path re-creates it next session. '
+                    'FOR THE INDIVIDUAL SET, THE FIX IS THE CONFIG, '
+                    'NOT THE DIRECTORY: point '
+                    '~/.config/precedent/config.json\'s individual.path (and '
+                    'any sibling source path) at the copy that holds the '
+                    'work. Moving or deleting the other one does not hold -- '
+                    'the source self-heal re-clones whatever path the config '
+                    'still names, within the same session. Then confirm from '
+                    'a tool\'s OWN output which path it loaded, rather than '
+                    'assuming the change took. This tool never deletes a '
+                    'clone and never rewrites your config'))
+    # THE CATALOGUE IS READ OFF THESE WORKING TREES, and nothing fetches
+    # before it reads: precedent_materialize.py has no fetch call in it at
+    # all. So a clone sitting behind its own origin does not fail anything,
+    # it quietly puts an older set of practices in force. Measured
+    # 2026-09-21: all four sources on this disk were 17 to 34 commits
+    # behind, every dirty path was engine output nobody had hand-edited, and
+    # every session start had reported success
+    # (todo-2026-09-21-refresh-output-blocks-the-next-pull).
+    #
+    # Said HERE as well as in the refresh, deliberately: a session is told at
+    # its start rather than six steps into a vendor-update runbook, which is
+    # the difference between a fix and a post-mortem. Morgan, 2026-09-21
+    # (strength: assented).
+    #
+    # THREE STATES, NOT TWO, and the third is why this row was rewritten on
+    # 2026-09-23. `_clone_behind` compared against the clone's own
+    # remote-tracking ref and never fetched, so a clone that had not fetched
+    # since it was made measured itself against its own stale `origin/main`,
+    # counted zero commits, and reported CURRENT. The row could not detect
+    # the condition it names.
+    #
+    # It cost a real wrong answer the same day: this container's
+    # precedent-shared-working-style clone sat six commits behind for a whole
+    # session, two practices that had been moved into that set read as
+    # present in NO source, and a session reported to its user, three times,
+    # that two rules had been silently switched off. They had not. The copies
+    # had landed upstream hours earlier. Absent-from-disk was reported as
+    # absent-full-stop, which is the exact confusion the shared set's
+    # `fresh-check-escalation` names: tell "could not verify" apart from
+    # "confirmed".
+    #
+    # So: BEHIND is still a hard False, including when read off a stale ref
+    # -- a clone that already looks behind against an old ref is behind for
+    # certain, and that reading is worth keeping on the cheap offline path.
+    # "Looks current" is only True when a fetch actually succeeded; otherwise
+    # it is None, undetermined, which `failing_guarantees` deliberately does
+    # not nag about. What it must never be again is True.
+    name = 'each practice source clone is current with its own origin'
+    behind, unverified = [], []
+    for shown, _base in _attachable_sources():
+        real = _expand_source_path(shown)
+        verdict, phrase = _clone_behind(real, fetch=not offline)
+        if verdict == 'behind':
+            behind.append(f'{shown} is {phrase}')
+        elif verdict == 'unverified':
+            unverified.append(f'{shown} ({phrase})')
+    if behind:
+        out.append((name, False, '; '.join(behind) + '. The catalogue in '
+                    'force is read from these working trees and nothing '
+                    'fetches first, so the practices this session is '
+                    'following may be the older ones. Run '
+                    '`python3 tools/precedent_refresh_sources.py --apply`, '
+                    'which now brings each clone current before refreshing '
+                    'it and refuses to report success when it cannot.'))
+    elif unverified:
+        out.append((name, None, 'could not compare: ' + '; '.join(unverified)
+                    + '. This is UNMEASURED, not clean -- a clone compared '
+                    'against a remote-tracking ref nothing refreshed reports '
+                    'itself current however far behind it is. Run `python3 '
+                    'tools/precedent_session_check.py` (which fetches) '
+                    'before concluding a practice is absent from a source'))
+    else:
+        out.append((name, True, ''))
     return out
+
+
+def _clone_behind(path, fetch=True):
+    """-> (verdict, phrase), verdict one of 'current', 'behind',
+    'unverified'.
+
+    Compares against the clone's DECLARED base_branch where it has one,
+    never origin/HEAD: origin/HEAD answers "what does GitHub show first",
+    and this repository is the standing counterexample -- default `main`,
+    work on `precedent-beta-v01`.
+
+    FETCHES FIRST, which it did not until 2026-09-23. Without that, the
+    comparison is against whatever the remote-tracking ref last saw, so a
+    clone that never fetched is measured against its own stale copy of
+    origin and always counts zero. The caller's comment records what that
+    cost.
+
+    `fetch=False` is the cheap path for a caller on a gate. It does not
+    make the answer safe to trust: a zero count then means "no difference
+    against a ref nobody refreshed", which is 'unverified', never
+    'current'. A NON-zero count is still 'behind' -- being behind an old
+    ref means being at least that far behind the real one."""
+    try:
+        cfg = json.loads((pathlib.Path(path) / 'precedent.json')
+                         .read_text(encoding='utf-8'))
+        branch = cfg.get('base_branch')
+    except Exception:
+        branch = None
+    if not isinstance(branch, str) or not branch.strip():
+        branch = 'main'
+    fetched, why = False, 'not fetched -- offline path'
+    if fetch:
+        try:
+            f = subprocess.run(
+                ['git', '-C', str(path), 'fetch', '--quiet', 'origin',
+                 branch], capture_output=True, text=True)
+            fetched = f.returncode == 0
+            if not fetched:
+                why = (f'fetch of origin/{branch} failed: '
+                       + (f.stderr.strip().splitlines() or [''])[-1][:120])
+        except OSError as e:
+            why = f'fetch of origin/{branch} could not run ({e})'
+    try:
+        proc = subprocess.run(
+            ['git', '-C', str(path), 'rev-list', '--left-right', '--count',
+             f'origin/{branch}...HEAD'], capture_output=True, text=True)
+    except OSError as e:
+        return 'unverified', f'origin/{branch} could not be read ({e})'
+    if proc.returncode != 0:
+        return 'unverified', f'origin/{branch} did not resolve'
+    parts = proc.stdout.split()
+    if len(parts) != 2:
+        return 'unverified', f'origin/{branch} comparison returned nothing'
+    back, ahead = parts
+    bits = []
+    if back != '0':
+        bits.append(f'{back} commit(s) behind origin/{branch}')
+    if ahead != '0':
+        bits.append(f'{ahead} unpushed commit(s) ahead')
+    if bits:
+        # True even off a stale ref: behind an old origin is behind.
+        return 'behind', ' and '.join(bits)
+    return ('current', '') if fetched else ('unverified', why)
+
+
+def _git_head(path):
+    """-> (code, short sha) for a clone, or (1, '') when it cannot be read.
+    Never raises: a directory that vanished between the scan and here is a
+    row that says 'unreadable', not a traceback in a session-start check."""
+    try:
+        proc = subprocess.run(['git', '-C', str(path), 'rev-parse', '--short',
+                               'HEAD'], capture_output=True, text=True)
+    except OSError:
+        return 1, ''
+    return proc.returncode, proc.stdout.strip()
 
 
 
