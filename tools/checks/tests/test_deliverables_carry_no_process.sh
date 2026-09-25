@@ -18,6 +18,12 @@
 #      that would get the check switched off, so it is tested, not assumed.
 #   G. a bare date with no name ("through 2026-09") and a name with no date
 #      -- must NOT fire.
+#   J. a slug and a practices/ link inside a section declared under
+#      `unpublished_sections` -- must NOT fire. The repo's page builder
+#      cuts that section before sending, so no reader sees it;
+#   K. the same slug in the section right AFTER a declared one -- must
+#      fire. The skip ends at the next heading of any level, and this is
+#      what proves it does not run on to the end of the file.
 # Then two could-not-run cases, which must SKIP -- exit 2, reported as
 # SKIPPED -- and not pass:
 #   H. a repo declaring no output_paths at all;
@@ -185,6 +191,45 @@ MD
   git add -A >/dev/null
 }
 
+declare_unpublished () {
+  python3 - <<'DECLARE'
+import json, pathlib
+p = pathlib.Path('precedent.json')
+d = json.loads(p.read_text(encoding='utf-8'))
+d.setdefault('unpublished_sections', []).append(
+    {'path': 'deliverables/page.md', 'heading': 'Maintainer List'})
+p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+DECLARE
+}
+
+plant_slug_in_unpublished_section () {
+  seed_repo
+  declare_unpublished
+  cat > deliverables/page.md <<'MD'
+# Page
+Plain prose for the reader.
+
+## Maintainer List
+- (`assorted-notes`), see [it](practices/assorted-notes.md)
+MD
+  git add -A >/dev/null
+}
+
+plant_slug_after_unpublished_section () {
+  seed_repo
+  declare_unpublished
+  cat > deliverables/page.md <<'MD'
+# Page
+
+## Maintainer List
+- (`assorted-notes`), see [it](practices/assorted-notes.md)
+
+## For Readers
+Parked material lives in the notes file (`assorted-notes`).
+MD
+  git add -A >/dev/null
+}
+
 plant_no_output_paths () {
   # REMOVE output_paths rather than assume none. In this source repo
   # precedent.json has none and doing nothing looked equivalent; in a
@@ -274,6 +319,8 @@ run "the same three tells inside doc-recipes/"         clean   plant_recipe
 run "the same tells outside every output path"         clean   plant_outside_output_path
 run "hyphenated English that is not in the manifest"   clean   plant_english_that_looks_like_a_slug
 run "a bare date, and names with no date"              clean   plant_innocent_dates_and_names
+run "J. slug and link inside a declared unpublished section" clean plant_slug_in_unpublished_section
+run "K. slug in the section after a declared one"      fires   plant_slug_after_unpublished_section
 run "H. a repo declaring no output_paths"               skipped plant_no_output_paths
 run "I. output_paths with no document under them"      skipped plant_output_paths_with_nothing_under_them
 
