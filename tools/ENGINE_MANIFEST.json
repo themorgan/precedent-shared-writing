@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "staging",
-  "source_commit": "e46f45edd93c4f62e7f2314ccaa9d647005690eb",
+  "source_commit": "8c6be8dbe4d99c10236adbbda822631c68a54bb2",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -60,7 +60,7 @@
     "split_practices.py": "ca76434960c9dd4b234bed1af680f6bad71cc7764b98bfc9df4e3e80597e4893",
     "precedent_migrate_status.py": "63dd3d93e7cd56dc842a3cda2435f480f4b830b9e31bd7d9e0bdb6d389bb7636",
     "precedent_decommission.py": "e60d05b9f73b4edc8f6c84423f0de2553fb344ac4940baff938e7ea10c3bd2f0",
-    "precedent_check.py": "80b5b2178f45e47b80b060fb9571ec2d37bd5b65e77f0b885e0bd9467403035a",
+    "precedent_check.py": "37565adadaf1b03e65ab13e150b100417532bba540de5113600d1dd15cbe9cf5",
     "precedent_source_credentials.py": "1be669c4deed2c11bff78c8013abc6a20c3c110d999b0fb36d019d93f69f1469",
     "precedent_source_bootstrap.py": "debd9d8000e15fd096267120f49e1a572edcda1af21274cb792ad3737e6e2991",
     "precedent_time.py": "d2fed43a695fb53111f1ea37bdac258e903cd490a0a7393a3fb25b728bd02b5f",
@@ -88,8 +88,8 @@
     "session_load_trend.py": "4162194394ff7ac4454945a4fff6ab44674eeb1445b049fc3be99a9ac12412f4",
     "todo_progress.py": "de247bc286cdaf8f104f22a3cffc3ef78beb8baaee12d8de43f319ebc032ef17",
     "precedent_session_check.py": "b4f6a5e5d7207748083bca191077f6e230a1878d31c1502bee1c2b7780ef7fc9",
-    "precedent_push_check.py": "6914af09fd86b1ddb94a775857d8ea5ee7f4cf4e2986d95faf254e9c8c0aae3d",
-    "precedent_branches.py": "ec50c59e4eab6cf2b921e21c89b7d1c28910a224812c6967e9130139cb6ea686",
+    "precedent_push_check.py": "84c9d209988df9baa7566bb675ec444b724095b53d233f3940babb701c285cdd",
+    "precedent_branches.py": "4197d7168bf2427b080307c20935a722bd773454240beca58af1a38d65b3c3aa",
     "precedent_merge_check.py": "d3f3754b98d4933e194458f6e74d39d70a17d6ff6221766869c11b15baa84e0e",
     "precedent_vendor_engine.py": "d8088b5d6095b98c460237d0cc65f6aeb7c77654a33125bed88f2ae86ab0e628",
     "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"

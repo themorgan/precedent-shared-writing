@@ -67,6 +67,21 @@ is keyed on the tree and the check list together, so any change to either
 invalidates it, and it lives in the git directory, never in the tracked
 tree.
 
+AND THE PASS IS SHARED WITH EVERY CHECKOUT (Morgan, 2026-09-25, strength:
+decided). The record above lives in one checkout, and a person working in
+many windows has one checkout per window: a full run in one window was
+invisible to the Promote said in another, which ran the whole suite again
+on files it had already passed. So a recorded pass is also published to
+origin as a small receipt on the branch precedent-check-receipts --
+receipts/<check list>/<tree>.json, naming the files by hash and carrying
+none of them, so it publishes no unpushed work. `--gate` fetches that
+branch when this checkout has no record of its own. The trade, said
+plainly: anyone who can push to origin can write one, and every checkout
+then believes it. Only this file writes them, and only after every check
+passed -- the trust the local record already asked for, now reaching every
+window instead of one. PRECEDENT_NO_SHARED_PASS=1 turns
+both halves off.
+
 TWO TIERS, BY BRANCH (spec/BRANCH_TIERS_PLAN.md, Morgan, 2026-09-25,
 strength: decided). A push to staging or main runs every check below -- the
 FULL tier. A push to pre-staging or any other branch runs only the BASIC
@@ -90,6 +105,7 @@ Exit status: 0 everything passed; 1 a check failed; 2 nothing could be run
 """
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -98,7 +114,44 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 RECORD = 'precedent-push-check.json'
+# The shared receipts live on one branch -- a cloud session's git proxy
+# lets it push branches and nothing else, so a hidden ref namespace was
+# refused with a 403 (measured 2026-09-25). One small file per pass,
+# receipts/<check list>/<tree>.json, the newest RECEIPTS_KEPT of them.
+RECEIPT_BRANCH = 'precedent-check-receipts'
+RECEIPT_REF = 'refs/precedent/receipts'
+RECEIPTS_KEPT = 300
+EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+SHARED_ENV = {'GIT_AUTHOR_NAME': 'precedent_push_check',
+              'GIT_AUTHOR_EMAIL': 'precedent-push-check@localhost',
+              'GIT_COMMITTER_NAME': 'precedent_push_check',
+              'GIT_COMMITTER_EMAIL': 'precedent-push-check@localhost'}
 TAIL_LINES = 40
+# The lines that say WHY a check failed, printed before the tail. A check can
+# end on pages of lines that are not the finding -- precedent_check prints its
+# VIOLATION block and then every SKIPPED and unverified check after it -- so a
+# tail alone can hold nothing but noise. On 2026-09-25 a merge gate refused a
+# consumer's pull request over one unbumped version header, and the session it
+# refused could not see why: all forty lines it was shown said SKIPPED.
+FINDING = re.compile(r'^\s*(VIOLATION|ERROR|FAIL(ED|URE)?)\b')
+FINDING_LINES = 30
+
+
+def _finding_lines(out):
+    """The finding headers in `out`, each with the indented lines under it
+    (its findings, not the rule text after them), capped at FINDING_LINES."""
+    picked, i = [], 0
+    while i < len(out) and len(picked) < FINDING_LINES:
+        if FINDING.match(out[i]):
+            picked.append(out[i])
+            i += 1
+            while (i < len(out) and out[i].startswith('    ')
+                   and len(picked) < FINDING_LINES):
+                picked.append(out[i])
+                i += 1
+            continue
+        i += 1
+    return picked
 
 # name, argv, and the workflow it stands in for. A python3 script is named
 # by its path alone ({engine} is the engine directory); anything else gives
@@ -121,14 +174,25 @@ IDENTITY_CHECKS = (
     ('commit_dates', ['{engine}/checks/check_buenos_aires_dates.py'],
      "precedent-individual's commit-identity.yml, retired 2026-09-21"),
 )
+# Every workflow file is the engine's own untouched copy or carries the
+# person's approval pinned to its content (practice: ci-workflow-approved).
+CI_WORKFLOWS_CHECK = (
+    'ci_workflows', ['{engine}/precedent_check.py', '--only',
+                     'ci-workflow-approved'],
+    'no workflow -- the check that keeps workflows from being added unasked')
 # Entries a repo may simply not have: skipped with a note, never a failure.
-OPTIONAL = {'deep_check', 'commit_author', 'commit_dates'}
+OPTIONAL = {'deep_check', 'commit_author', 'commit_dates', 'light_check'}
 # The BASIC tier: what a push to pre-staging or any other working branch
 # runs. Everything else in a kind's list is FULL-only. The leak gate is
 # here because a push IS publication in a public repository, and cannot
 # wait for promotion (Morgan, 2026-09-25: "Good on nothing private going
 # out", strength: assented). Each costs seconds.
-BASIC_CHECKS = {'doc_lint', 'leak_gate', 'commit_author', 'commit_dates'}
+# ci_workflows is here because a workflow file starts billing the moment it
+# reaches ANY branch GitHub runs it on; light_check is the repo's own fast
+# check, and its secret scan wants every push (practice: ci-workflow-approved;
+# Morgan, 2026-09-25, "we need to absolutely put a hard stop to this").
+BASIC_CHECKS = {'doc_lint', 'leak_gate', 'commit_author', 'commit_dates',
+                'ci_workflows', 'light_check'}
 BASIC, FULL = 'basic', 'full'
 PUSH_CHECKS = {
     'upstream': (
@@ -154,6 +218,7 @@ PUSH_CHECKS = {
          'leak-gate.yml, retired 2026-09-21'),
         ('doc_lint', ['{engine}/doc_lint.py'],
          'doc-lint.yml, retired 2026-09-21'),
+        CI_WORKFLOWS_CHECK,
         DEEP_CHECK_SUITE,
         *IDENTITY_CHECKS,
     ),
@@ -164,6 +229,11 @@ PUSH_CHECKS = {
          'leak-gate.yml (structural half only in CI)'),
         ('doc_lint', ['{engine}/doc_lint.py'],
          'bestpractice-docs.yml, retired 2026-09-21'),
+        CI_WORKFLOWS_CHECK,
+        # The repo's OWN light check, where it has one: what its
+        # light-check.yml ran on GitHub, run here instead of there.
+        ('light_check', ['tools/light_check.py'],
+         "the repo's own light-check.yml"),
         DEEP_CHECK_SUITE,
         *IDENTITY_CHECKS,
     ),
@@ -276,20 +346,120 @@ def clean_tree(root):
 
 
 def already_passed(root, checks, also=()):
-    """True when this tree's recorded pass covers `checks` -- or any of the
-    check lists in `also`, which is how a FULL pass satisfies a BASIC gate.
-    The record names the list it passed by signature, so a BASIC pass can
-    never satisfy a FULL gate."""
+    """The record, when this tree's recorded pass covers `checks` -- or any
+    of the check lists in `also`, which is how a FULL pass satisfies a BASIC
+    gate -- else None. The record names the list it passed by signature, so
+    a BASIC pass can never satisfy a FULL gate."""
     tree = clean_tree(root)
     path = record_path(root)
     if not tree or not path or not path.is_file():
-        return False
+        return None
     try:
         rec = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
-        return False
+        return None
     accepted = {signature(checks), *(signature(c) for c in also)}
-    return rec.get('tree') == tree and rec.get('checks') in accepted
+    if rec.get('tree') == tree and rec.get('checks') in accepted:
+        return rec
+    return None
+
+
+def _shared_off(root):
+    return (os.environ.get('PRECEDENT_NO_SHARED_PASS') == '1'
+            or not git(root, 'remote', 'get-url', 'origin'))
+
+
+def _git_env(root, args, timeout, env=None):
+    try:
+        return subprocess.run(['git', '-C', str(root), *args], capture_output=True,
+                              text=True, timeout=timeout,
+                              env=dict(os.environ, **(env or {})))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _fetch_receipts(root):
+    """-> the receipt branch's tip, fetched into a private ref, or None."""
+    f = _git_env(root, ['fetch', '-q', '--no-tags', 'origin',
+                        f'+refs/heads/{RECEIPT_BRANCH}:{RECEIPT_REF}'], 30)
+    if f is None or f.returncode != 0:
+        return None
+    return git(root, 'rev-parse', '-q', '--verify', RECEIPT_REF) or None
+
+
+def shared_pass(root, tree, sigs):
+    """The record another checkout published to origin for `tree` under any
+    of the check-list signatures `sigs`, else None. Never raises: a remote
+    that cannot be reached is a pass not found, and the suite runs."""
+    if not tree or _shared_off(root) or not _fetch_receipts(root):
+        return None
+    for sig in sigs:
+        body = git(root, 'cat-file', '-p', f'{RECEIPT_REF}:receipts/{sig}/{tree}.json')
+        if body:
+            try:
+                rec = json.loads(body)
+            except ValueError:
+                continue
+            if rec.get('tree') == tree and rec.get('checks') == sig:
+                return rec
+    return None
+
+
+def publish_pass(root, rec):
+    """Add a recorded pass to the receipt branch on origin, for every other
+    checkout. Best effort: a failure is said and never fails the run that
+    passed. Two windows writing at once is a rejected push, retried on the
+    newer tip."""
+    if _shared_off(root):
+        return
+    path = f'receipts/{rec["checks"]}/{rec["tree"]}.json'
+    index = git(root, 'rev-parse', '--git-path', 'precedent-receipts.index')
+    if not index:
+        return
+    env = dict(SHARED_ENV, GIT_INDEX_FILE=str(
+        Path(index) if Path(index).is_absolute() else root / index))
+    why = 'no attempt made'
+    for _ in range(3):
+        tip = _fetch_receipts(root)
+        _git_env(root, ['read-tree', tip or '--empty'], 10, env)
+        order = (git(root, 'cat-file', '-p', f'{tip}:ORDER') if tip else '') or ''
+        order = [l for l in order.splitlines() if l and l != path] + [path]
+        blob = subprocess.run(['git', '-C', str(root), 'hash-object', '-w', '--stdin'],
+                              input=json.dumps(rec, indent=2, sort_keys=True) + '\n',
+                              capture_output=True, text=True).stdout.strip()
+        olist = subprocess.run(['git', '-C', str(root), 'hash-object', '-w', '--stdin'],
+                               input='\n'.join(order[-RECEIPTS_KEPT:]) + '\n',
+                               capture_output=True, text=True).stdout.strip()
+        for old in order[:-RECEIPTS_KEPT]:
+            _git_env(root, ['update-index', '--force-remove', old], 10, env)
+        _git_env(root, ['update-index', '--add', '--cacheinfo',
+                        f'100644,{blob},{path}'], 10, env)
+        _git_env(root, ['update-index', '--add', '--cacheinfo',
+                        f'100644,{olist},ORDER'], 10, env)
+        tree = _git_env(root, ['write-tree'], 10, env)
+        if tree is None or tree.returncode != 0:
+            why = 'could not build the receipt'
+            break
+        # [skip ci]: a workflow that runs on every branch push must not
+        # bill a run for a receipt.
+        c = _git_env(root, ['commit-tree', tree.stdout.strip(),
+                            *(['-p', tip] if tip else []), '-m',
+                            f'[skip ci] receipt: {rec["tier"]} check passed on '
+                            f'tree {rec["tree"][:12]}'], 10, SHARED_ENV)
+        if c is None or c.returncode != 0:
+            why = 'could not build the receipt'
+            break
+        # --no-verify: a pre-push hook here is this very check.
+        p = _git_env(root, ['push', '-q', '--no-verify', 'origin',
+                            f'{c.stdout.strip()}:refs/heads/{RECEIPT_BRANCH}'], 60)
+        if p is not None and p.returncode == 0:
+            _git_env(root, ['update-ref', RECEIPT_REF, c.stdout.strip()], 10)
+            print('precedent_push_check: receipt shared with every checkout of '
+                  'this repository, so no other window re-runs these files.')
+            return
+        why = p.stderr.strip()[:200] if p is not None else 'timed out'
+    print(f'precedent_push_check: NOTE -- could not share the receipt with '
+          f'other checkouts ({why}); they will run the suite themselves.')
 
 
 def _tier_from_args(root, argv):
@@ -318,7 +488,7 @@ def _tier_from_args(root, argv):
 
 
 def run(root, checks):
-    failed, missing = [], []
+    failed, missing, findings = [], [], {}
     started = time.monotonic()
     for i, (name, argv, replaces) in enumerate(checks, 1):
         script = root / argv[1]
@@ -355,13 +525,19 @@ def run(root, checks):
                   f'source, so there is no person to hold it to', flush=True)
             continue
         failed.append(name)
-        print(f'      FAILED (exit {p.returncode}) in {took:.0f}s; last '
-              f'{TAIL_LINES} lines:', flush=True)
-        tail = (p.stdout + p.stderr).rstrip().splitlines()[-TAIL_LINES:]
-        for line in tail:
+        out = (p.stdout + p.stderr).rstrip().splitlines()
+        found = _finding_lines(out)
+        findings[name] = found
+        if found:
+            print(f'      FAILED (exit {p.returncode}) in {took:.0f}s; what '
+                  f'it found:', flush=True)
+            for line in found:
+                print(f'      | {line}')
+        print(f'      last {TAIL_LINES} lines of its output:', flush=True)
+        for line in out[-TAIL_LINES:]:
             print(f'      | {line}')
     total = time.monotonic() - started
-    return failed, missing, total
+    return failed, missing, total, findings
 
 
 def main(argv):
@@ -391,9 +567,23 @@ def main(argv):
         return 0
 
     also = [plan(root, tier=FULL)[1]] if tier == BASIC else []
-    if '--gate' in argv and already_passed(root, checks, also):
+    rec = already_passed(root, checks, also) if '--gate' in argv else None
+    where = ''
+    if '--gate' in argv and not rec:
+        sigs = [signature(checks), *(signature(c) for c in also)]
+        rec = shared_pass(root, clean_tree(root), sigs)
+        if rec:
+            where = ', in another checkout'
+            path = record_path(root)
+            if path:
+                path.write_text(json.dumps(
+                    {k: v for k, v in rec.items() if k != 'shared'},
+                    indent=2) + '\n', encoding='utf-8')
+    if rec:
+        when = f' at {rec["at"]}' if rec.get('at') else ''
         print(f'precedent_push_check: this exact tree already passed the '
-              f'{tier} check ({len(checks)} check(s)); nothing to re-run.')
+              f'{rec.get("tier", tier)} check{when}{where} ({len(checks)} '
+              f'check(s)); nothing to re-run.')
         return 0
 
     if git(root, 'rev-parse', '--is-shallow-repository') == 'true':
@@ -416,9 +606,14 @@ def main(argv):
         print(f'precedent_push_check: {kind} repository {root.name}, the '
               f'basic check, {len(checks)} check(s) ({why}). Staging and main '
               f'get everything.', flush=True)
-    failed, missing, total = run(root, checks)
+    failed, missing, total, findings = run(root, checks)
     tree = clean_tree(root)
     if failed:
+        # Said again at the very end, because the end is what every caller
+        # that truncates -- the push gate, the merge gate -- keeps.
+        for name in failed:
+            for line in findings.get(name, []):
+                print(f'  {name} | {line}')
         print(f'\nprecedent_push_check: FAILED -- {", ".join(failed)} '
               f'({total:.0f}s). Fix the finding and run this again; do not '
               f'push past it.')
@@ -429,13 +624,13 @@ def main(argv):
               f'Refresh the vendored engine to get it.')
     path = record_path(root)
     if tree and path:
-        path.write_text(json.dumps({
-            'tree': tree, 'checks': signature(checks), 'kind': kind,
-            'tier': tier, 'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
-        }, indent=2) + '\n', encoding='utf-8')
+        rec = {'tree': tree, 'checks': signature(checks), 'kind': kind,
+               'tier': tier, 'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+        path.write_text(json.dumps(rec, indent=2) + '\n', encoding='utf-8')
         print(f'\nprecedent_push_check: all passed in {total:.0f}s; recorded '
               f'for tree {tree[:12]} ({tier}), so a push of this commit will '
               f'not re-run them.')
+        publish_pass(root, rec)
     else:
         print(f'\nprecedent_push_check: all passed in {total:.0f}s, over a '
               f'working tree with uncommitted changes -- NOT recorded, since '
