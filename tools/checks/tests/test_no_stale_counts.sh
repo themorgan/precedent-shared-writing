@@ -105,6 +105,24 @@ p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 PY
 }
 
+keep_sources () {   # $@ = the source paths to keep; none keeps none
+  # The cases below that run WITHOUT the engine were written when this repo
+  # declared at most one source. It declares three now, and a repo with more
+  # than one source and no engine is correctly SKIPPED (case I and K assert
+  # exactly that), so those cases were failing on the shape of this repo's
+  # own precedent.json rather than on what they test. Found 2026-09-25, the
+  # first time anything ran this suite in weeks. Each such case now states
+  # the source list it was written against instead of inheriting the real one.
+  python3 - "$@" <<'PY'
+import json, pathlib, sys
+keep = set(sys.argv[1:])
+p = pathlib.Path('precedent.json')
+d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+d['sources'] = [s for s in d.get('sources', []) if (s or {}).get('path') in keep]
+p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+PY
+}
+
 plant_in () {   # $1 = file to write the wrong count into
   mkdir -p "$(dirname "$1")"
   cat > "$1" <<'MD'
@@ -163,11 +181,13 @@ overlay_check_under_test () {
 }
 
 fixture_plain_violation () {
+  keep_sources
   echo "" >> README.md
   echo "This set has 999 practices, definitely not the real count." >> README.md
 }
 
 fixture_section1_mirror () {
+  keep_sources
   # The classic §1 layout: a vendored tree plus the manifest that names it.
   mkdir -p process/upstream
   cat > process/manifest.json <<'JSON'
@@ -335,6 +355,7 @@ fixture_no_practices_tree () {
 }
 
 fixture_closed_todo_item () {
+  keep_sources
   # A closed todo/ item's own historical prose keeps a wrong count from
   # whatever it actually measured, at the time -- the shape L asserts is
   # silent.
@@ -352,6 +373,7 @@ MD
 }
 
 fixture_open_todo_item () {
+  keep_sources
   # Same filename shape and same wrong count as L, but the item is still
   # OPEN -- must still fire, or the exclusion is keyed on the todo/
   # filename alone rather than on the item actually being closed.
@@ -477,6 +499,7 @@ git clone -q "$ROOT" "$SCRATCH" || fail "D' -- could not clone the fixture"
   cd "$SCRATCH"
   overlay_check_under_test
   fixture_section0_mirror
+  keep_sources precedent/universal
   git add -A >/dev/null
   git -c user.name=Test -c user.email=test@example.com commit -q -m "fixture: D-prime"
   remove_engine
