@@ -324,14 +324,31 @@ run "K. slug in the section after a declared one"      fires   plant_slug_after_
 run "H. a repo declaring no output_paths"               skipped plant_no_output_paths
 run "I. output_paths with no document under them"      skipped plant_output_paths_with_nothing_under_them
 
-# The real, current repo. It declares no output_paths, so the honest answer
-# here is SKIPPED (exit 2), not a pass -- asserted as exit 2 specifically,
-# because exit 0 is precisely the bug fixed on 2026-09-10 and the `! cmd`
-# guard this replaces would accept it again.
+# The real, current repo. This assertion used to be hardcoded to "declares
+# no output_paths", which is only ever true of the repo this test was
+# authored against -- checks-plant-their-state: what "the real repo"
+# declares is itself state the test has to read, not assume, since a
+# materialized copy of this same file runs against whatever repo it was
+# vendored into. A repo WITH output_paths gets the honest answer for that
+# case instead: exit 0, a real scan (asserted as "OK:" specifically, so a
+# crash reported as exit 0 by accident would not pass this silently).
 code=0
 out="$(python3 tools/checks/check_deliverables_carry_no_process.py 2>&1)" || code=$?
-if [ "$code" != 2 ]; then
-  echo "FAIL: on the real, current repo -- expected exit 2 (this repo declares no output_paths), got $code: $out" >&2
-  exit 1
+if python3 -c "import json,sys; sys.exit(0 if json.load(open('precedent.json')).get('output_paths') else 1)" 2>/dev/null; then
+  if [ "$code" != 0 ]; then
+    echo "FAIL: on the real, current repo -- expected exit 0 (this repo declares output_paths), got $code: $out" >&2
+    exit 1
+  fi
+  case "$out" in
+    OK:*) ;;
+    *) echo "FAIL: on the real, current repo -- exit 0 but output did not start with 'OK:': $out" >&2
+       exit 1 ;;
+  esac
+  echo "ok: reports a real scan, not SKIPPED, on the real repo (output_paths declared)"
+else
+  if [ "$code" != 2 ]; then
+    echo "FAIL: on the real, current repo -- expected exit 2 (this repo declares no output_paths), got $code: $out" >&2
+    exit 1
+  fi
+  echo "ok: reports SKIPPED, not a pass, on the real repo (no output_paths declared)"
 fi
-echo "ok: reports SKIPPED, not a pass, on the real repo (no output_paths declared)"
