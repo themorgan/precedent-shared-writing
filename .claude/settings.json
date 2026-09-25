@@ -73,6 +73,16 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/seeded-prompt-gate.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash|mcp__.*__merge_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/merge-check-gate.sh",
+            "timeout": 900
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
