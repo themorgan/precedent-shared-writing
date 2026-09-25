@@ -29,12 +29,12 @@ closed:            null
    positive, which is why it was recorded rather than guessed at.
    **The fix belongs upstream, not here,** and is recorded in
    BestPractice's own follow-ups next to
-   [`mirrored_prefixes()`](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/tools/precedent_resolve.py).
+   [`mirrored_prefixes()`](https://github.com/alex137/BestPractice/blob/staging/tools/precedent_resolve.py).
    Deciding what counts as "the practice layer" in a §0 install is the same
    kind of question `mirrored_prefixes()` answered for mirrors; matching
    more path shapes *here* would re-create exactly the private
    re-derivation that
-   [BestPractice's `source-checks-adopt-engine-helpers` item](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/todo/todo-2026-09-10-source-checks-adopt-engine-helpers.md)
+   [BestPractice's `source-checks-adopt-engine-helpers` item](https://github.com/alex137/BestPractice/blob/staging/todo/todo-2026-09-10-source-checks-adopt-engine-helpers.md)
    exists to remove. So this item stays open as a pointer: it is closed by
    an engine helper arriving, not by work in this repo.
    **Blocked-on:** that upstream helper.
