@@ -11,10 +11,18 @@ belong in a working note leak into it and cost that reader attention:
      nothing the reader can look up;
   3. a link into practices/, process/ or tools/checks/.
 
-Two exemptions, both narrow. The `<!-- Last updated ... -->` header that
+Three exemptions, all narrow. The `<!-- Last updated ... -->` header that
 file-header requires is invisible in every rendering, so HTML-comment
 lines are skipped. A doc-recipes/ directory is skipped outright: a
 recipe's whole job is to state the rules for one file, and it never ships.
+And a section the repo declares under `unpublished_sections` in
+precedent.json -- {"path": ..., "heading": ...} -- is skipped from its
+heading to the next heading of any level, because the repo's own page
+builder cuts it before anything is sent. That list is the one declaration
+both read: a builder that cut a section the check still scanned produced
+findings for text no reader would ever see (48 of 50 on one page,
+2026-09-25), and a check that skipped a section the builder still shipped
+would hide a real leak. Neither side may keep its own copy.
 
 WHY THE SLUG HALF READS THE MANIFEST rather than matching hyphenated
 words. Real slugs include `install` and `push-back`, which are also
@@ -74,6 +82,7 @@ BACKTICKED = re.compile(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`")
 LINK = re.compile(r"\[(?:`[^`]*`|[^\]]*)\]\(([^)\s]+)\)")
 INTERNAL_LINK = re.compile(r"(^|/)(practices|process|tools/checks)/")
 HTML_COMMENT = re.compile(r"^\s*<!--")
+HEADING = re.compile(r"^(#{1,6}) (.+)$")
 
 
 def _declared(key):
@@ -137,6 +146,37 @@ def _mask_comments(text):
     return "\n".join(out)
 
 
+def _unpublished_sections():
+    """{repo-relative path: {heading text}} from precedent.json's
+    `unpublished_sections`. An entry missing either half is ignored rather
+    than guessed at: a section with no heading cannot be located, and one
+    with no path would exempt that heading in every document."""
+    out = {}
+    for e in _declared("unpublished_sections"):
+        if isinstance(e, dict) and e.get("path") and e.get("heading"):
+            out.setdefault(e["path"], set()).add(str(e["heading"]).strip())
+    return out
+
+
+def _mask_unpublished(text, headings):
+    """Blank each named section, heading line included, keeping every
+    offset intact so line numbers in the findings stay honest.
+
+    A section runs from its heading to the next heading of ANY level --
+    the boundary the consuming repo's page builder cuts on. Matching a
+    narrower boundary here would scan text the builder drops; a wider one
+    would skip text it ships."""
+    if not headings:
+        return text
+    out, skipping = [], False
+    for line in text.split("\n"):
+        m = HEADING.match(line)
+        if m:
+            skipping = m.group(2).strip() in headings
+        out.append(" " * len(line) if skipping else line)
+    return "\n".join(out)
+
+
 def _in_scope(rel, outputs, internals):
     if not any(rel == o or rel.startswith(o.rstrip("/") + "/") for o in outputs):
         return False
@@ -155,6 +195,7 @@ def main():
               "here is marked as written for an outside reader")
         return 2
     internals = _declared("internal_paths")
+    unpublished = _unpublished_sections()
     slugs = _manifest_slugs()
 
     findings, scanned = [], 0
@@ -164,7 +205,9 @@ def main():
         scanned += 1
         path = ROOT / rel
         try:
-            text = _mask_comments(path.read_text(encoding="utf-8"))
+            text = _mask_unpublished(
+                _mask_comments(path.read_text(encoding="utf-8")),
+                unpublished.get(rel, set()))
         except OSError:
             continue
 
