@@ -54,6 +54,25 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/doc-lint-gate.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/push-check-gate.sh",
+            "timeout": 900
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*__(create_session|create_trigger|update_trigger|fire_trigger|send_later)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/seeded-prompt-gate.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
