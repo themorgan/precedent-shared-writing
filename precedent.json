@@ -159,6 +159,6 @@
     "in every repo reads this repo at session start, so a broken commit here",
     "spreads before a delayed CI run would ever see it -- this repo's own 0",
     "wins over any personal number. Why, and how the cadence works:",
-    "https://github.com/alex137/BestPractice/blob/precedent-beta-v01/spec/CI_CADENCE_PLAN.md"
+    "https://github.com/alex137/BestPractice/blob/staging/spec/CI_CADENCE_PLAN.md"
   ]
 }

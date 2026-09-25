@@ -29,7 +29,7 @@ The cost is asymmetric, which is why this is worth a rule rather than a preferen
 
 A wrong resolution is also **silent**. Nothing corrects it, no check fires, and I carry the wrong belief until something forces it into the open. That is the same shape as every other failure this set keeps recording: not a loud error, a confident wrong answer nobody had reason to re-examine.
 
-[`go-merge`](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/practices/go-merge.md) already requires the merge target to be said out loud before a merge, and its own Story records why — a pull request in that repository once merged silently into the wrong branch. This rule is that same requirement, extended from the one moment before a merge to every time a branch is mentioned at all. Naming it only at the merge is naming it after every decision I made from the summary.
+[`go-merge`](https://github.com/alex137/BestPractice/blob/staging/practices/go-merge.md) already requires the merge target to be said out loud before a merge, and its own Story records why — a pull request in that repository once merged silently into the wrong branch. This rule is that same requirement, extended from the one moment before a merge to every time a branch is mentioned at all. Naming it only at the merge is naming it after every decision I made from the summary.
 
 ## Why
 Because the role-word puts the work on the wrong side. I asked a question about a private repository's gate and got back a report about "the base branch" being red; the branch in question was `precedent-beta-v01`, but nothing in the sentence said so, and the branch I would actually worry about — `main` — was never involved. The sentence was true and I could not tell.

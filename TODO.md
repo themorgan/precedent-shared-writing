@@ -11,7 +11,7 @@ rebuilt from `practices/*.md`.
 
 **A new item is never added here.** File it under `todo/` instead, as a new
 `todo/todo-<date>-<slug>.md` file, per BestPractice's
-[spec/OPEN_ITEM_AND_GOTCHA_PLAN.md](https://github.com/alex137/BestPractice/blob/precedent-beta-v01/spec/OPEN_ITEM_AND_GOTCHA_PLAN.md)
+[spec/OPEN_ITEM_AND_GOTCHA_PLAN.md](https://github.com/alex137/BestPractice/blob/staging/spec/OPEN_ITEM_AND_GOTCHA_PLAN.md)
 Part 1 (this repo drives that format with the vendored
 [`tools/build_todo_index.py`](tools/build_todo_index.py) and
 [`tools/todo_migrate.py`](tools/todo_migrate.py) but does not vendor the
