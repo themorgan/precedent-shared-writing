@@ -258,12 +258,23 @@ JSON
 import json, pathlib
 p = pathlib.Path('precedent.json')
 d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
-srcs = d.setdefault('sources', [])
-if not any((s or {}).get('path') == '.' and (s or {}).get('level') == 'universal'
-           for s in srcs):
-    srcs.append({'level': 'universal', 'name': 'precedent', 'path': '.'})
-if not any((s or {}).get('path') == 'local' for s in srcs):
-    srcs.append({'level': 'repo-local', 'name': 'local', 'path': 'local'})
+# This fixture repurposes the WHOLE clone as a stand-in for a BestPractice-
+# shaped repo whose own declared sources are EXACTLY two: universal at
+# "." (its own practices/ tree) and repo-local at "local" -- nothing else.
+# Any OTHER source $ROOT already declared -- a CONSUMER's real vendored
+# universal (say, at "process/upstream"), or team sources that resolve
+# only via a sibling clone this scratch checkout does not have next to it
+# -- is not additional shape to preserve; it is exactly the state
+# fixture-owns-its-state says a fixture must not inherit. Left in, a
+# second universal source collides on identical slugs (materialized
+# output mirrors its source) and an unreachable team source reports
+# SKIPPED instead of the clean multi-source count this fixture means to
+# prove -- both found 2026-09-25 running this test materialized into a
+# real consumer repo.
+d['sources'] = [
+    {'level': 'universal', 'name': 'precedent', 'path': '.'},
+    {'level': 'repo-local', 'name': 'local', 'path': 'local'},
+]
 p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 PY
   mkdir -p local/practices
@@ -405,6 +416,33 @@ run () {
     if [ -n "${PRECEDENT_REQUIRE_ENGINE_CASES:-}" ]; then
       fail "$label -- PRECEDENT_REQUIRE_ENGINE_CASES is set and the engine is not reachable"
     fi
+    return 0
+  fi
+  # H/I's fixture repurposes $ROOT's WHOLE practices/ tree as if it were a
+  # practice SET's own hand-authored universal content (the alex137/
+  # BestPractice self-sourcing shape this pair tests). In a real practice
+  # set that IS practices/'s actual content, so the fixture's declared
+  # shape and the physical tree agree. In a real CONSUMER, practices/ is
+  # MATERIALIZED output baked from however many sources it actually
+  # declares, and every other real markdown file in the repo (AGENTS.md,
+  # a generated MAP.md, ...) legitimately cites counts tied to that real,
+  # multi-source total -- none of which the fixture's narrow two-source
+  # pretense can make consistent again without rewriting or deleting real
+  # repo content project-wide, which is no longer testing this practice,
+  # it is reshaping the repository. J/K already cover "an ordinary
+  # multi-source consumer" properly; a consumer never legitimately
+  # declares itself as its own universal source at path "." in the first
+  # place, so this scenario cannot really arise there -- skipping it on
+  # a materialized copy loses no real coverage. Found 2026-09-25 running
+  # this fixture materialized into a real consumer repo: forcing it
+  # produced a cascade of real, unrelated files reading as newly stale.
+  if [ "$fixture" = fixture_multi_source_own_count ] && \
+     [ -f "$ROOT/tools/ENGINE_MANIFEST.json" ] && \
+     python3 -c "
+import json, sys
+sys.exit(0 if json.load(open('$ROOT/tools/ENGINE_MANIFEST.json')).get('kind') == 'consumer' else 1)
+" 2>/dev/null; then
+    echo "SKIPPED (not a pass): $label -- this repo is a CONSUMER (tools/ENGINE_MANIFEST.json kind=consumer), not a practice set, so it never legitimately self-sources at path \".\"; this scenario cannot arise here and is covered for a consumer shape by J/K instead."
     return 0
   fi
   local scratch; scratch="$(mktemp -d)"
