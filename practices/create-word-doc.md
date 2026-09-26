@@ -119,7 +119,9 @@ falls back to document defaults) that made `python-docx` and `pandoc`'s
 own docx reader return `None` for every paragraph's resolved style.
 
 **Vendoring:** the script travels with the practice. It is listed in this
-practice's `ships:`, so every repository that resolves this set receives
+practice's `ships:` (universal practice
+[practice-carries-its-files](https://github.com/alex137/BestPractice/blob/staging/practices/practice-carries-its-files.md)), so
+the materializer delivers it: every repository that resolves this set receives
 `tools/create_word_doc.py` on its next sync, alongside the check and its
 test, and never copies it by hand. A repository that only ever needs the ad
 hoc, built-by-hand half can decline it in its own `precedent.json` under
