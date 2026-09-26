@@ -524,6 +524,10 @@ ENGINE_FILES = [
     # upstream repo can do. See documentation/FOR_DEVELOPERS.md and
     # templates/GETTING_STARTED.md, which now say so.
     'very_deep_check.py',
+    # Its CI FLEET AUDIT section runs this beside it (2026-09-26): every
+    # workflow on every branch, asked of GitHub (practice:
+    # ci-workflow-approved).
+    'ci_fleet_audit.py',
     'parse_check.py',
     'precedent_bootstrap_source.py',
     # THE ONE CHECK THAT LOOKS OUTWARD (2026-09-21). Every other check in
@@ -857,6 +861,9 @@ _SEEDED_PROMPT_MATCHER = ('mcp__.*__(create_session|create_trigger|'
 # The merge gate fires on the GitHub MCP server's merge tool and on Bash,
 # where it looks for `gh pr merge` and exits at once on anything else.
 MERGE_GATE_MATCHER = 'Bash|mcp__.*__merge_pull_request'
+# The workflow-write gate fires on the tools that write a file straight onto
+# GitHub, the one route a push gate never sees (ci-workflow-approved).
+WORKFLOW_WRITE_MATCHER = 'mcp__.*__(create_or_update_file|push_files)'
 HOOK_WIRING = {
     'consumer': (
         ('SessionStart', None, 'session-start.sh', ''),
@@ -881,6 +888,9 @@ HOOK_WIRING = {
         # The same check before a merge through GitHub, which no push gate
         # sees (spec/BRANCH_TIERS_PLAN.md, hole 1).
         ('PreToolUse', MERGE_GATE_MATCHER, 'merge-check-gate.sh', ''),
+        # No workflow file written straight onto GitHub, past the push gate
+        # that checks its approval (2026-09-26).
+        ('PreToolUse', WORKFLOW_WRITE_MATCHER, 'workflow-write-gate.sh', ''),
         ('Stop', None, 'stop-git-check.sh', ''),
         ('Stop', None, 'stop-reply-check.sh', ''),
     ),
@@ -904,6 +914,7 @@ HOOK_WIRING = {
         # only thing that runs its checks before a push (2026-09-25).
         ('PreToolUse', 'Bash', 'push-check-gate.sh', ''),
         ('PreToolUse', MERGE_GATE_MATCHER, 'merge-check-gate.sh', ''),
+        ('PreToolUse', WORKFLOW_WRITE_MATCHER, 'workflow-write-gate.sh', ''),
     ),
 }
 # A hook that needs more than the harness's default time gets its own
@@ -3809,6 +3820,13 @@ def record_agents_md_sections(dest_root, kind, source_root):
 # rewrites it from the catalogue; a hand edit there is refused), and a line
 # that also names the new branch, which is recording the rename rather than
 # using the old name ("`staging` (named `precedent-beta-v01` until ...)").
+#
+# The generated block is only cleared by a sync if the catalogue itself is
+# clean, and on 2026-09-26 it was not: a shared set's name-the-branch
+# index_clause named precedent-beta-v01, so every sync wrote it back into
+# the same consumer. precedent_check's retired-branch-name-ships reads this
+# table and reports that text in the set that publishes it, which is the
+# only place it can be fixed.
 RETIRED_BRANCH_NAMES = {
     # old name: (new name, date renamed)
     'precedent-beta-v01': ('staging', '2026-09-25'),
