@@ -83,6 +83,15 @@
             "timeout": 900
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*__(create_or_update_file|push_files)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/workflow-write-gate.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
