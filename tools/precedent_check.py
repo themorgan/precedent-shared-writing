@@ -919,6 +919,175 @@ def _catalogue_carries_stories(ctx):
     return out
 
 
+# ---- retired-branch-name-ships ---------------------------------------------
+# The practice text a sync WRITES into other repositories -- the one-line
+# fields every generated block and the vocabulary render, and a resident
+# practice's whole Rule -- must not name a branch that has been renamed.
+_SHIPPED_FIELDS = ('title', 'occasion', 'index_clause', 'command')
+
+
+@check('retired-branch-name-ships', 'tree',
+       'no active practice in this catalogue names a retired branch '
+       '(precedent_vendor_engine.RETIRED_BRANCH_NAMES) in the text a sync '
+       'writes into other repositories -- its title, occasion, index_clause '
+       'or command, or the Rule of a resident practice -- unless the same '
+       'text also names the branch it became',
+       'a retired name in a Rule or Detail that stays on demand, and every '
+       'Why and Story: those are read one practice at a time, and most of '
+       'the mentions there are dated history that should keep the name it '
+       'had. It also knows only the renames the registry lists.',
+       practice_backed=False, binds_publishers=True,
+       selects_on=('practices/*.md', 'tools/precedent_vendor_engine.py'))
+def _retired_branch_name_ships(ctx):
+    """A retired branch name shipped from a catalogue comes back on every
+    sync, so the consumer-side report cannot be where it is fixed.
+
+    THE INCIDENT (2026-09-26). precedent-beta-v01 was renamed staging on
+    2026-09-25, and refresh started listing each line of a consumer's own
+    AGENTS.md, CLAUDE.md and tools/bootstrap.sh that still named it. It
+    skips the generated block on purpose -- the next sync rewrites that
+    from the catalogue, and a hand edit there is refused. Run against a
+    real consumer the day after, the generated block still named the old
+    branch: a shared set's name-the-branch practice carried it in its
+    index_clause, "name a branch literally (precedent-beta-v01, main)", so
+    the sync that was supposed to clear it wrote it straight back. Nothing
+    reported it anywhere. The fix belongs where the text is authored, so
+    this runs in whichever repo publishes the practice.
+    """
+    try:
+        import precedent_vendor_engine as pve
+    except ImportError:
+        raise NotApplicable('precedent_vendor_engine.py did not import, so '
+                            'the retired branch names cannot be read')
+    retired = getattr(pve, 'RETIRED_BRANCH_NAMES', None)
+    if not retired:
+        raise NotApplicable('this engine predates RETIRED_BRANCH_NAMES')
+    pdir = ROOT / 'practices'
+    if not pdir.is_dir():
+        return []
+
+    def named(name, text):
+        return re.search(rf'(?<![\w-]){re.escape(name)}(?![\w-])', text)
+
+    out = []
+    for path in sorted(pdir.glob('*.md')):
+        rel = str(path.relative_to(ROOT))
+        if _foreign_practice(rel):
+            continue
+        try:
+            fm, sections = sp._read_practice_file(path)
+        except Exception:
+            continue
+        if _practice_status(path.read_text(encoding='utf-8',
+                                           errors='ignore')) != 'active':
+            continue
+        shipped = [(f, str(fm.get(f) or '')) for f in _SHIPPED_FIELDS]
+        if str(fm.get('tier') or '').strip('"') == 'resident':
+            shipped.append(('## Rule', sections.get('rule') or ''))
+        for where, text in shipped:
+            for old, (new, date) in retired.items():
+                for line in text.splitlines():
+                    if named(old, line) and not named(new, line):
+                        out.append(Finding(
+                            rel, f'its {where} names {old}, renamed {new} on '
+                                 f'{date}, and every sync copies that into the '
+                                 f'repos that load this practice -- name {new} '
+                                 f'here instead'))
+                        break
+    return out
+
+
+
+
+# ---- frontmatter-field-order ----------------------------------------------
+# spec/PRACTICE_FORMAT.md sets one order for a practice's frontmatter fields;
+# frontmatter_yaml.FIELD_ORDER is that order written down once, in code.
+_FIX_ORDER_CMD = 'python3 tools/frontmatter_yaml.py --fix-order'
+_SPEC_SHAPE_RE = re.compile(r'^## The Shape\n.*?^```\n---\n(.*?)\n---\n', re.S | re.M)
+
+
+@check('frontmatter-field-order', 'tree',
+       'every practice this repo publishes lists its frontmatter fields in '
+       'the order spec/PRACTICE_FORMAT.md sets (frontmatter_yaml.FIELD_ORDER), '
+       'with no field the spec does not list; where the spec is present, its '
+       'own example lists exactly that order',
+       'whether a field\'s VALUE is right, and a practice another source owns '
+       '(a materialized copy is fixed where it is authored). ADVISORY until the '
+       'practice sets have taken the engine update and run the fixer -- see '
+       'the function\'s own note.',
+       advisory=True, practice_backed=False, binds_publishers=True,
+       selects_on=('practices/*.md', 'spec/PRACTICE_FORMAT.md',
+                   'tools/frontmatter_yaml.py'))
+def _frontmatter_field_order(ctx):
+    """Field order drifts because nothing checked it.
+
+    THE INCIDENT (2026-09-26). When `ships:` rolled out, the handoff message
+    to precedent-shared-writing said to put it "under applies_to". The spec
+    puts it directly after `checked_by:`. The set followed the message and
+    later had to undo the move; Morgan ruled that the spec's order stands.
+    Counted the same day: 49 of 151 practices here out of order, 11 of 33 in
+    precedent-individual, 7 of 44 in precedent-shared-repo-maintenance, 3 of
+    9 in precedent-shared-working-style and 3 of 21 in
+    precedent-shared-writing. One field here, `source_rule_unlabeled`, was
+    in no list at all; split_practices.py reads it, so it joined the spec.
+
+    ADVISORY, deliberately. The sets receive this check through Update
+    Vendors, and a blocking one would turn each of them red on that update
+    with nothing BestPractice can do about it. Advisory, with the fixer named
+    in every finding, lets each set clean up on its own next push. Make it
+    blocking once the sets have taken the update and run the fixer.
+    """
+    try:
+        import frontmatter_yaml as fy
+    except ImportError:
+        raise NotApplicable('frontmatter_yaml.py did not import, so the field '
+                            'order cannot be read')
+    order = getattr(fy, 'FIELD_ORDER', None)
+    if not order:
+        raise NotApplicable('this engine\'s frontmatter_yaml.py predates '
+                            'FIELD_ORDER')
+    out = []
+    spec = ROOT / 'spec' / 'PRACTICE_FORMAT.md'
+    if spec.is_file():
+        m = _SPEC_SHAPE_RE.search(spec.read_text(encoding='utf-8', errors='ignore'))
+        shown = ([k for k, _ in fy._field_blocks(m.group(1))[1]] if m else None)
+        if shown is None:
+            out.append(Finding('spec/PRACTICE_FORMAT.md',
+                               '"The Shape" no longer opens with a fenced '
+                               'frontmatter example this check can read'))
+        elif tuple(shown) != tuple(order):
+            missing = [k for k in order if k not in shown]
+            extra = [k for k in shown if k not in order]
+            out.append(Finding(
+                'spec/PRACTICE_FORMAT.md',
+                f'"The Shape" lists its frontmatter fields differently from '
+                f'frontmatter_yaml.FIELD_ORDER (missing: {missing or "none"}; '
+                f'not in FIELD_ORDER: {extra or "none"}) -- the two are one '
+                f'order and must be changed together'))
+    pdir = ROOT / 'practices'
+    if not pdir.is_dir():
+        return out
+    for path in sorted(pdir.glob('*.md')):
+        rel = str(path.relative_to(ROOT))
+        if _foreign_practice(rel):
+            continue
+        text = path.read_text(encoding='utf-8', errors='ignore')
+        problem = fy.field_order_problem(text)
+        if problem:
+            fixable = fy.reorder_fields(text) != text
+            out.append(Finding(
+                rel, f'frontmatter out of the spec\'s order: {problem} -- '
+                     + (f'run `{_FIX_ORDER_CMD}`, which moves whole fields and '
+                        f'changes nothing else' if fixable else
+                        'the fixer leaves a repeated key alone; keep the copy '
+                        'that is meant and delete the other')))
+        for key in fy.unlisted_fields(text):
+            out.append(Finding(
+                rel, f'carries `{key}:`, a field spec/PRACTICE_FORMAT.md does '
+                     f'not list -- remove it, or add it to the spec and to '
+                     f'FIELD_ORDER in tools/frontmatter_yaml.py upstream in '
+                     f'BestPractice, where the order is defined'))
+    return out
 
 # ---- practice-links-travel -------------------------------------------------
 # A practice file is copied into every repository that adopts the catalogue,
@@ -1083,9 +1252,9 @@ def _sibling_not_in_force(pdir, base):
     # so the surviving copy lands at exactly the same `practices/<slug>.md`
     # the link already points at. Reporting it was a false positive, and the
     # message it printed was degenerate in the bargain: "that rule is in force
-    # as `go-merge` -- link `go-merge.md` instead" of `go-merge.md`.
+    # as `go-update` -- link `go-update.md` instead" of `go-update.md`.
     # Measured 2026-09-14 against the resolver rather than reasoned: a
-    # universal `go-merge` (active) plus an individual `go-merge`
+    # universal `go-update` (active) plus an individual `go-update`
     # (deduplicated, in_force_at itself) resolves to the universal one, so a
     # consumer does receive the file. Found by the session running this
     # check's own first vendor update, which it blocked (practice:
@@ -1116,7 +1285,8 @@ def _sibling_not_in_force(pdir, base):
 @check('practice-links-travel', 'tree',
        'every link in a practice file THIS repo owns either travels with the '
        "file (a sibling practice, a vendored engine file, this source's own "
-       'tools/checks/ check script or tests/ test, which must exist here) or '
+       'tools/checks/ check script or tests/ test, or a file a practice here '
+       'declares in `ships:` -- each of which must exist here) or '
        'is an absolute URL into this repository on '
        'its declared base_branch, naming a path that exists. A sibling link '
        'from an ACTIVE practice must also point at one that is in force: a '
@@ -1170,6 +1340,7 @@ def _practice_links_travel(ctx):
                             f'({e}), so what travels is unknown')
     branch = _declared_base_branch(ROOT)
     slug = _origin_slug()
+    shipped = _declared_ships(owned)
     out = []
     for path in owned:
         rel = str(path.relative_to(ROOT))
@@ -1255,6 +1426,14 @@ def _practice_links_travel(ctx):
                 continue                        # a sibling practice file
             if base.startswith('../') and base[3:] in travel:
                 continue                        # a vendored engine file
+            # A file some practice here declares in `ships:` travels too:
+            # precedent_materialize.py delivers it to the same path in every
+            # consumer. It must exist here, which practice-carries-its-files
+            # holds this repository to separately.
+            # practice: practice-carries-its-files
+            if base.startswith('../') and base[3:] in shipped \
+                    and (ROOT / base[3:]).is_file():
+                continue                        # a file a practice ships
             # A source's own check scripts travel too: materialize writes
             # every declared source's tools/checks/** into the consuming
             # repo alongside practices/. Missing this was a false violation
@@ -1305,8 +1484,220 @@ def _practice_links_travel(ctx):
             out.append(Finding(
                 where, f'`{target}` does not travel with this file -- it is '
                        f'live here and dead in every repository that receives '
-                       f'the catalogue. Link it as {fix}, or drop the link '
-                       f'markup and keep the backticked path'))
+                       f'the catalogue. Link it as {fix}, declare it in the '
+                       f'practice\'s `ships:` if the practice owns it, or '
+                       f'drop the link markup and keep the backticked path'))
+    return out
+
+
+def _declared_ships(practice_files):
+    """{path} every ACTIVE practice among `practice_files` declares in
+    `ships:`. A malformed declaration contributes nothing here --
+    practice-carries-its-files reports it, once, in its own words."""
+    import build_views as _bv
+    out = set()
+    for path in practice_files:
+        fields = _practice_status_fields(path)
+        if fields is not None and not fields[0]:
+            continue
+        try:
+            fm, _sections = sp._read_practice_file(path)
+            out.update(_bv.ships_paths(fm))
+        except Exception:                          # practice: fail-gracefully
+            continue
+    return out
+
+
+# A test's own root: `cd "$(dirname "$0")/../../.."` then `ROOT="$(pwd)"`,
+# the shape every shipped test in every set used on 2026-09-26, or the
+# one-line `ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"`.
+_TEST_CD_ROOT_RE = re.compile(
+    r'''^\s*cd\s+["']?\$\(dirname\s+["']?\$\{?(?:0|BASH_SOURCE(?:\[0\])?)\}?'''
+    r'''["']?\)["']?/\.\./\.\./\.\.["']?\s*(?:$|[;&|#])''')
+_TEST_PWD_ASSIGN_RE = re.compile(
+    r'''^\s*(?:export\s+|readonly\s+)?([A-Za-z_]\w*)=["']?(?:\$\(pwd\)|\$PWD|\$\{PWD\})["']?\s*$''')
+_TEST_ROOT_ASSIGN_RE = re.compile(
+    r'''^\s*(?:export\s+|readonly\s+)?([A-Za-z_]\w*)=["']?\$\(\s*cd\s+["']?'''
+    r'''\$\(dirname\s+["']?\$\{?(?:0|BASH_SOURCE(?:\[0\])?)\}?["']?\)["']?'''
+    r'''/\.\./\.\./\.\.["']?\s*&&\s*pwd\s*\)''')
+
+
+def _test_root_vars(text):
+    """The variables a shipped test binds to its own repository root."""
+    names, at_root = set(), False
+    for line in text.splitlines():
+        m = _TEST_ROOT_ASSIGN_RE.match(line)
+        if m:
+            names.add(m.group(1))
+            continue
+        if _TEST_CD_ROOT_RE.match(line):
+            at_root = True
+            continue
+        if re.match(r'^\s*cd\b', line):
+            at_root = False
+            continue
+        m = _TEST_PWD_ASSIGN_RE.match(line)
+        if m and at_root:
+            names.add(m.group(1))
+    return names
+
+
+def _test_reads_tools(text):
+    """-> {tools/<path>: first line number} for every tools/ file outside
+    tools/checks/ that a test READS through its root variable without first
+    asking whether it is there. A path the test probes (`[ -f "$ROOT/x" ]`,
+    `-d`, `-e`, ...) anywhere is taken as handled: the test has an answer
+    for its absence, and running it where it is absent is the consumer-shape
+    run's job, not this parser's."""
+    roots = _test_root_vars(text)
+    if not roots:
+        return {}
+    alt = '|'.join(re.escape(r) for r in sorted(roots))
+    ref = re.compile(r'\$\{?(?:' + alt + r')\}?/(tools/[A-Za-z0-9_.\-/]*'
+                     r'[A-Za-z0-9_])')
+    probe = re.compile(r'(?:-[defrsx]|test\s+-[defrsx])\s+["\']?\$\{?(?:'
+                       + alt + r')\}?/(tools/[A-Za-z0-9_.\-/]*[A-Za-z0-9_])')
+    probed = set(probe.findall(text))
+    out = {}
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith('#'):
+            continue
+        for path in ref.findall(line):
+            if path.startswith('tools/checks/') or path in probed:
+                continue
+            out.setdefault(path, lineno)
+    return out
+
+
+@check('practice-carries-its-files', 'tree',
+       "every file a practice this repository PUBLISHES depends on is where "
+       "a consumer will find it: each `ships:` entry is a legal path that "
+       "exists here; each concrete (non-glob) `applies_to` path under tools/ "
+       "and the `checked_by` script exist here; and every tools/ file outside "
+       "tools/checks/ that the practice's shipped test reads through its "
+       "root is either a vendored engine file or declared in `ships:` by a "
+       "practice here",
+       "a file the test reaches any other way -- a relative path after a "
+       "`cd`, a variable built up in pieces, a Python script the test runs "
+       "that opens the file itself. It reads `$ROOT/tools/...` literals and "
+       "nothing cleverer; precedent_consumer_shape.py runs every shipped "
+       "test without this source's own tools/ and catches the rest at the "
+       "source's push. It also says nothing about a file a practice's RULE "
+       "names in prose without shipping it, which is session judgment -- "
+       "and nothing about local/practices/, which never travels.",
+       # A source set holds its own practices only, so without this the
+       # check would skip in exactly the repositories it exists for.
+       binds_publishers=True,
+       selects_on=('practices/*.md', 'tools/**'))
+def _practice_carries_its_files(ctx):
+    """practice: practice-carries-its-files
+
+    THE INCIDENT (2026-09-26). precedent-shared-writing's create-word-doc
+    practice owns tools/create_word_doc.py; its shipped test copies it
+    (`cp "$SET_ROOT/tools/create_word_doc.py" ...`). The materializer never
+    delivered tools/ scripts, the practice said consumers "copy it in by
+    hand", and in a consumer that had not, the deep check went red on a
+    test nobody there could fix. Nothing declared the dependency, so
+    nothing could deliver it -- and the same missing declaration meant a
+    practice moved to another set could leave its script behind without
+    anything noticing. `ships:` is the declaration; this is what holds a
+    publishing repository to it, at that repository's own push rather
+    than at a consumer's."""
+    import build_views as _bv
+    pdir = ROOT / 'practices'
+    if not pdir.is_dir():
+        raise NotApplicable('this repo has no practices/ directory')
+    if (ROOT / 'MANIFEST.json').is_file():
+        raise NotApplicable(
+            'practices/ here is materialized from declared sources (a '
+            'MANIFEST.json records it) -- each source holds its own practices '
+            'to this at its own push, and their files are not expected here')
+    engine = _bv._engine_tool_paths() | {'tools/ENGINE_MANIFEST.json'}
+    engine |= {f'tools/{n}' for n in (_engine_manifest().get('files') or [])
+               if isinstance(n, str)}
+    files = sorted(pdir.glob('*.md'))
+    active = [p for p in files
+              if (_practice_status_fields(p) or (True,))[0]]
+    shipped = _declared_ships(active)
+    out = []
+    for path in active:
+        rel = str(path.relative_to(ROOT))
+        try:
+            fm, _sections = sp._read_practice_file(path)
+        except Exception as e:                     # practice: fail-gracefully
+            out.append(Finding(rel, f'does not parse as a practice file ({e}), '
+                                    f'so what it depends on cannot be read'))
+            continue
+        try:
+            ships = _bv.ships_paths(fm)
+        except ValueError as e:
+            out.append(Finding(rel, f'{e} -- write it as a JSON list, e.g. '
+                                    f'ships: ["tools/my_script.py"]'))
+            ships = []
+        for entry in ships:
+            why = _bv.ship_path_problem(entry)
+            if why:
+                out.append(Finding(rel, f'`ships:` entry {entry!r} {why}'))
+            elif not (ROOT / entry).is_file():
+                out.append(Finding(
+                    rel, f'ships `{entry}`, which is not in this repository -- '
+                         f'every consumer is promised a file this source does '
+                         f'not carry. If the practice moved here, the file '
+                         f'moves with it, in the same commit'))
+        try:
+            applies = json.loads(fm.get('applies_to') or '[]')
+        except (TypeError, ValueError):
+            applies = []
+        # Only a concrete tools/ path: that is a script the practice owns.
+        # A concrete root file (`precedent.json`, `AGENTS.md`) is one every
+        # repository keeps its own copy of, and firing on it was a false
+        # positive on a correct bare source set (the harness caught it on
+        # source-naming, whose applies_to names precedent.json).
+        for entry in applies if isinstance(applies, list) else []:
+            if (not isinstance(entry, str) or not entry.startswith('tools/')
+                    or entry.startswith('tools/checks/')
+                    or any(c in entry for c in '*?[]{}')):
+                continue
+            if not (ROOT / entry).exists():
+                out.append(Finding(
+                    rel, f'applies_to names `{entry}`, which is not in this '
+                         f'repository -- a script the practice fires on is one '
+                         f'it owns, and it did not come along. Move it here '
+                         f'with the practice'))
+        cb = str(fm.get('checked_by') or '').strip().strip('"\' ')
+        if cb and cb != 'null' and not (ROOT / cb).is_file():
+            out.append(Finding(
+                rel, f'checked_by names `{cb}`, which is not in this '
+                     f'repository -- the check a practice claims moves with '
+                     f'it, script and test together'))
+            continue
+        name = pathlib.PurePosixPath(cb).name if cb else ''
+        if not (name.startswith('check_') and name.endswith('.py')
+                and '/checks/' in cb):
+            continue
+        test = (ROOT / 'tools').joinpath('checks', 'tests') / (
+            'test_' + name[len('check_'):-3] + '.sh')
+        if not test.is_file():
+            continue
+        text = test.read_text(encoding='utf-8', errors='replace')
+        test_rel = str(test.relative_to(ROOT))
+        for dep, lineno in sorted(_test_reads_tools(text).items()):
+            if dep in engine or dep in shipped:
+                continue
+            if (ROOT / dep).exists():
+                why = (f'`{dep}`, which is in this repository and reaches no '
+                       f'consumer: it is not a vendored engine file, and no '
+                       f'practice here ships it. Add it to `ships:` in '
+                       f'{rel} so every consumer receives it')
+            else:
+                why = (f'`{dep}`, which is not in this repository at all, and no '
+                       f'consumer receives it either. If it stayed behind '
+                       f'when the practice moved, move it here and declare '
+                       f'it in `ships:` in {rel}')
+            out.append(Finding(
+                f'{test_rel}:{lineno}',
+                f'the shipped test for {path.stem} reads {why}; without it the '
+                f'test goes red in every consumer, where nobody can fix it'))
     return out
 
 @check('no-version-suffix', 'change',
@@ -3312,6 +3703,153 @@ def _hooks_on_disk_are_reachable(ctx):
     return found
 
 
+_SOURCE_CLONE_RE = re.compile(
+    r'precedent_source_bootstrap\.py\b[^\n]*--(?:sources|teams)-from\b')
+_SCRIPT_PATH_RE = re.compile(r'((?:[\w.-]+/)*[\w.-]+\.sh)\b')
+# `$CLAUDE_PROJECT_DIR/`, `${CLAUDE_PROJECT_DIR:-.}/`, `$P/`: the repo root,
+# however a caller spells it. Dropped before matching, or the variable's own
+# name reads as the first path segment.
+_ROOT_VAR_RE = re.compile(r'\$\{[^}]*\}/|\$\w+/')
+
+
+def _script_paths(text):
+    return _SCRIPT_PATH_RE.findall(_ROOT_VAR_RE.sub('', text))
+
+
+def _session_start_scripts():
+    """-> [Path] every script in this repo that runs at session start: each
+    one a settings*.json SessionStart entry names, and each script those name
+    by path, followed through (session-start.sh execs tools/bootstrap.sh).
+
+    With no SessionStart entry anywhere, the harness-neutral
+    tools/bootstrap.sh stands in: on a harness with no session hook the
+    instructions file is what tells the agent to run it."""
+    roots = []
+    claude = ROOT / '.claude'
+    for sp in sorted(claude.glob('settings*.json')) if claude.is_dir() else []:
+        try:
+            hooks = json.loads(sp.read_text(encoding='utf-8')).get('hooks')
+        except (OSError, ValueError):            # practice: fail-gracefully
+            continue
+        entries = hooks.get('SessionStart') if isinstance(hooks, dict) else None
+        for entry in entries if isinstance(entries, list) else []:
+            for h in (entry.get('hooks') or []) if isinstance(entry, dict) else []:
+                cmd = h.get('command') if isinstance(h, dict) else None
+                if isinstance(cmd, str):
+                    roots.extend(_script_paths(cmd))
+    # joinpath, not the plain slash spelling: a practice set has no
+    # bootstrap.sh, and vendored-engine-file-refs-resolve reads that spelling
+    # as a companion the engine must ship.
+    if not roots and (ROOT / 'tools').joinpath('bootstrap.sh').is_file():
+        roots = ['tools/bootstrap.sh']
+    seen, queue = [], list(roots)
+    while queue:
+        rel = _strip_relative_prefix(queue.pop(0))
+        p = ROOT / rel
+        if p in seen or not p.is_file():
+            continue
+        seen.append(p)
+        try:
+            text = _invocation_text(p, p.read_text(encoding='utf-8',
+                                                   errors='ignore'))
+        except OSError:                          # practice: fail-gracefully
+            continue
+        queue.extend(_script_paths(text))
+    return seen
+
+
+@check('declared-sources-are-cloned', 'tree',
+       'a repo that declares a shared (or universal) practice source at a '
+       'path outside itself wires a session-start step that clones it -- '
+       'tools/precedent_source_bootstrap.py --sources-from, reached from a '
+       'SessionStart hook or tools/bootstrap.sh',
+       'whether that step succeeds: no credential in the environment, or a '
+       'set the credential cannot read, still leaves the set missing, and '
+       'the tool itself says so at session start. It reads comment-stripped '
+       'script text, so a step behind a condition that never holds still '
+       'counts. A source declared inside the repo (a vendored copy) needs no '
+       'clone and is not asked about.',
+       practice_backed=False,
+       selects_on=('.claude/**', 'bootstrap/**', 'tools/bootstrap.sh',
+                   'precedent.json'))
+def _declared_sources_are_cloned(ctx):
+    """A declared set that nothing clones is missing from every fresh
+    container, and nothing says so.
+
+    WHY THIS EXISTS (practice: cite-the-incident). Until 2026-09-26 the only
+    session-start code that cloned declared sources was
+    precedent-universal-catalogue.sh, the hook for practice SETS, and
+    spec/MIGRATING_EXISTING_INSTALLS.md tells every consumer to decline it.
+    templates/bootstrap.sh, which every consumer does run, never had the
+    step. A consumer that declared a shared set on purpose found it missing
+    from every fresh container, and precedent_sync_views.py --check reported
+    36 differences in its loader block that were really one absent
+    directory. Every check here passed throughout."""
+    try:
+        cfg = json.loads((ctx.root / 'precedent.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise NotApplicable('no readable precedent.json, so no declared sources')
+    here = ctx.root.resolve()
+    outside = []
+    for src in cfg.get('sources') or []:
+        if not isinstance(src, dict):
+            continue
+        if src.get('level') not in ('shared', 'team', 'universal'):
+            continue
+        rel = str(src.get('path') or '').strip()
+        if not rel:
+            continue
+        p = (ctx.root / rel).resolve()
+        # Same test as precedent_source_bootstrap._declared_inside: the repo
+        # itself, or a vendored copy inside it, is never cloned.
+        vendored = (p == here or (here in p.parents and p.exists()
+                                  and not (p / '.git').exists()))
+        if not vendored:
+            outside.append(str(src.get('name') or rel))
+    if not outside:
+        raise NotApplicable('precedent.json declares no shared or universal '
+                            'source that is not this repo or vendored inside '
+                            'it, so nothing needs cloning at session start')
+    scripts = _session_start_scripts()
+    wired = None
+    for s in scripts:
+        try:
+            text = _invocation_text(s, s.read_text(encoding='utf-8',
+                                                   errors='ignore'))
+        except OSError:                          # practice: fail-gracefully
+            continue
+        if _SOURCE_CLONE_RE.search(text):
+            wired = s
+            break
+    # practice: checks-carry-a-declared-decline. A repo that puts its sets
+    # on disk some other way says so, with the reason, in
+    # precedent.json's `source_clone_elsewhere`.
+    declined = cfg.get('source_clone_elsewhere')
+    if declined is not None:
+        if not str(declined).strip():
+            return [Finding('precedent.json', 'source_clone_elsewhere is set '
+                            'with no reason. The reason is what makes it a '
+                            'decision rather than a silenced check')]
+        if wired is not None:
+            return [Finding('precedent.json', 'source_clone_elsewhere says '
+                            'declared sources are cloned some other way, but '
+                            f'{wired.relative_to(ROOT)} clones them at session '
+                            'start. Drop the stale declaration')]
+        return []
+    if wired is not None:
+        return []
+    looked = (', '.join(str(s.relative_to(ROOT)) for s in scripts)
+              or 'no session-start script at all')
+    return [Finding(
+        'precedent.json',
+        f'declares {", ".join(outside)} outside this repo, and no '
+        f'session-start step clones them (looked in: {looked}). A fresh '
+        f'container will not have them, so their practices are not in force '
+        f'and the loader block reads as drifted. The clone step is in '
+        f'templates/bootstrap.sh since 2026-09-26: take Update Vendors, or '
+        f'add its "Clone every shared practice set" block to tools/bootstrap.sh')]
+
+
 
 @check('new-hook-joins-the-registry', 'tree',
        'every hook script this repo ships (templates/harness/claude-code/'
@@ -3648,6 +4186,10 @@ def _engine_plus_host_shims(ctx):
         _mf = json.loads((ROOT / 'MANIFEST.json').read_text(encoding='utf-8'))
         vendored_engine = vendored_engine | frozenset(
             c['path'] for c in _mf.get('checks') or [] if isinstance(c, dict) and c.get('path'))
+        # A file a practice ships is recorded the same way, under `ships`,
+        # and drift-checked the same way (practice: practice-carries-its-files).
+        vendored_engine = vendored_engine | frozenset(
+            f['path'] for f in _mf.get('ships') or [] if isinstance(f, dict) and f.get('path'))
     except (OSError, ValueError, TypeError):
         pass
 
@@ -4625,6 +5167,12 @@ def _workflow_triggers(path):
         text = path.read_text(encoding='utf-8')
     except OSError:
         return ''
+    return workflow_triggers_text(text)
+
+
+def workflow_triggers_text(text):
+    """_workflow_triggers for text already in hand -- tools/ci_fleet_audit.py
+    reads workflow files through GitHub's API, not from disk."""
     try:
         import yaml
     except ImportError:
@@ -6168,6 +6716,32 @@ _LEDGER_MEMBER_DIRS = ('templates/harness/claude-code',
                        'templates/harness/grok-build')
 
 
+def _ledger_row_added_by(full_hash):
+    """-> True when commit `full_hash` itself added a ledger row with an
+    Originating change cell, False when it added none, None when git could
+    not say.
+
+    WHY A ROW NEED NOT NAME ITS OWN COMMIT (2026-09-26). A commit cannot
+    contain its own ID, so a row that names its change by ID can only be
+    written in a SECOND commit. Every adapter change therefore failed the
+    check once, then took a "LEDGER: pin the ... row to its commit" commit
+    and a second full check. A row added in the same commit as the change
+    is that change's row by construction: git records them together. The
+    rule is unchanged -- a change with no row still fails -- and a rebased
+    or squashed commit, whose ID changes, keeps its row. Morgan, 2026-09-26:
+    "Okay, let's build it, go update" (decided)."""
+    r = _git('show', '--format=', '--unified=0', full_hash, '--',
+             'templates/harness/LEDGER.md')
+    if r.returncode != 0:
+        return None
+    added = '\n'.join(line[1:] for line in r.stdout.splitlines()
+                      if line.startswith('+') and not line.startswith('+++'))
+    return any(re.search(r'\b20\d\d-\d\d-\d\d\b', line) and cell.strip()
+               for line, cell in zip(
+                   [l for l in added.splitlines() if l.startswith('|')],
+                   _ledger_change_cells(added)))
+
+
 def _ledger_change_cells(ledger_text):
     r"""The `Originating change` cell of every ledger row -- the one place a
     row's OWN change is named.
@@ -6271,8 +6845,10 @@ def _shallow_boundary_commits():
 @check('parallel-artifact-ledger', 'tree',
        '`templates/harness/LEDGER.md` exists, and every commit that touched '
        'a harness-adapter member (claude-code/, codex/, or gemini-cli/) is '
-       'named in exactly one row\'s `Originating change` cell -- a mention '
-       'in another row\'s prose is a citation, not that commit\'s own row',
+       'named in exactly one row\'s `Originating change` cell, or added its '
+       'own row in the same commit (a commit cannot name its own ID) -- a '
+       'mention in another row\'s prose is a citation, not that commit\'s '
+       'own row',
        'whether a referenced row is actually CORRECT -- the right verdict '
        'per member, not a rubber-stamped one -- only that a row exists for '
        'every commit that changed a member, the "any marked date without a '
@@ -6337,6 +6913,16 @@ def _parallel_artifact_ledger(ctx):
                 continue
             if not any(full_hash[:7] in cell or full_hash in cell
                        for cell in change_cells):
+                arrived = _ledger_row_added_by(full_hash)
+                if arrived:
+                    continue
+                if arrived is None:
+                    findings.append(Unverified(
+                        'templates/harness/LEDGER.md',
+                        f'{full_hash[:7]} ({member_dir}) is named by no row, '
+                        f'and git could not show whether it added one '
+                        f'itself -- not a finding, and not a pass'))
+                    continue
                 findings.append(Finding(
                     'templates/harness/LEDGER.md',
                     f'no row references {full_hash[:7]} ({member_dir}), a '

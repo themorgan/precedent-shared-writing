@@ -16,12 +16,30 @@ run, for days, with each session there calling it "pre-existing" and moving
 on, because that test was not theirs to fix and nothing said whose it was.
 
 WHAT THIS DOES. Runs every tools/checks/tests/test_*.sh in this repository
-with git told to ignore what a typical consuming repository ignores
-(CONSUMER_IGNORES below), and reports each test that fails that way. The
-ignores are handed to git as core.excludesFile through GIT_CONFIG_COUNT, so
-every git command the tests run inherits them -- including the ones inside
-the scratch clones most tests build of this repository -- and nothing is
-written to the repository or its history.
+the way a consumer will, in two respects at once, and reports each test that
+fails that way:
+
+  1. git ignores what a typical consuming repository ignores
+     (CONSUMER_IGNORES below). The ignores are handed to git as
+     core.excludesFile through GIT_CONFIG_COUNT, so every git command the
+     tests run inherits them -- including the ones inside the scratch
+     clones most tests build of this repository.
+  2. the source's own tools/ is not there (since 2026-09-26). The tests run
+     in a scratch COPY of this repository from which every tools/ file a
+     consumer does not receive has been removed: what stays is the vendored
+     engine, tools/checks/, and every file a practice here declares in
+     `ships:` (practice: practice-carries-its-files). A test that reads a
+     source-only script -- create-word-doc's test copied
+     tools/create_word_doc.py, which no consumer had -- fails here, at home.
+
+Nothing is written to the repository or its history: the copy is a
+throwaway directory, its removed files are marked skip-worktree in the
+COPY's own index so `git status` there stays as clean as the real one, and
+it sits beside symlinks to this repository's siblings, so a test that looks
+for `$ROOT/../BestPractice` finds it exactly as it does at home. Run from a
+linked worktree -- which is where Promote runs it -- the copy gets a git
+directory of its own and the main checkout's name and siblings (see
+consumer_copy).
 
 Why not a scratch clone with those entries committed to its .gitignore,
 which reads more like "a consumer": the commit that adds them is a commit
@@ -46,13 +64,17 @@ Exit status: 0 every test passed, or there is no tools/checks/tests/ to
 run (said so); 1 a test failed in the consumer shape; 2 could not run (not
 a git checkout, or a git too old for GIT_CONFIG_COUNT).
 """
+import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
+
+HERE = pathlib.Path(__file__).resolve().parent
 
 # What a typical consuming repository's .gitignore carries: dependency
 # directories, build output, virtual environments, logs and local secrets.
@@ -97,6 +119,135 @@ def consumer_env(ignore_file, base=None):
     return env
 
 
+def consumer_tools(root):
+    """-> {tools/<path>} a consumer receives, of what sits under `root`'s
+    tools/: the vendored engine (what this repository's own
+    ENGINE_MANIFEST.json records, plus every name the engine lists for
+    either kind), everything under tools/checks/, and every file an active
+    practice here ships. Everything else under tools/ is the source's own."""
+    keep = {'tools/ENGINE_MANIFEST.json'}
+    try:
+        manifest = json.loads((root / 'tools' / 'ENGINE_MANIFEST.json')
+                              .read_text(encoding='utf-8'))
+        keep |= {f'tools/{n}' for n in manifest.get('files') or []
+                 if isinstance(n, str)}
+    except (OSError, ValueError, AttributeError):
+        pass
+    sys.path.insert(0, str(HERE))
+    try:
+        import build_views as bv
+        import split_practices as sp
+    except Exception:                               # practice: fail-gracefully
+        return None
+    keep |= bv._engine_tool_paths()
+    for path in sorted((root / 'practices').glob('*.md')):
+        try:
+            fm, _sections = sp._read_practice_file(path)
+            if bv._json_str(fm.get('status', '"active"')) not in ('', 'active'):
+                continue
+            keep |= set(bv.ships_paths(fm))
+        except Exception:                           # practice: fail-gracefully
+            continue
+    return keep
+
+
+def source_only_tools(root, keep):
+    """-> sorted [tools/<path>] under `root` that a consumer does not
+    receive -- the files the consumer-shaped copy leaves out."""
+    tools = root / 'tools'
+    if not tools.is_dir():
+        return []
+    out = []
+    for f in sorted(tools.rglob('*')):
+        if not f.is_file() and not f.is_symlink():
+            continue
+        rel = f.relative_to(root).as_posix()
+        if rel.startswith('tools/checks/') or '__pycache__' in f.parts:
+            continue
+        if rel not in keep:
+            out.append(rel)
+    return out
+
+
+def _git_dirs(root):
+    """-> (own git dir, common git dir) of `root`, both absolute. They are
+    the same directory in an ordinary checkout and a submodule, and differ
+    in a linked worktree, whose own directory holds only HEAD and the index
+    while objects, refs and config live in the main checkout's."""
+    def ask(flag):
+        out = subprocess.run(['git', '-C', str(root), 'rev-parse',
+                              '--path-format=absolute', flag],
+                             capture_output=True, text=True).stdout.strip()
+        return pathlib.Path(out) if out else None
+    return ask('--absolute-git-dir'), ask('--git-common-dir')
+
+
+def consumer_copy(root, tmp, drop):
+    """Copy `root` into `tmp`/<its name>, beside symlinks to each of its
+    real siblings, and remove `drop` from the copy. -> the copy's path.
+
+    The copy's `.git` is a real directory of its own, so the copy has the
+    same branch, remotes, history and uncommitted changes as the original --
+    only the dropped files differ, and each tracked one is marked
+    skip-worktree in the copy's own index so that difference is not itself
+    a change a test can see.
+
+    A LINKED WORKTREE OR A SUBMODULE (2026-09-26). There `.git` is a FILE
+    pointing at a git directory elsewhere, and copying the file would give
+    the copy the original's index to write skip-worktree bits into. Until
+    this date that shape was refused outright -- and Promote runs the full
+    check in a linked worktree every time, so every Promote that actually
+    ran the suite in a source failed on "could not run", and the only
+    Promotes that passed were the ones reusing an earlier pass. So the git
+    directory is copied into place instead: a worktree's common directory
+    (objects, refs, config) with the worktree's own HEAD and index laid over
+    it, or a submodule's directory with its core.worktree dropped. The copy
+    is named after, and set beside the siblings of, the MAIN checkout -- a
+    Promote's worktree sits alone in a temporary directory, and a test that
+    looks for `$ROOT/../BestPractice` must find it as it does at home."""
+    own, common = _git_dirs(root)
+    linked = (root / '.git').is_file()
+    home = common.parent if linked and own and common and own != common \
+        else root
+    dest = pathlib.Path(tmp) / home.name
+
+    def skip(d, names):
+        out = [n for n in names if n == '__pycache__']
+        if linked and pathlib.Path(d) == root and '.git' in names:
+            out.append('.git')
+        return out
+    shutil.copytree(root, dest, symlinks=True, ignore=skip)
+    if linked:
+        top = common or own
+        shutil.copytree(top, dest / '.git', symlinks=True,
+                        ignore=lambda d, names: (['worktrees'] if
+                                                 pathlib.Path(d) == top
+                                                 else []))
+        if own and own != top:
+            for leaf in ('HEAD', 'index'):
+                if (own / leaf).is_file():
+                    shutil.copy2(own / leaf, dest / '.git' / leaf)
+        subprocess.run(['git', '-C', str(dest), 'config', '--unset',
+                        'core.worktree'], capture_output=True, text=True)
+    for sibling in sorted(home.parent.iterdir()):
+        if sibling.name != home.name:
+            try:
+                (pathlib.Path(tmp) / sibling.name).symlink_to(sibling)
+            except OSError:
+                pass
+    tracked = set(subprocess.run(
+        ['git', '-C', str(dest), 'ls-files', '-z', '--', 'tools'],
+        capture_output=True, text=True).stdout.split('\0'))
+    for rel in drop:
+        (dest / rel).unlink(missing_ok=True)
+    hide = [rel for rel in drop if rel in tracked]
+    if hide:
+        subprocess.run(['git', '-C', str(dest), 'update-index',
+                        '--skip-worktree', '--', *hide],
+                       capture_output=True, text=True)
+    return dest
+
+
 def run(root):
     """-> exit status, having printed a line per test and a verdict."""
     tests_dir = root / 'tools' / 'checks' / 'tests'
@@ -110,10 +261,24 @@ def run(root):
               'than 2.31 and would ignore the consumer ignores silently',
               file=sys.stderr)
         return 2
+    keep = consumer_tools(root)
+    if keep is None:
+        print('precedent_consumer_shape: could not run -- the engine beside '
+              'this script (build_views.py, split_practices.py) did not '
+              'import, so what a consumer receives is unknown',
+              file=sys.stderr)
+        return 2
+    drop = source_only_tools(root, keep)
 
     print(f'precedent_consumer_shape: {len(tests)} test(s), with git '
           f'ignoring what a typical consumer does: '
           f'{" ".join(CONSUMER_IGNORES)}', flush=True)
+    if drop:
+        print(f'  and without this source\'s own tools/, which no consumer '
+              f'receives: {" ".join(drop)}', flush=True)
+    else:
+        print('  (every tools/ file here reaches consumers, so the copy '
+              'lacks nothing)', flush=True)
     failed = []
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='consumer-shape-') as tmp:
@@ -121,9 +286,11 @@ def run(root):
         ignore_file.write_text('\n'.join(CONSUMER_IGNORES) + '\n',
                                encoding='utf-8')
         env = consumer_env(ignore_file)
+        copy_root = consumer_copy(root, pathlib.Path(tmp) / 'tree', drop)
+        copy_tests = copy_root / 'tools' / 'checks' / 'tests'
         for i, t in enumerate(tests, 1):
             t0 = time.monotonic()
-            p = subprocess.run(['bash', t.name], cwd=tests_dir, env=env,
+            p = subprocess.run(['bash', t.name], cwd=copy_tests, env=env,
                                capture_output=True, text=True)
             took = time.monotonic() - t0
             # practice: slow-steps-report-and-cache -- a suite of real
@@ -147,19 +314,22 @@ def run(root):
         return 0
     print()
     for name in failed:
-        print(f'FAILED: {name} -- fails where git ignores what a consuming '
-              f'repository typically ignores')
+        print(f'FAILED: {name} -- fails in a consumer-shaped copy of this '
+              f'repository')
     print()
     print('Every repository that resolves this source runs these tests, and '
-          'one that ignores any of')
-    print('those paths sees each one above red and cannot fix it -- the test '
-          'is this source\'s.')
-    print('The usual cause is a fixture planted under an ignored path and '
-          'staged with a plain')
-    print('`git add`: stage fixtures with `git add -f`. If a test above also '
-          'fails in the plain')
-    print('run of this suite, fix that first -- this run only adds the '
-          'ignores.')
+          'sees each one above')
+    print('red and cannot fix it -- the test is this source\'s. The two usual '
+          'causes:')
+    print('  - a fixture planted under a path consumers ignore and staged '
+          'with a plain `git add`:')
+    print('    stage fixtures with `git add -f`;')
+    print('  - a tools/ file the test reads that no consumer receives (listed '
+          'above): declare it in')
+    print('    the owning practice\'s `ships:` so every consumer gets it '
+          '(practice-carries-its-files).')
+    print('If a test above also fails in the plain run of this suite, fix '
+          'that first.')
     return 1
 
 
