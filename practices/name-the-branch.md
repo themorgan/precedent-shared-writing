@@ -6,7 +6,7 @@ severity:    default
 applies_to:  ["**"]
 occasion:    "naming a branch in a reply, a commit message, a pull request, or a GitHub comment"
 gates:       []
-index_clause: "name a branch literally (precedent-beta-v01, main), never \"the base branch\" or \"the default branch\""
+index_clause: "name a branch literally (staging, main), never \"the base branch\" or \"the default branch\""
 checked_by:  null
 defines:     []
 status:      active
@@ -18,14 +18,14 @@ in_force_at: null
 strength: decided
 ---
 ## Rule
-When you tell me anything about a specific branch, **name it**: `precedent-beta-v01`, `main`, `claude/nice-newton-5o72z0`. Never a role-word standing in for the name — "the base branch", "the default branch", "the beta branch", "the working branch", "upstream's branch", "its base". This holds everywhere you write to me or to the record: replies, commit messages, pull request titles and bodies, and comments posted to GitHub.
+When you tell me anything about a specific branch, **name it**: `staging`, `main`, `claude/nice-newton-5o72z0`. Never a role-word standing in for the name — "the base branch", "the default branch", "the beta branch", "the working branch", "upstream's branch", "its base". This holds everywhere you write to me or to the record: replies, commit messages, pull request titles and bodies, and comments posted to GitHub.
 
 Where the statement is genuinely **generic** — a rule that holds for any repository, a script's docstring describing the `BASE` argument somebody passes it — the role-word is the correct word and this rule does not reach it. The test is whether I could sensibly ask "which one?". If I could, the name belongs there.
 
 ## Detail
 The cost is asymmetric, which is why this is worth a rule rather than a preference. Writing the name costs nothing. Reading a role-word costs me a resolution step I cannot verify, on exactly the question I care most about — whether something I depend on has moved.
 
-`alex137/BestPractice` is the case that makes it concrete: its configured **default** branch is `main`, and the branch all the work happens on is `precedent-beta-v01`. So in that repository the role-word and the name point at *different branches*, and a reader who resolves "the base branch" the obvious way gets the wrong answer. "Red on the base branch" reads as "`main` is red" — alarming and false — when the true statement was "`precedent-beta-v01` is red".
+`alex137/BestPractice` is the case that makes it concrete: its configured **default** branch is `main`, and the branch the work lands on is `staging` (named `precedent-beta-v01` until 2026-09-25). So in that repository the role-word and the name point at *different branches*, and a reader who resolves "the base branch" the obvious way gets the wrong answer. "Red on the base branch" reads as "`main` is red" — alarming and false — when the true statement was "`staging` is red".
 
 A wrong resolution is also **silent**. Nothing corrects it, no check fires, and I carry the wrong belief until something forces it into the open. That is the same shape as every other failure this set keeps recording: not a loud error, a confident wrong answer nobody had reason to re-examine.
 
