@@ -51,6 +51,15 @@ words. No workflow ever ran it; it was run by hand, or not. Morgan,
 set's cases red, fixed the same day. A repo with no driver skips the entry
 and says so.
 
+AND IN A PRACTICE SOURCE, RUNS IT A SECOND TIME SHAPED LIKE A CONSUMER.
+Those tests ship: every repository that resolves the source runs them
+against its own tree. precedent_consumer_shape.py runs the suite again with
+git ignoring what a typical consuming repository ignores, so a test that
+passes only in its home layout goes red here instead of there. 2026-09-25:
+one test staged a fixture under vendor/ with a plain `git add`, passed on
+every run in its source, and failed for days in a consumer that ignores
+vendor/, where nobody could fix it.
+
 A SHALLOW CLONE IS DEEPENED FIRST, or the push is refused. Every clone in
 a cloud session starts shallow, and a check that walks `git log` over a
 shallow clone reports SKIPPED -- which this list would then call a pass.
@@ -159,14 +168,21 @@ def _finding_lines(out):
 # else restates it (practice: registry-source-of-truth).
 DEEP_CHECK_SUITE = ('deep_check', ['bash', 'tools/checks/tests/run_all.sh'],
                     "no workflow -- the deep-check practice's own suite")
+# The same suite as a consumer will run it -- a practice source only, since
+# only a source ships its tests (practice: two-check-levels).
+CONSUMER_SHAPE_SUITE = ('consumer_shape',
+                        ['{engine}/precedent_consumer_shape.py'],
+                        "no workflow -- the deep-check suite, consumer-shaped")
 # The author and timezone checks, where a repo carries them. They ran in
 # precedent-individual's commit-identity.yml and precedent-check.yml until
 # 2026-09-21; commit-identity-push-gate.sh runs them too, but only where it
 # is wired, and a person running this list by hand should get everything.
 # Exit 2 ("could not run here") fails in a repo that carries its own
 # identity.json, as it did there; anywhere else it is the expected answer --
-# a person's timezone binds only their own individual source (Morgan,
-# 2026-09-25: "only use the individual one in the precedent-individual").
+# a shared repo's HISTORY is never audited against one person's timezone,
+# since other people's commits live there (Morgan, 2026-09-25). His own new
+# commits still carry his zone everywhere; the commit-time backstop in
+# commit-identity.sh is what holds them to it.
 SKIP_IS_FINE_WITHOUT_IDENTITY = {'commit_author', 'commit_dates'}
 IDENTITY_CHECKS = (
     ('commit_author', ['{engine}/checks/check_commit_author.py'],
@@ -220,6 +236,7 @@ PUSH_CHECKS = {
          'doc-lint.yml, retired 2026-09-21'),
         CI_WORKFLOWS_CHECK,
         DEEP_CHECK_SUITE,
+        CONSUMER_SHAPE_SUITE,
         *IDENTITY_CHECKS,
     ),
     'consumer': (
@@ -462,6 +479,26 @@ def publish_pass(root, rec):
           f'other checkouts ({why}); they will run the suite themselves.')
 
 
+def _promote_only_refusal(root, argv):
+    """-> why the named push is refused before any check runs, or None.
+    Only a person who turned promote_only on is ever refused here
+    (precedent_branches.direct_push_refusal); an engine too old to know the
+    setting refuses nothing."""
+    if '--push-command' not in argv:
+        return None
+    i = argv.index('--push-command')
+    cmd = argv[i + 1] if i + 1 < len(argv) else ''
+    try:
+        sys.path.insert(0, str(HERE))
+        import precedent_branches
+    except ImportError:
+        return None
+    finally:
+        sys.path.pop(0)
+    refusal = getattr(precedent_branches, 'direct_push_refusal', None)
+    return refusal(root, cmd) if refusal else None
+
+
 def _tier_from_args(root, argv):
     """-> (tier, why). --tier wins; else --push-command names the push and
     precedent_branches.py decides; else FULL, today's behaviour."""
@@ -547,6 +584,10 @@ def main(argv):
               'check.', file=sys.stderr)
         return 2
     root = Path(root_s)
+    refused = _promote_only_refusal(root, argv)
+    if refused:
+        print(f'precedent_push_check: REFUSED -- {refused}', file=sys.stderr)
+        return 1
     tier, why = _tier_from_args(root, argv)
     kind, checks = plan(root, tier=tier)
     if kind is None:
