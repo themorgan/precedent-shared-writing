@@ -8,12 +8,13 @@ occasion:    "producing any Word (.docx) document for someone to download -- a s
 gates:       []
 index_clause: "creating any Word (.docx) document means it carries a footer -- a structured export runs tools/create_word_doc.py (A4, 1.3 line spacing, footer, section page breaks, live word count, all in the same pass); anything else still needs a live Page X of Y footer plus a title/date line, built by hand into whatever script makes it"
 checked_by:  tools/checks/check_create_word_doc.py
+ships:       ["tools/create_word_doc.py"]
 defines:     []
 status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3)"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -117,15 +118,15 @@ real bug an earlier docx-js draft of this script hit: a missing explicit
 falls back to document defaults) that made `python-docx` and `pandoc`'s
 own docx reader return `None` for every paragraph's resolved style.
 
-**Vendoring:** like the rest of a team source's `tools/`, this script
-travels by copy, not by materialization -- `precedent_materialize.py`
-copies a source's `practices/` and `tools/checks/`, never an arbitrary
-tool script (see its own docstring). A consuming repo that wants the
-structured-export half of this practice copies `tools/create_word_doc.py`
-in by hand, the same way it already vendors the engine scripts
-(INSTALL.md's existing model); a repo that only ever needs the ad hoc,
-built-by-hand half doesn't need the file at all, and the check below
-skips cleanly when it's absent.
+**Vendoring:** the script travels with the practice. It is listed in this
+practice's `ships:`, so every repository that resolves this set receives
+`tools/create_word_doc.py` on its next sync, alongside the check and its
+test, and never copies it by hand. A repository that only ever needs the ad
+hoc, built-by-hand half can decline it in its own `precedent.json` under
+`declined_ships`, with a reason; the check below skips cleanly where the
+script is absent, though this practice's own test then fails there, since it
+exercises the real script. `ships:` needs an engine from 2026-09-26 or later;
+an older engine ignores the field and delivers nothing.
 
 ## Why
 The first version of this workflow was a scratch script written once,
