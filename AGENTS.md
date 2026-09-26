@@ -29,7 +29,7 @@ When linking to a document in prose, a reply, or a table:
 When mentioning a repo file in a chat reply, PR description, or commit message:
   file-mention-links — every file mention in chat or PR/commit text is a live GitHub link
 When naming a branch in a reply, a commit message, a pull request, or a GitHub comment:
-  name-the-branch — name a branch literally (precedent-beta-v01, main), never "the base branch" or "the default branch"
+  name-the-branch — name a branch literally (staging, main), never "the base branch" or "the default branch"
 When naming a git branch in a document, reply, or status update:
   branch-links — link every git branch mentioned to its tree view
 When naming anything that has a destination, in a document or a reply:
