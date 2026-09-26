@@ -160,5 +160,6 @@
     "spreads before a delayed CI run would ever see it -- this repo's own 0",
     "wins over any personal number. Why, and how the cadence works:",
     "https://github.com/alex137/BestPractice/blob/staging/spec/CI_CADENCE_PLAN.md"
-  ]
+  ],
+  "staging_branch": "staging"
 }
