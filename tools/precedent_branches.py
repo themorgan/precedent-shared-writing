@@ -62,8 +62,9 @@ by itself: no push gate sees a push made from inside a script.
 
 PROMOTE ALSO MOVES STAGING INTO MAIN, since 2026-09-26, and picks which of
 the two steps to run (promotion_step): the one the session names with --to,
-else the one the work it was just on needs (--work), else pre-staging first
-whenever it has work waiting. It prints "Now promoting from X to Y" before
+else pre-staging first whenever it has work waiting -- including when the
+work the session was just on (--work) waits on staging for main, since both
+steps waiting makes the Promote ambiguous -- else the one --work needs. It prints "Now promoting from X to Y" before
 anything else. Into main it runs the same full check on staging merged into
 main, then pushes a throwaway copy of staging for the pull request into
 main; that pull request's GitHub test is main's last gate, so main itself
@@ -1049,10 +1050,13 @@ def _lock_release(root, held, say):
 
 
 def _new_commits(root, since, tip):
-    """The non-merge commits on `tip` that `since` lacks, one line each. A
-    merge made only to keep two tiers in step is not work waiting to move."""
-    return (_git(root, 'log', '--oneline', '--no-merges', f'{since}..{tip}')
-            or '').splitlines()
+    """The commits on `tip` that `since` lacks and that change a file, one
+    line each. A merge made only to keep two tiers in step, or an empty
+    commit, is not work waiting to move, and is never counted where a person
+    reads the number (Morgan, 2026-09-27, strength: decided: tell me "the
+    number of commits ahead/behind that made changes to the repo")."""
+    return (_git(root, 'log', '--oneline', '--no-merges', f'{since}..{tip}',
+                 '--', '.') or '').splitlines()
 
 
 def promotion_step(root, to=None, work=None):
@@ -1069,7 +1073,15 @@ def promotion_step(root, to=None, work=None):
             main -> staging into main.
     With neither, the tiers decide: work waiting on pre-staging goes first,
     and only when there is none does staging move into main. A repository
-    whose staging tier IS main has one step only."""
+    whose staging tier IS main has one step only.
+
+    When BOTH steps have work waiting -- pre-staging ahead of staging and
+    staging ahead of main -- an unnamed Promote is ambiguous, and it moves
+    pre-staging into staging even when `work` sits on staging already
+    (Morgan, 2026-09-26, strength: decided: "if my 'promote' is ambiguous
+    and you don't know which of the two types of promotion it should refer
+    to - then choose to do pre-staging to staging"). Only --to main
+    overrides that."""
     staging = staging_branch(root)
     if staging == MAIN:
         return STAGING, f'{MAIN} is the staging tier here, so there is one step'
@@ -1091,6 +1103,11 @@ def promotion_step(root, to=None, work=None):
             return STAGING, (f'the work just done ({work}) is not on {staging} '
                              f'yet, so it moves there first')
         if mtip and not on(mtip):
+            if ptip and stip and _new_commits(root, stip, ptip):
+                return STAGING, (f'the work just done ({work}) waits for '
+                                 f'{MAIN}, but {PRE_STAGING} also has work '
+                                 f'{staging} lacks, so the step is ambiguous '
+                                 f'and {PRE_STAGING} goes first')
             return MAIN, (f'the work just done ({work}) is on {staging} '
                           f'already and not yet on {MAIN}')
     if ptip and stip and _new_commits(root, stip, ptip):
@@ -1252,7 +1269,7 @@ def _promote_unlocked(root, say=print):
     if _run(root, 'merge-base', '--is-ancestor', ptip, stip).returncode == 0:
         say(f'nothing to promote: {staging} already has everything on {PRE_STAGING}.')
         return 0
-    batch = (_git(root, 'log', '--oneline', '--no-merges', f'{stip}..{ptip}') or '').splitlines()
+    batch = _new_commits(root, stip, ptip)
     with _Worktree(root, stip) as wt:
         m = _run(wt, 'merge', '--no-ff', '-q', '-m',
                  f'Promote {PRE_STAGING} into {staging} ({len(batch)} commit(s))',

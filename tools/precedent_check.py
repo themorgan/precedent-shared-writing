@@ -5366,9 +5366,6 @@ def _vocabulary_reaches_the_consumer(ctx):
         'precedent_install.py':
             'installs Precedent INTO a project; the project that already '
             'has it does not run it',
-        'precedent_upstream_check.py':
-            'compares this repo against its own origin/main watermark -- a '
-            'fact about the engine\'s repository, not about a consumer',
         'precedent_simulate.py':
             'authoring aid for writing practices here; named in '
             'very-deep-check as the subject of a pass, not as a step a '
@@ -5381,6 +5378,11 @@ def _vocabulary_reaches_the_consumer(ctx):
             'very-deep-check names it as "that repo\'s own light check" -- '
             'each repo declares its own under two-check-levels, and it is '
             'deliberately not one file shipped from here',
+        'precedent_update.py':
+            'Update Vendors runs the BestPractice clone\'s own copy against '
+            'the consumer, by design (spec/ONE_COMMAND_UPDATE_PLAN.md): a '
+            'vendored copy would be the stale one, sitting in the tree it '
+            'is updating',
     }
     NEVER_VENDORED = set(UPSTREAM_ONLY)
 
