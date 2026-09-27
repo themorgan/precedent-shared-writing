@@ -615,6 +615,23 @@ def _git(*args, cwd=None):
                           capture_output=True, text=True)
 
 
+def _ls_files_on_disk(*args, root=None):
+    """`git ls-files ARGS`, minus any path no longer on disk.
+
+    `ls-files` reads the INDEX, so a file deleted in the working tree and not
+    yet staged is still listed -- and a check that then reads it reports a
+    file that does not exist as unreadable. Found 2026-09-27 in a consumer
+    taking an update: `checkin.py update` deleted two files upstream had
+    dropped, the deep check ran before anything was staged, and
+    timestamps-carry-offset failed the whole update on "could not be parsed"
+    for a file that was simply gone. The tree a check judges is the one on
+    disk, which is the one the commit will hold once it is staged. lexists,
+    so a symlink that points nowhere is still listed and judged."""
+    base = pathlib.Path(root or ROOT)
+    return [f for f in _git('ls-files', *args, cwd=base).stdout.split()
+            if f and os.path.lexists(base / f)]
+
+
 def _instructions_file():
     """The file a session's harness actually loads. AGENTS.md is the
     convention here; CLAUDE.md @-includes it."""
@@ -639,7 +656,7 @@ class Ctx:
                           or not _git('cat-file', '-e', f'HEAD:{p}').returncode == 0]
             self.base = 'HEAD'
         elif whole_tree:
-            self.changed = _git('ls-files').stdout.split()
+            self.changed = _ls_files_on_disk()
             self.added = []
             self.base = 'HEAD'
         elif rng:
@@ -853,8 +870,10 @@ def _practice_status(text):
     return m.group(1).strip() if m else ''
 
 
-def _foreign_practice(rel):
-    """True if a COMMITTED MANIFEST.json says another source owns it.
+def _manifest_entry(rel):
+    """The entry a COMMITTED MANIFEST.json records for this practice, or
+    None when there is no manifest, it will not parse, or it does not name
+    the practice.
 
     Attribution never comes from live source resolution: a bare CI checkout
     can reach neither a team sibling clone nor a private user-level config,
@@ -865,20 +884,29 @@ def _foreign_practice(rel):
     precedent_materialize.py's materialize() always writes it to `out_dir`
     (precedent_sync_views.py calls it with the repo root as `out_dir`), so
     a `practices/MANIFEST.json` path here never matched any real consumer
-    and this function returned False unconditionally, everywhere.
+    and the old lookup returned nothing, everywhere.
     """
     manifest = ROOT / 'MANIFEST.json'
     if not manifest.is_file():
-        return False
+        return None
     try:
         entries = json.loads(manifest.read_text(encoding='utf-8')).get('practices', [])
     except (ValueError, OSError):
-        return False
+        return None
     slug = pathlib.Path(rel).stem
     for entry in entries:
         if entry.get('slug') == slug:
-            return entry.get('level') != 'repo-local'
-    return False
+            return entry
+    return None
+
+
+def _foreign_practice(rel):
+    """True if a COMMITTED MANIFEST.json says another source owns it. A
+    `repo-local` entry is this repository's own, so it is not foreign --
+    see _manifest_entry for why the manifest, and not live resolution, is
+    what decides."""
+    entry = _manifest_entry(rel)
+    return entry is not None and entry.get('level') != 'repo-local'
 
 
 @check('catalogue-carries-stories', 'tree',
@@ -1283,7 +1311,7 @@ def _sibling_not_in_force(pdir, base):
 
 
 @check('practice-links-travel', 'tree',
-       'every link in a practice file THIS repo owns either travels with the '
+       'every link in a practice file THIS repo publishes either travels with the '
        "file (a sibling practice, a vendored engine file, this source's own "
        'tools/checks/ check script or tests/ test, or a file a practice here '
        'declares in `ships:` -- each of which must exist here) or '
@@ -1307,11 +1335,14 @@ def _sibling_not_in_force(pdir, base):
        'nothing a consumer receives is broken by it -- but only that finding '
        'is suppressed, and the travel half above still reports a '
        'non-travelling link in a withdrawn practice. '
-       'It reads practices/ only: local/practices/ is read in place '
-       'here and never materialized, so its links travel nowhere and break '
-       'nothing. It also cannot see a repo-local source in a CONSUMING repo, '
-       'where materialization moves a practice up a directory and changes '
-       'what its relative paths mean.',
+       'It reads practices/ only, and there only the practices this repo '
+       'publishes. A repo-local practice is never published, wherever it '
+       'sits: in a practice set local/practices/ is read in place and never '
+       'materialized, and in a CONSUMING repo materialization copies it into '
+       'practices/ (rewriting its relative links for the move) where the '
+       'committed MANIFEST.json marks it `repo-local` and this check skips '
+       'it. Its links travel nowhere, so whether they resolve is doc_lint\'s '
+       'question, not this one\'s.',
        # Binds a publisher: this is the rule that protects everything a
        # source set publishes, and it skipped in exactly those repos. A team
        # source shipped practices/deep-check.md linking a test driver that
@@ -1325,14 +1356,36 @@ def _practice_links_travel(ctx):
     pdir = ROOT / 'practices'
     if not pdir.is_dir():
         raise NotApplicable('this repo has no practices/ directory')
-    owned = [p for p in sorted(pdir.glob('*.md'))
-             if not _foreign_practice(str(p.relative_to(ROOT)))]
+    # Only a practice this repository PUBLISHES is held to the rule, which
+    # is one the committed manifest does not name at all -- a set's own
+    # practices/. A manifest entry is materialized output, and there are two
+    # kinds: another source's practice (its links are that source's to get
+    # right, and a repair here is overwritten by the next sync), and this
+    # repository's own `repo-local` one. A repo-local source is never
+    # published -- no consumer declares it, nothing vendors it -- so its
+    # materialized copy has nowhere to travel to, and a link from it into
+    # this repository's own files is simply correct. Until 2026-09-27 the
+    # second kind was tested as if it were published: a private consumer's
+    # full check reported 20 working links in its repo-local practices as
+    # dead, and advised rewriting each as a URL into the private repository
+    # itself. doc_lint still checks that those links resolve here.
+    # practice: practice-links-travel
+    owned, repo_local = [], 0
+    for p in sorted(pdir.glob('*.md')):
+        entry = _manifest_entry(str(p.relative_to(ROOT)))
+        if entry is None:
+            owned.append(p)
+        elif entry.get('level') == 'repo-local':
+            repo_local += 1
     if not owned:
         raise NotApplicable(
-            'every practice here is materialized from another source, so '
-            'practices/ is generated output -- these links have to be right '
-            'in the publishing source, and repairing them here would be '
-            'overwritten by the next sync')
+            'every practice here is materialized from another source'
+            + (f' or from this repository\'s own repo-local source '
+               f'({repo_local} of them, never published, so their links '
+               f'travel nowhere)' if repo_local else '')
+            + ', so practices/ is generated output -- a published '
+            'practice\'s links have to be right in the publishing source, '
+            'and repairing them here would be overwritten by the next sync')
     try:
         travel = _travelling_engine_files()
     except Exception as e:                      # practice: fail-gracefully
@@ -1341,6 +1394,11 @@ def _practice_links_travel(ctx):
     branch = _declared_base_branch(ROOT)
     slug = _origin_slug()
     shipped = _declared_ships(owned)
+    try:
+        visibility = json.loads((ROOT / 'precedent.json').read_text(
+            encoding='utf-8')).get('visibility')
+    except (ValueError, OSError):
+        visibility = None
     out = []
     for path in owned:
         rel = str(path.relative_to(ROOT))
@@ -1478,15 +1536,36 @@ def _practice_links_travel(ctx):
                            f'repository that receives the catalogue. '
                            f'{advice}'))
                 continue
-            fix = (f'https://github.com/{slug}/blob/{branch or "<branch>"}/'
-                   f'{_strip_relative_prefix(base)}' if slug
-                   else 'an absolute URL')
+            # The repair depends on who may read the URL. The Rule's own
+            # words: a PUBLIC source links it absolutely, a PRIVATE one drops
+            # the link markup and keeps the backticked path, because a URL
+            # would publish the private repository's name into every
+            # consumer. Undeclared visibility gets the private advice: a
+            # backticked path costs a click, a URL into a private repository
+            # cannot be taken back once a consumer has it.
+            if visibility == 'public':
+                fix = (f'https://github.com/{slug}/blob/'
+                       f'{branch or "<branch>"}/'
+                       f'{_strip_relative_prefix(base)}' if slug
+                       else 'an absolute URL')
+                advice = (f'Link it as {fix}, declare it in the practice\'s '
+                          f'`ships:` if the practice owns it, or drop the '
+                          f'link markup and keep the backticked path')
+            else:
+                why = ('this repository declares `visibility: private`'
+                       if visibility == 'private' else
+                       'this repository declares no `visibility`, so it '
+                       'may be private')
+                advice = (f'Drop the link markup and keep the backticked '
+                          f'path, `{_strip_relative_prefix(base)}`, or '
+                          f'declare it in the practice\'s `ships:` if the '
+                          f'practice owns it. Do not link it by URL: {why}, '
+                          f'and a URL would publish its name into every '
+                          f'consumer')
             out.append(Finding(
                 where, f'`{target}` does not travel with this file -- it is '
                        f'live here and dead in every repository that receives '
-                       f'the catalogue. Link it as {fix}, declare it in the '
-                       f'practice\'s `ships:` if the practice owns it, or '
-                       f'drop the link markup and keep the backticked path'))
+                       f'the catalogue. {advice}'))
     return out
 
 
@@ -1842,8 +1921,7 @@ def _filename_separator(ctx):
     # (rename-updates-links). `--exclude-standard` keeps .gitignore'd noise
     # out. Plain `ls-files` was tried first and could not see an uncommitted
     # file at all, which the harness's own planted case caught.
-    for f in _git('ls-files', '--cached', '--others',
-                  '--exclude-standard').stdout.split():
+    for f in _ls_files_on_disk('--cached', '--others', '--exclude-standard'):
         if any(f.startswith(x) for x in _separator_foreign()):
             continue
         path = pathlib.PurePath(f)
@@ -1960,6 +2038,138 @@ def _generated_artifact_provenance(ctx):
                                + (r.stdout + r.stderr).strip().splitlines()[-1]
                                if (r.stdout + r.stderr).strip() else
                                'build_views.py --check failed'))
+    return out
+
+
+# ---- practice-change-propagates ---------------------------------------------
+# A practice renamed, retired or deduplicated here is only half changed until
+# every citation of it follows. The go-merge -> go-update rename (2026-09-26)
+# landed clean in this repository and left the private sets pointing at the
+# stub, where it surfaced a day later. Every repo that vendors this engine
+# runs this check over its OWN files, so the drift is found where it can be
+# fixed. The finding is narrow on purpose -- a pointer (a link, a
+# precedent_show.py command) or a mention inside a practice's own Rule --
+# because a bare name elsewhere is usually lineage no pattern can tell apart
+# from a live citation; precedent_practice_refs.py lists those for a session
+# to read instead.
+# practice: practice-change-propagates
+def _repo_local_practice_dirs():
+    """Repo-relative `<path>/practices/` for every repo-local source this
+    repository declares -- its own practices, wherever they sit."""
+    try:
+        import precedent_resolve as pr
+        sources = pr.load_config(ROOT)
+    except Exception:                               # practice: fail-gracefully
+        return ['local/practices/']
+    out = []
+    for s in sources:
+        if s.get('level') != 'repo-local':
+            continue
+        try:
+            rel = (ROOT / s['path']).resolve().relative_to(ROOT.resolve())
+        except (ValueError, KeyError, OSError):
+            continue
+        out.append(f'{rel.as_posix()}/practices/')
+    return out
+
+
+@check('practice-change-propagates', 'tree',
+       'no file this repository owns carries a LIVE pointer to a practice in '
+       'force nowhere, or one that now only forwards to a different slug -- a '
+       'markdown link to its file or a `precedent_show.py SLUG` command, '
+       'anywhere outside history, or any mention of it inside an in-force '
+       "practice's own `## Rule` -- and no practice file this repository "
+       'publishes was deleted or renamed away on this branch (retire it in '
+       'place, so its withdrawn name stays readable)',
+       'a bare backticked name outside a Rule section (usually lineage, and '
+       'listed by precedent_practice_refs.py for a session to judge rather '
+       'than refused); a practice whose Rule was REWORDED under the same slug, '
+       'which no pattern can judge; any file this repository received rather '
+       'than wrote -- another source\'s materialized practice, the vendored '
+       'engine, a mirrored upstream tree -- whose citations belong to the '
+       'repository that wrote them; a slug deleted outright before this check '
+       'existed, which left no stub to recognise it by; and records -- '
+       'spec/, todo/, decisions/, gotchas/, record/, Story-style sections -- '
+       'which describe what was true when written.',
+       binds_publishers=True)
+def _practice_change_propagates(ctx):
+    try:
+        import precedent_practice_refs as ppr
+    except Exception as e:                          # practice: fail-gracefully
+        raise NotApplicable(f'tools/precedent_practice_refs.py could not be '
+                            f'imported ({e}), so no citation can be looked up')
+    try:
+        res = ppr.resolved(ROOT)
+    except Exception as e:                          # practice: fail-gracefully
+        raise NotApplicable(f'the declared sources did not resolve ({e}), so '
+                            f'which practices are withdrawn is unknown')
+    out = []
+    if res.get('missing'):
+        # A source that did not resolve may be exactly the one still carrying
+        # a slug that looks withdrawn from here. Judge what did resolve, and
+        # say what did not rather than passing as if the picture were whole.
+        # practice: fail-gracefully
+        out.append(Unverified(
+            '', 'judged without ' + ', '.join(m['name'] for m in res['missing'])
+                + ' -- a practice that looks withdrawn here may be in force '
+                'there, and its citations were not read'))
+    wmap = ppr.withdrawn_map(res)
+    successors = {s: v['successor'] for s, v in wmap.items() if v['successor']}
+    rows = ppr.scan_root(ROOT, set(wmap), successors,
+                         skip=ppr.received_paths(ROOT)) if wmap else []
+    for row in rows:
+        if not ppr.must_fix(row, wmap):
+            continue
+        rel, ln, slug, form, _kind, section, _line = row
+        succ = successors.get(slug)
+        what = {'link': 'links', 'show': 'looks up'}.get(form, 'names')
+        where = (' in its Rule' if form not in ('link', 'show') else '')
+        fix = (f'cite `{succ}`, where that rule is in force now' if succ else
+               'it is in force nowhere -- say in prose what it covered, or '
+               'drop the reference')
+        out.append(Finding(
+            f'{rel}:{ln}',
+            f'{what} `{slug}`{where}, which is `{wmap[slug]["status"]}` -- '
+            f'{fix}. If the line is recording history, say so on it '
+            f'("renamed", "retired", or name `{succ or "the successor"}` '
+            f'beside it) and it stops being read as a live citation'))
+
+    # Deleting a practice file erases the one record that lets this check,
+    # and every reader, tell a withdrawn name from an unrelated word.
+    base = _published_default_branch()
+    if base is not None:
+        dirs = _repo_local_practice_dirs()
+        # practices/ is this repository's own only where nothing
+        # materializes into it. A consuming repo's practices/ is sync output
+        # (MANIFEST.json, now or at the base), where a practice withdrawn
+        # upstream simply stops being written -- not a deletion anybody here
+        # made. Not _publishes_practices(): that reads the engine manifest's
+        # `kind`, and BestPractice itself -- the repository that most needs
+        # this -- vendors no engine and has no such manifest.
+        materializes = (ROOT / 'MANIFEST.json').is_file() or _git(
+            'cat-file', '-e', f'{base}:MANIFEST.json').returncode == 0
+        if (ROOT / 'practices').is_dir() and not materializes:
+            dirs.append('practices/')
+        r = _git('diff', '--name-status', '--find-renames', f'{base}...HEAD',
+                 '--', *[d + '*.md' for d in dirs]) if dirs else None
+        if r is not None and r.returncode == 0:
+            for line in r.stdout.splitlines():
+                parts = line.split('\t')
+                if not parts or parts[0][:1] not in ('D', 'R'):
+                    continue
+                old = parts[1]
+                if _manifest_entry(old) is not None:
+                    continue                    # materialized output, not ours
+                if parts[0].startswith('R') and len(parts) > 2 and \
+                        pathlib.Path(parts[1]).name == pathlib.Path(parts[2]).name:
+                    continue                    # same slug, moved directory
+                out.append(Finding(
+                    old, f'this branch {"deleted" if parts[0] == "D" else "renamed"} '
+                         f'a practice file. Retire it in place instead: keep '
+                         f'the file, set `status:` (deduplicated, superseded or '
+                         f'retired) and `in_force_at:` to where the rule went, '
+                         f'so every citation of `{pathlib.Path(old).stem}` in every '
+                         f'source can still be found and repointed'))
     return out
 
 
@@ -4580,9 +4790,10 @@ def _timestamps_carry_offset(ctx):
     ENGINE = 'tools/precedent_time.py'
 
     out = []
-    files = [f for f in _git('ls-files', '--cached', '--others',
-                             '--exclude-standard', '--', '*.py').stdout.split()
-             if f and f != ENGINE]
+    files = [f for f in _ls_files_on_disk('--cached', '--others',
+                                          '--exclude-standard', '--', '*.py',
+                                          root=ctx.root)
+             if f != ENGINE]
     if not files:
         raise NotApplicable('no tracked Python files in this repository')
 
@@ -5210,7 +5421,10 @@ def workflow_triggers_text(text):
        "carries the person's approval in precedent.json's "
        "github_ci_approved, pinned to its exact content by sha256 -- so "
        "adding a workflow, or editing one (a new trigger, a new job), fails "
-       "until the person approves the new content in their own words",
+       "until the person approves the new content in their own words. In a "
+       "consuming repo the finding sends the session to Update Vendors, "
+       "which writes the shipped workflows from their templates and removes "
+       "any other nobody approved, rather than to the person",
        "whether the quoted approval is genuine: it can require the quote "
        "and a date, and cannot tell a real one from an invented one. "
        "An engine-tracked file re-baselined with `record-ci` reads as "
@@ -5240,6 +5454,17 @@ def _ci_workflow_approved(ctx):
     if not isinstance(approved, dict):
         approved = {}
 
+    # In a consumer the refresh settles every workflow itself, so the
+    # finding sends the session there instead of to the person
+    # (precedent_vendor_engine.CI_CONVERGES_KINDS, 2026-09-27).
+    try:
+        import precedent_vendor_engine as _pve
+        converges = manifest.get('kind') in _pve.CI_CONVERGES_KINDS
+        shipped = {rel for _t, rel in
+                   _pve.CI_WORKFLOW_TEMPLATES.get(manifest.get('kind'), ())}
+    except Exception:                          # practice: fail-gracefully
+        converges, shipped = False, set()
+
     findings = []
     for path in sorted(wf_dir.iterdir()):
         if not (path.is_file() and path.suffix in ('.yml', '.yaml')):
@@ -5262,6 +5487,21 @@ def _ci_workflow_approved(ctx):
         else:
             what = ('was EDITED after it was approved -- its content no '
                     'longer matches the approved sha256')
+        if converges:
+            fix = ('Run Update Vendors: it writes this file from upstream\'s '
+                   'template, unmodified' if rel in shipped else
+                   'Run Update Vendors: it removes a workflow upstream does '
+                   'not ship that nobody approved')
+            findings.append(Finding(
+                rel,
+                f'{what}.{runs} {fix}, and nothing about it is the person\'s '
+                f'to decide -- the checks run locally before every push. If '
+                f'the refresh leaves it under "Left for you", commit or '
+                f'discard its edits and run it again. Keep a workflow only '
+                f'if the person asked for it in their own words, recorded '
+                f'in precedent.json\'s "{GITHUB_CI_APPROVED_KEY}" with its '
+                f'sha256 {sha} (practice: ci-workflow-approved).'))
+            continue
         findings.append(Finding(
             rel,
             f'{what}.{runs} Every run bills at least a minute in a private '
@@ -8598,7 +8838,7 @@ def _touched_files():
                 base = cand
                 break
     if base is None:
-        return sorted(x for x in _git('ls-files').stdout.split() if x)
+        return sorted(_ls_files_on_disk())
     out = set()
     for args in (['diff', '--name-only', '--diff-filter=d', f'{base}...HEAD'],
                  ['diff', '--name-only', '--diff-filter=d'],
