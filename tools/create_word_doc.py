@@ -47,15 +47,62 @@ for where the file goes (a scratch path, sent straight to the person who
 asked for it).
 """
 import argparse
+import importlib
 import pathlib
 import re
+import site
+import subprocess
 import sys
 
-from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
-from docx.shared import Inches, Mm, Pt
+DOCX_PACKAGE = "python-docx"
+
+
+def ensure_docx():
+    """Import python-docx, installing it with pip the first time it is missing.
+
+    practice: create-word-doc -- this script is delivered to every repo that
+    resolves this set (the practice's ships:), but nothing installs its one
+    third-party package, so a fresh container fails on the import. Installing
+    at session start would slow every session to serve the few that export a
+    Word file, so the script fetches it itself, the same shape as
+    ensure_gate_packages in tools/precedent_push_check.py. If pip cannot
+    install it, stop with one line naming the command -- never run on
+    half-broken."""
+    try:
+        import docx  # noqa: F401
+        return
+    except ImportError:
+        pass
+    print(f"create_word_doc: installing {DOCX_PACKAGE}, which this script needs...",
+          file=sys.stderr)
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--quiet", DOCX_PACKAGE],
+        capture_output=True, text=True,
+    )
+    # A --user install can land in a site dir that did not exist when this
+    # interpreter started, so it is not on sys.path yet; add it before retrying.
+    user_site = site.getusersitepackages()
+    if pathlib.Path(user_site).is_dir() and user_site not in sys.path:
+        site.addsitedir(user_site)
+    importlib.invalidate_caches()
+    try:
+        import docx  # noqa: F401
+    except ImportError:
+        tail = (r.stderr or r.stdout or "").strip().splitlines()
+        said = f" ({tail[-1]})" if tail else ""
+        sys.exit(
+            f"error: {DOCX_PACKAGE} is missing and pip could not install it{said}"
+            f" -- run `{sys.executable} -m pip install {DOCX_PACKAGE}`, then this again"
+        )
+
+
+ensure_docx()
+
+from docx import Document  # noqa: E402
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK  # noqa: E402
+from docx.oxml import OxmlElement  # noqa: E402
+from docx.oxml.ns import qn  # noqa: E402
+from docx.shared import Inches, Mm, Pt  # noqa: E402
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import precedent_time  # noqa: E402  (practice: timestamps-carry-offset)
