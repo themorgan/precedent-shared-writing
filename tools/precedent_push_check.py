@@ -508,6 +508,136 @@ def _promote_only_refusal(root, argv):
     return refusal(root, cmd) if refusal else None
 
 
+# The practice checks, on the files a push into pre-staging CHANGES, and
+# nothing else (Morgan, 2026-09-27, strength: decided: "ONLY for files that
+# changed (or were added) in that session ... NOT for every file in the
+# repo"). pre-staging is where work lands, and its tier was the quick one, so
+# a document whose title and first heading disagreed went straight onto it
+# and was caught only by the next Promote's full check. The practice checks
+# take seconds; the test suite, which is what makes the full check slow,
+# still waits for staging.
+CHANGED_PRACTICE_CHECK = ('changed_practice',
+                          'the practice checks, on the files this push changes')
+
+
+# The file-level checks on the same changed files (Morgan, 2026-09-27,
+# strength: decided: "these ones only check the individual files and ...
+# the files that need to be generated. Nothing more than that"). Each looks
+# only at a file the push created or changed, or at the generated files a
+# changed practice feeds -- never at the rest of the repository:
+#   - a changed Python file compiles;
+#   - a changed shell script parses (bash -n);
+#   - a changed JSON file parses;
+#   - a changed check (tools/checks/check_x.py), or its test, has that
+#     test (tools/checks/tests/test_x.sh) run;
+#   - a changed practice file's generated views (AGENTS.md, MAP.md,
+#     GLOSSARY.md) were regenerated with it -- in a repository whose own
+#     views build_views.py renders, which is BestPractice and a practice set.
+# A push sends commits that already exist, so this can only refuse, never
+# regenerate: it names the command that does.
+CHANGED_FILES_CHECK = ('changed_files',
+                       'the changed files compile or parse, and a changed '
+                       'practice regenerated its views')
+
+
+def _changed_paths(root, since):
+    out = git(root, 'diff', '--name-only', '--diff-filter=AMR', f'{since}...HEAD')
+    return [l for l in (out or '').splitlines() if l.strip()]
+
+
+def changed_files_check(root, since):
+    """-> 0 when every file the change touches is sound, 1 with each
+    problem named. Reads nothing but the changed files, and the views a
+    changed practice feeds."""
+    files = _changed_paths(root, since)
+    problems = []
+    for rel in files:
+        path = root / rel
+        if not path.is_file():
+            continue
+        if rel.endswith('.py'):
+            try:
+                compile(path.read_text(encoding='utf-8'), rel, 'exec')
+            except (SyntaxError, ValueError, UnicodeDecodeError) as e:
+                problems.append(f'{rel}: does not compile -- {e}')
+        elif rel.endswith('.sh'):
+            r = subprocess.run(['bash', '-n', str(path)], capture_output=True,
+                               text=True)
+            if r.returncode != 0:
+                problems.append(f'{rel}: does not parse -- '
+                                f'{(r.stderr or r.stdout).strip()[:300]}')
+        elif rel.endswith('.json'):
+            try:
+                json.loads(path.read_text(encoding='utf-8'))
+            except (ValueError, UnicodeDecodeError) as e:
+                problems.append(f'{rel}: is not valid JSON -- {e}')
+    # A changed check, or a changed test, runs that check's own test: the
+    # pair is tools/checks/check_x.py and tools/checks/tests/test_x.sh.
+    tests = []
+    for rel in files:
+        m = re.match(r'(?:(.*)/)?tools/checks/(?:check_(\w+)\.py|tests/test_(\w+)\.sh)$', rel)
+        if not m:
+            continue
+        base = f'{m.group(1)}/' if m.group(1) else ''
+        test = f'{base}tools/checks/tests/test_{m.group(2) or m.group(3)}.sh'
+        if test not in tests and (root / test).is_file():
+            tests.append(test)
+    for test in tests:
+        try:
+            r = subprocess.run(['bash', test], cwd=root, capture_output=True,
+                               text=True, timeout=600)
+            if r.returncode != 0:
+                tail_ = (r.stdout + r.stderr).strip().splitlines()[-3:]
+                problems.append(f'{test}: failed -- ' + ' | '.join(tail_)[:400])
+        except subprocess.TimeoutExpired:
+            problems.append(f'{test}: did not finish within 10 minutes')
+    practice = [f for f in files if f.endswith('.md')
+                and (f.startswith('practices/') or '/practices/' in f)]
+    build = root / 'tools' / 'build_views.py'
+    if practice and build.is_file() and repo_kind(HERE) in ('upstream', 'source'):
+        r = subprocess.run([sys.executable, str(build), '--repo', '.', '--check'],
+                           cwd=root, capture_output=True, text=True)
+        if r.returncode != 0:
+            problems.append(
+                f'{practice[0]}{" and others" if len(practice) > 1 else ""} '
+                f'changed, and the generated views were not regenerated with '
+                f'it -- run `python3 tools/build_views.py` and commit what it '
+                f'rewrites. ' + (r.stdout + r.stderr).strip().splitlines()[0][:300])
+    for line in problems:
+        print(f'  {line}')
+    if tests:
+        print(f'changed_files: ran {len(tests)} test(s) of changed checks: '
+              + ', '.join(tests))
+    print(f'changed_files: {len(files)} changed file(s) checked, '
+          f'{len(problems)} problem(s).')
+    return 1 if problems else 0
+
+
+def _changed_since(root, argv):
+    """-> the ref a push's change is measured from, or None. `--changed-since
+    REF` names it (the merge gate passes the pull request's base); otherwise
+    a push whose --push-command writes to pre-staging is measured from
+    origin/pre-staging."""
+    if '--changed-since' in argv:
+        i = argv.index('--changed-since')
+        return argv[i + 1] if i + 1 < len(argv) else None
+    if '--push-command' not in argv:
+        return None
+    i = argv.index('--push-command')
+    cmd = argv[i + 1] if i + 1 < len(argv) else ''
+    try:
+        sys.path.insert(0, str(HERE))
+        import precedent_branches
+    except ImportError:
+        return None
+    finally:
+        sys.path.pop(0)
+    targets = precedent_branches.push_targets(root, cmd) or []
+    if precedent_branches.PRE_STAGING in targets:
+        return f'origin/{precedent_branches.PRE_STAGING}'
+    return None
+
+
 def _tier_from_args(root, argv):
     """-> (tier, why). --tier wins; else --push-command names the push and
     precedent_branches.py decides; else FULL, today's behaviour."""
@@ -640,6 +770,22 @@ def main(argv):
         return 1
     tier, why = _tier_from_args(root, argv)
     kind, checks = plan(root, tier=tier)
+    if '--changed-files-check' in argv:
+        i = argv.index('--changed-files-check')
+        return changed_files_check(root, argv[i + 1] if i + 1 < len(argv)
+                                   else 'origin/pre-staging')
+    since = _changed_since(root, argv) if tier == BASIC else None
+    if since and kind is not None:
+        rel = HERE.relative_to(root) if HERE.is_relative_to(root) else HERE
+        checks.append((CHANGED_PRACTICE_CHECK[0],
+                       [sys.executable, str(rel / 'precedent_check.py'),
+                        '--full-sweep', '--range', f'{since}...HEAD',
+                        '--changed-files-only'],
+                       CHANGED_PRACTICE_CHECK[1]))
+        checks.append((CHANGED_FILES_CHECK[0],
+                       [sys.executable, str(rel / 'precedent_push_check.py'),
+                        '--changed-files-check', since],
+                       CHANGED_FILES_CHECK[1]))
     if kind is None:
         print(f'precedent_push_check: cannot tell what kind of repository '
               f'{root} is (no ENGINE_MANIFEST.json kind beside this file, and '
