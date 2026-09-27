@@ -5,7 +5,12 @@
 #   1. no tools/create_word_doc.py at all -- require SKIPPED (exit 2), not
 #      a pass and not a violation;
 #   2. a truncated stand-in (too small, no practice citation) -- require
-#      the check to fire and name the specific findings.
+#      the check to fire and name the specific findings;
+#   3. the real script run end to end on a small manuscript -- require a
+#      .docx. The script installs python-docx itself when it is missing, so
+#      this step never skips for want of the package: a skip would hide the
+#      very gap (a shipped script whose package nothing installed) that the
+#      self-install exists to close.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 SET_ROOT="$(pwd)"
@@ -47,3 +52,14 @@ if ! python3 "$SET_ROOT/tools/checks/check_create_word_doc.py" > /dev/null; then
   exit 1
 fi
 echo "ok: clean on this set's own real, current tools/create_word_doc.py"
+
+mkdir -p "$SCRATCH/book-sample"
+printf '# Sample\n\n## Part I\n### One\nSome **bold** text.\n\n- a\n- b\n' \
+  > "$SCRATCH/book-sample/MANUSCRIPT.md"
+if ! python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+    --out "$SCRATCH/out/Sample.docx" --date 2026-01-01 > /dev/null \
+    || [[ ! -s "$SCRATCH/out/Sample.docx" ]]; then
+  echo "FAIL: tools/create_word_doc.py did not write a .docx from a small manuscript" >&2
+  exit 1
+fi
+echo "ok: tools/create_word_doc.py writes a .docx end to end (installing python-docx if missing)"
