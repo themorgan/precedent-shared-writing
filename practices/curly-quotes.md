@@ -20,7 +20,7 @@ strength:    decided
 A straight quotation mark (`"`) or straight apostrophe/single quote (`'`)
 never appears in the prose of a document under a repo's own declared
 `output_paths` (`precedent.json`) -- the same boundary
-`deliverables-carry-no-process` already reads, so "outward" never drifts
+[`deliverables-carry-no-process`](deliverables-carry-no-process.md) already reads, so "outward" never drifts
 between the two rules. Convert it to the matching typographic curly form
 -- `"` / `"` for double quotes, `'` / `'` for a single quote or an
 apostrophe -- the same conversion already applied when incorporating

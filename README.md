@@ -1,14 +1,17 @@
 # precedent-shared-writing — a shared practice set
 
+A shared practice set for [Precedent](https://github.com/alex137/BestPractice/tree/staging)
+about **the craft of writing for a human reader**: length and emphasis,
+when a list is really a list, drafting markers, citation and linking, and
+keeping a reader's material out of a deliverable that is not for them. A
+project declares it in its `precedent.json` `sources`, and it is cloned
+beside the project. Its [`precedent-source.json`](precedent-source.json)
+says what it is, including that this repository is public.
+
 **Renamed 2026-09-19 from `precedent-team-writing`** — the `team` level
 itself was renamed `shared`; see
-[practices/source-naming.md](https://github.com/alex137/BestPractice/blob/staging/practices/source-naming.md)'s
+[source-naming](https://github.com/alex137/BestPractice/blob/staging/practices/source-naming.md)'s
 Story.
-
-This is **precedent-shared-writing's own space** — a set for one kind of work or one team, holding the
-conventions its members have agreed on. Its
-[`precedent-source.json`](precedent-source.json) says what it is,
-including that this repository is public.
 
 ## What's here
 
