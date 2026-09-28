@@ -21,7 +21,12 @@ export PRECEDENT_ALLOW_ANY_AUTHOR=1
 #   E.  a wrong count in a SOURCE SET's own content, with precedent.json
 #       declaring `path: "."`                               -- must still fire;
 #   F.  a repo with no practices/ tree at all               -- must SKIP (2);
-#   G.  a root git cannot list                              -- must SKIP (2).
+#   G.  a root git cannot list                              -- must SKIP (2);
+#   N.  a number that ends a date, decimal or range         -- must be clean;
+#   O.  a count inside a closed <!--gen:NAME--> block       -- must be clean,
+#       and O' an unclosed marker must not hide what follows;
+#   P.  a path in precedent.json's no_stale_counts_exempt   -- must be clean,
+#       and P' the same entry without a reason must still fire.
 #
 # WHY D AND D' ARE A PAIR. Until 2026-09-10 this check derived the mirror
 # exclusion itself, from process/manifest.json's upstream.vendored_at --
@@ -442,6 +447,70 @@ so this is an ongoing claim, not a historical record.
 MD
 }
 
+fixture_number_tails () {
+  keep_sources
+  # N: three numbers that sit right before "practices" and are not counts --
+  # the day of a date, the fraction of a decimal, the top of a range. Each
+  # read as a stale count against the engine's own repository on 2026-09-28.
+  cat >> README.md <<'MD'
+
+A 2026-09-08 practices-and-lint commit touched four files.
+The first draft surfaced 13.2 practices per case.
+Which of these 52-to-54 practices apply here?
+MD
+}
+
+fixture_generated_block () {
+  keep_sources
+  # O: a count inside a closed <!--gen:NAME--> block is written by the
+  # repo's own generator and kept current by its own drift check.
+  cat >> README.md <<'MD'
+
+<!--gen:planted-->
+This set has 999 practices, as the generator wrote it.
+<!--/gen:planted-->
+MD
+}
+
+fixture_unclosed_generated_block () {
+  keep_sources
+  # O': the same marker with no matching closer, as an example quoted in
+  # prose would have. It must not switch the check off for the rest of the
+  # file, so the count after it still fires.
+  cat >> README.md <<'MD'
+
+An example marker, <!--gen:planted-->, quoted in prose.
+This set has 999 practices, definitely not the real count.
+<!--/gen:some-other-name-->
+MD
+}
+
+declare_count_exemption () {   # $1 = the reason to give ("" for none)
+  python3 - "$1" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path('precedent.json')
+d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+entry = {'path': 'history/'}
+if sys.argv[1]:
+    entry['reason'] = sys.argv[1]
+d['no_stale_counts_exempt'] = [entry]
+p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+PY
+  plant_in history/frozen-record.md
+}
+
+fixture_declared_exemption () {
+  keep_sources
+  # P: the repo declares a directory's counts historical, with a reason.
+  declare_count_exemption "a dated record: every count is what was true that day"
+}
+
+fixture_declared_exemption_without_reason () {
+  keep_sources
+  # P': the same declaration with no reason exempts nothing.
+  declare_count_exemption ""
+}
+
 # --- The runner -----------------------------------------------------------
 #
 # expect is one of: fires | clean | skipped. A non-zero exit is not evidence
@@ -545,6 +614,15 @@ run "F. a repo with no practices/ tree"                     skipped fixture_no_p
 # closed, not on the filename alone.
 run "L. a closed todo/ item's own historical count"         clean   fixture_closed_todo_item   no-engine
 run "M. the same shape, item still OPEN -- must still fire" fires   fixture_open_todo_item     no-engine
+
+# N-P: false positives found running this check against the engine's own
+# repository (2026-09-28), each with the control that proves the exclusion
+# is narrow.
+run "N. a date, decimal or range tail is not a count"       clean   fixture_number_tails       no-engine
+run "O. a count inside a closed generated block"            clean   fixture_generated_block    no-engine
+run "O'. an unclosed gen marker does not hide what follows" fires   fixture_unclosed_generated_block no-engine
+run "P. a path declared in no_stale_counts_exempt"          clean   fixture_declared_exemption no-engine
+run "P'. the same declaration with no reason still fires"   fires   fixture_declared_exemption_without_reason no-engine
 
 # H/I: the multi-source undercount this change fixes (2026-09-19, closing
 # BestPractice's todo-2026-09-18-no-stale-counts-undercounts-a-multi-
