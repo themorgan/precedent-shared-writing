@@ -10,6 +10,9 @@ export PRECEDENT_ALLOW_ANY_AUTHOR=1
 #   B.  the real, current, unplanted repo                   -- must be clean;
 #   C.  the same count inside a §1 mirror (process/upstream/ plus a
 #       process/manifest.json naming it)                    -- must be silent;
+#   C0. C again on a host that is itself a §0 consumer, with upstream's own
+#       historical count in its vendored precedent/universal/ -- must be
+#       silent (2026-09-28);
 #   D.  the same count inside a §0 mirror (a precedent.json-declared source
 #       path, and NO process/manifest.json)                 -- must be silent;
 #   D'. the SAME §0 fixture with the engine removed         -- must fire, which
@@ -113,11 +116,27 @@ keep_sources () {   # $@ = the source paths to keep; none keeps none
   # own precedent.json rather than on what they test. Found 2026-09-25, the
   # first time anything ran this suite in weeks. Each such case now states
   # the source list it was written against instead of inheriting the real one.
+  #
+  # A dropped UNIVERSAL source that lives inside this clone is a vendored
+  # copy of upstream, and it leaves with its declaration. Found 2026-09-28 in
+  # a section 0 consumer: C, C+ and L dropped precedent/universal from
+  # precedent.json but left the tree on disk, so upstream's own historical
+  # counts ("34 practices", "171 practices") stopped being a mirror and fired
+  # -- in cases that test a planted process/upstream/ file and a closed todo
+  # item, not that tree. In a practice set nothing is removed: its sources
+  # are "." or sibling clones outside this directory.
   python3 - "$@" <<'PY'
-import json, pathlib, sys
+import json, pathlib, shutil, sys
 keep = set(sys.argv[1:])
 p = pathlib.Path('precedent.json')
 d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+for s in d.get('sources', []):
+    path = str((s or {}).get('path') or '').rstrip('/')
+    parts = pathlib.PurePosixPath(path).parts
+    if (path in keep or s.get('level') != 'universal' or path in ('', '.')
+            or path.startswith('/') or '..' in parts):
+        continue
+    shutil.rmtree(path, ignore_errors=True)
 d['sources'] = [s for s in d.get('sources', []) if (s or {}).get('path') in keep]
 p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 PY
@@ -194,6 +213,28 @@ fixture_section1_mirror () {
 {"upstream": {"repo": "https://example.invalid/upstream", "vendored_at": "process/upstream", "commit": "0000000000000000000000000000000000000000"}}
 JSON
   plant_in process/upstream/MIRRORED.md
+}
+
+fixture_section1_mirror_in_section0_host () {
+  # The C fixture on a host that is itself a section 0 consumer: a declared
+  # universal source vendored at precedent/universal/, carrying upstream's
+  # own historical count. Run inside such a consumer on 2026-09-28, C, C+
+  # and L failed on exactly that tree; this builds the same shape here, so
+  # the suite catches it in the set that ships it.
+  python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path('precedent.json')
+d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+d.setdefault('sources', []).append(
+    {'level': 'universal', 'name': 'precedent', 'path': 'precedent/universal'})
+p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+PY
+  mkdir -p precedent/universal/practices
+  cat > precedent/universal/practices/upstream-history.md <<'MD'
+# Upstream's own record
+The catalogue had 34 practices when this was written.
+MD
+  fixture_section1_mirror
 }
 
 fixture_section0_mirror () {
@@ -489,6 +530,8 @@ sys.exit(0 if json.load(open('$ROOT/tools/ENGINE_MANIFEST.json')).get('kind') ==
 run "A. a wrong count in tracked markdown"                  fires   fixture_plain_violation    no-engine
 run "C. the same count inside a §1 mirror (manifest)"       clean   fixture_section1_mirror    no-engine
 run "C+. the §1 mirror, engine present -- unchanged"        clean   fixture_section1_mirror    engine
+run "C0. C on a section 0 host (vendored universal copy)"   clean   fixture_section1_mirror_in_section0_host no-engine
+run "C0+. the same, engine present"                         clean   fixture_section1_mirror_in_section0_host engine
 run "D. the same count inside a §0 mirror (no manifest)"    clean   fixture_section0_mirror    engine
 run "E. a wrong count in a source set's own content"        fires   fixture_source_set         engine
 run "F. a repo with no practices/ tree"                     skipped fixture_no_practices_tree  no-engine
