@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Measured 2026-09-28 by the very deep check (practice: session-load-budget); this set had never declared its ceilings (todo-2026-09-11-source-load-ceilings). Each ceiling is measured plus ~20%. A ceiling is a watermark, not an endorsement: review and reduce, never just raise, when it is crossed for real."
+  ],
+  "headroom_floor_pct": 5,
+  "surfaces": {
+    "AGENTS.md": {
+      "ceiling": 1450,
+      "_note": "1203 tokens measured 2026-09-28 with this set's own engine. Ceiling is current + ~20%."
+    },
+    "CLAUDE.md": {
+      "ceiling": 150,
+      "_note": "111 tokens measured 2026-09-28 with this set's own engine. Ceiling is current + ~20%."
+    },
+    ".precedent/SESSION_PRACTICES.md": {
+      "ceiling": 6650,
+      "_note": "5522 tokens measured 2026-09-28 with this set's own engine. Ceiling is current + ~20%."
+    }
+  }
+}
