@@ -5,9 +5,9 @@ This repo IS `precedent-shared-writing` — a **shared** source for
 named for a **subject** rather than for a roster. Its subject is **the craft of writing for a human reader**: length and emphasis, when a list is really a list, drafting markers, citation and linking, and keeping a reader's material out of a deliverable that is not for them.
 
 **Any team whose work includes that subject declares this set alongside its
-own**, and a repo may declare several team sets — see
+own**, and a repo may declare several shared sets — see
 [README.md](README.md) for what is here, and Precedent's `INSTALL.md`
-("Which team sets does this repo declare?") for how a project picks.
+("Which shared sets does this repo declare?") for how a project picks.
 
 <!-- BEGIN GENERATED: precedent-loader -->
 
