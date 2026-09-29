@@ -4,10 +4,10 @@ title:       a document written for outside readers carries none of the process 
 tier:        on-demand
 severity:    error
 applies_to:  ["**"]
-occasion:    "writing or editing a document in a declared output path -- anything an outside reader will see"
+occasion:    "writing a document an outside reader will see (a declared output path)"
 gates:       ["push"]
 index_required: true
-index_clause: "an output document carries no attribution stamps, practice slugs or convention notes -- the practice layer keeps that record"
+index_clause: "no attribution stamps, practice slugs or convention notes in an output document"
 checked_by:  tools/checks/check_deliverables_carry_no_process.py
 defines:     []
 status:      active

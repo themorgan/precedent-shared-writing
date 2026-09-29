@@ -13,11 +13,20 @@ own**, and a repo may declare several shared sets — see
 
 <!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block; `python3 tools/build_views.py --check` exits non-zero on drift. Source: practices/ -- edit the practice file, never this block. -->
 
+## Resident block (~84 of 2000 token budget, 1 of 20 practices)
+
+**language-variety.** **Write English as an American writes it, and Spanish as an Argentine
+writes it** -- spelling, vocabulary and grammar alike, in replies,
+documents and commit messages. So *color*, *organize*, *apartment*,
+*the team is*; and *vos tenés*, *mirá*, *ustedes*, *auto*, *celular*.
+**Quoted material, proper names, and a variety the person asks for on a
+given piece keep their own form**; `## Detail` has the specifics.
+
 ## Occasion index
 
 ```
 When a commit fixes, closes, or resolves something a document names in prose as a known, open issue:
-  resolved-issue-note-updates — When a commit fixes a bug, closes a gap, or resolves a limitation that some ...
+  resolved-issue-note-updates — fixing a known issue a document names: update that document too
 When a standing constraint on one file gets stated a second time:
   doc-recipe — present-tense rules for one file, in doc-recipes/<name>.recipe.md
 When about to commit a document that characterizes a real, identifiable person:
@@ -34,10 +43,8 @@ When naming a git branch in a document, reply, or status update:
   branch-links — link every git branch mentioned to its tree view
 When naming anything that has a destination, in a document or a reply:
   rule-links — link anything mentioned that has a destination, on first use
-When root has accumulated three or more deliverable-content documents:
-  content-subdirs — group deliverable content under a named subdirectory -- a recommendation
-When writing or editing a document in a declared output path -- anything an outside reader will see:
-  deliverables-carry-no-process — an output document carries no attribution stamps, practice slugs or convention notes -- the practice layer keeps that record
+When writing a document an outside reader will see (a declared output path):
+  deliverables-carry-no-process — no attribution stamps, practice slugs or convention notes in an output document
 When writing or pasting text into any document under a repo's declared output_paths:
   curly-quotes — a straight " or ' in outward-facing prose becomes a typographic curly quote
 
