@@ -4,6 +4,8 @@
   "visibility": "public",
   "subject": "the craft of writing for a human reader",
   "code": [],
+  "occasion_share_tokens": 550,
+  "_occasion_share_comment": "This source's allowance in every consumer's occasion index (Morgan, 2026-09-29, strength: decided): build_views refuses to build this source when its own catalogue's index is over it, and a consumer's cap is the sum of the allowances of the sources it declares. Measured 2026-09-29 at about 450; set at that plus about 20%.",
   "_comment": [
     "This file is what makes the directory a practice-set source: its",
     "name is chosen once, here, and every consumer declares it verbatim.",
