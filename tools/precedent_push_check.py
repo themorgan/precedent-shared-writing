@@ -194,12 +194,26 @@ SKIP_IS_FINE_WITHOUT_IDENTITY = {'commit_author', 'commit_dates'}
 # same tree in four repositories, and the bot-authored merge commits it had
 # just made went out unjudged; one of those repositories' own full sweep
 # failed on its staging afterwards (practice: durable-fix).
-HISTORY_CHECKS = {'commit_author', 'commit_dates'}
+HISTORY_CHECKS = {'commit_author', 'commit_dates', 'session_trailer'}
+# session_trailer (2026-09-29): a repository that declares the shared set
+# carrying check_session_trailer.py gets it materialized beside the other
+# two, and it judges only the commits origin does not have yet -- what this
+# push carries. Before, it ran only inside a full sweep, walked the whole
+# history, and refused a consumer's Promote over one old commit on main;
+# at pre-staging, --changed-files-only dropped its findings (they name no
+# file), so nothing judged a commit at Booked at all.
+# A check a practice SET ships reaches a repository on the set's own
+# schedule, which is not the engine's (practice: vendor-rollout-disclosed,
+# question 3). An engine that runs one at every push must not run a copy
+# older than the push-time behaviour: {name: text only the new copy has}.
+PUSH_TIME_SINCE = {'session_trailer': '--all-history'}
 IDENTITY_CHECKS = (
     ('commit_author', ['{engine}/checks/check_commit_author.py'],
      "precedent-individual's commit-identity.yml, retired 2026-09-21"),
     ('commit_dates', ['{engine}/checks/check_buenos_aires_dates.py'],
      "precedent-individual's commit-identity.yml, retired 2026-09-21"),
+    ('session_trailer', ['{engine}/checks/check_session_trailer.py'],
+     'nothing -- the trailer was judged only inside a full sweep'),
 )
 # Every workflow file is the engine's own untouched copy or carries the
 # person's approval pinned to its content (practice: ci-workflow-approved).
@@ -208,7 +222,8 @@ CI_WORKFLOWS_CHECK = (
                      'ci-workflow-approved'],
     'no workflow -- the check that keeps workflows from being added unasked')
 # Entries a repo may simply not have: skipped with a note, never a failure.
-OPTIONAL = {'deep_check', 'commit_author', 'commit_dates', 'light_check'}
+OPTIONAL = {'deep_check', 'commit_author', 'commit_dates', 'session_trailer',
+            'light_check'}
 # The BASIC tier: what a push to pre-staging or any other working branch
 # runs. Everything else in a kind's list is FULL-only. The leak gate is
 # here because a push IS publication in a public repository, and cannot
@@ -219,7 +234,7 @@ OPTIONAL = {'deep_check', 'commit_author', 'commit_dates', 'light_check'}
 # check, and its secret scan wants every push (practice: ci-workflow-approved;
 # Morgan, 2026-09-25, "we need to absolutely put a hard stop to this").
 BASIC_CHECKS = {'doc_lint', 'leak_gate', 'commit_author', 'commit_dates',
-                'ci_workflows', 'light_check'}
+                'session_trailer', 'ci_workflows', 'light_check'}
 BASIC, FULL = 'basic', 'full'
 # A PUSH TO A WORKING BRANCH IS JUDGED ON WHAT IT BRINGS (2026-09-28). A
 # consumer session could not push its claude/* branch: commit_author refused
@@ -237,7 +252,12 @@ RANGE_JUDGED = {'commit_author', 'commit_dates', 'ci_workflows'}
 COMMIT_IN_FINDING = re.compile(r'\bcommit ([0-9a-f]{7,40})\b')
 PUSH_CHECKS = {
     'upstream': (
-        ('verify_harness', ['{engine}/verify_harness.py', '--as-ci'],
+        # --isolated (2026-09-29): the shards run in a clone with no
+        # siblings, an empty $HOME and no source credentials -- what the
+        # runner has -- and a check that could not run there runs here. It
+        # cost 12.8 min against 18.3 for the plain run, in one container.
+        ('verify_harness', ['{engine}/verify_harness.py', '--as-ci',
+                            '--isolated'],
          'deep-check.yml, both verify_harness jobs'),
         ('precedent_check', ['{engine}/precedent_check.py', '--full-sweep'],
          'deep-check.yml, precedent_check + doc_sync job'),
@@ -567,6 +587,9 @@ CHANGED_PRACTICE_CHECK = ('changed_practice',
 #     test (tools/checks/tests/test_x.sh) run -- once, the materialized
 #     copy where there is one;
 #   - a new check has that test, and defines SOURCE_ROOT;
+#   - in BestPractice, a change to the check registry or the harness leaves
+#     every registered check with a planted case (a text read, no harness
+#     run -- see _unplanted_checks);
 #   - a changed practice file's generated views (AGENTS.md, MAP.md,
 #     GLOSSARY.md) were regenerated with it -- in a repository whose own
 #     views build_views.py renders, which is BestPractice and a practice set.
@@ -596,6 +619,49 @@ def _is_engine_check(root, rel):
     except (OSError, ValueError):
         return False
     return rel[len(f'{engine}/'):] in files
+
+
+# Every check precedent_check.py registers needs a planted case in
+# verify_harness.py's check_precedent_check_fires -- the harness asserts it
+# ("every registered check has a planted case here"), but only on a full
+# run, which pre-staging never does. On 2026-09-29 a new check went to
+# pre-staging without one, the session ran only the harness cases its
+# change touched, and the Debut to staging failed 20 minutes in. This reads
+# the same two sets as text, in well under a second, whenever a change
+# touches either side. The cause itself -- a check's case living in a
+# second, much larger file -- is a todo item
+# (todo/todo-2026-09-29-planted-case-lives-beside-its-check.md).
+_CHECK_REG_RE = re.compile(r"""^@check\(\s*['"]([\w-]+)['"]""", re.M)
+_CASE_RE = re.compile(r"""\bcase\(\s*['"]([\w-]+)['"]""")
+_CHECKED_BY_RE = re.compile(r"""^checked_by:\s*['"]?([^'"\s#]+)""", re.M)
+_CHECK_SCRIPT_DIRS = ('tools/checks', 'local/tools/checks')
+
+
+def _unplanted_checks(root):
+    """-> sorted slugs registered here with no `case('<slug>', ...)` in
+    tools/verify_harness.py: every @check in tools/precedent_check.py, and
+    every check_*.py script precedent_check.register_materialized_checks()
+    would add (named by the practice whose checked_by claims it, else by its
+    stem -- the same naming). [] where either file is missing."""
+    pc, vh = root / 'tools' / 'precedent_check.py', root / 'tools' / 'verify_harness.py'
+    if not (pc.is_file() and vh.is_file()):
+        return []
+    registered = set(_CHECK_REG_RE.findall(pc.read_text(encoding='utf-8',
+                                                        errors='replace')))
+    claimed = {}
+    for d in ('practices', 'local/practices'):
+        for f in sorted((root / d).glob('*.md')):
+            m = _CHECKED_BY_RE.search(f.read_text(encoding='utf-8',
+                                                  errors='replace')[:4000])
+            if m and m.group(1).endswith('.py') and '/checks/' in m.group(1):
+                claimed.setdefault(Path(m.group(1)).name, f.stem)
+    for d in _CHECK_SCRIPT_DIRS:
+        for script in sorted((root / d).glob('check_*.py')):
+            slug = claimed.get(script.name, script.stem)
+            registered.add(slug)
+    declared = set(_CASE_RE.findall(vh.read_text(encoding='utf-8',
+                                                 errors='replace')))
+    return sorted(registered - declared)
 
 
 def changed_files_check(root, since):
@@ -686,6 +752,17 @@ def changed_files_check(root, since):
                 f'"PRECEDENT_CHECK_ROOT") or SOURCE_ROOT)`, and resolve '
                 f'PRACTICE_FILE against SOURCE_ROOT, or check_deep_check.py '
                 f'refuses the next Promote')
+    if repo_kind(HERE) == 'upstream' and any(
+            rel in ('tools/precedent_check.py', 'tools/verify_harness.py')
+            or re.match(r'(?:local/)?tools/checks/check_\w+\.py$', rel)
+            for rel in files):
+        for slug in _unplanted_checks(root):
+            problems.append(
+                f'{slug}: a registered check with no planted case -- add '
+                f"case('{slug}', <plant>) to check_precedent_check_fires in "
+                f'tools/verify_harness.py, planting the violation it exists '
+                f'to catch; the harness refuses a check without one, and '
+                f'the full check at the next Debut runs it')
     for test in tests:
         try:
             r = subprocess.run(['bash', test], cwd=root, capture_output=True,
@@ -910,6 +987,23 @@ def already_landed(root, argv, out, landed):
     return None if left else found
 
 
+# CHEAP CHECKS FIRST, AND A SLOW ONE ONLY WHEN THEY PASSED (2026-09-28). The
+# harness suite takes minutes and every other check takes seconds, and it
+# ran first: a merge gate refused a pull request for stale generated views
+# -- a one-second finding -- after ten minutes, then took ten more on the
+# fixed push. So the slow checks run last, and not at all once a fast one
+# has failed, because the push is refused either way and the fix will be
+# checked again. PRECEDENT_PUSH_CHECK_ALL=1 runs every check regardless,
+# for a session that wants every failure in one pass.
+SLOW_CHECKS = ('verify_harness', 'deep_check', 'consumer_shape')
+
+
+def cheap_first(checks):
+    """The checks with the slow ones moved to the end, order otherwise kept."""
+    return [c for c in checks if c[0] not in SLOW_CHECKS] + \
+        [c for c in checks if c[0] in SLOW_CHECKS]
+
+
 def _run_streaming_stderr(argv, cwd):
     """subprocess.run(argv, capture_output=True, text=True), except that
     each line the child writes to stderr is ALSO passed through to this
@@ -955,7 +1049,15 @@ def run(root, checks, landed=None, reported=None):
     failed only on such findings."""
     failed, missing, findings = [], [], {}
     started = time.monotonic()
+    checks = cheap_first(checks)
+    run_all = os.environ.get('PRECEDENT_PUSH_CHECK_ALL') == '1'
     for i, (name, argv, replaces) in enumerate(checks, 1):
+        if name in SLOW_CHECKS and failed and not run_all:
+            print(f'[{i}/{len(checks)}] {name}: NOT RUN -- {", ".join(failed)} '
+                  f'already failed, so this push is refused either way; fix '
+                  f'that and run again (PRECEDENT_PUSH_CHECK_ALL=1 runs it '
+                  f'anyway)', flush=True)
+            continue
         script = root / argv[1]
         shown = ' '.join([shown_interpreter(argv), *argv[1:]])
         if not script.is_file() and name in OPTIONAL:
@@ -968,6 +1070,15 @@ def run(root, checks, landed=None, reported=None):
             print(f'[{i}/{len(checks)}] {name}: EXEMPT -- this repo declares '
                   f'{slug} not binding in precedent.json: '
                   f'{not_binding()[slug]}', flush=True)
+            continue
+        if (name in PUSH_TIME_SINCE and script.is_file() and
+                PUSH_TIME_SINCE[name] not in script.read_text(encoding='utf-8',
+                                                              errors='ignore')):
+            print(f'[{i}/{len(checks)}] {name}: not run at push time -- this '
+                  f'repo\'s copy of {argv[1]} predates judging only what a push '
+                  f'carries, and would read the whole history; it still runs in '
+                  f'the full sweep, as it did before, until the set that ships '
+                  f'it is updated here', flush=True)
             continue
         if not script.is_file():
             # A check whose tool this repo does not carry cannot be run, and
