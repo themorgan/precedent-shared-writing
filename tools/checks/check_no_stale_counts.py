@@ -138,7 +138,7 @@ def _mirrored_prefixes() -> tuple:
     somewhere else, and may therefore not hand-edit.
 
     ASKED OF THE ENGINE, NOT RE-DERIVED HERE (2026-09-10, closing the
-    `precedent-team-writing` half of BestPractice's TODO item
+    `precedent-shared-writing` half of BestPractice's TODO item
     `source-checks-adopt-engine-helpers`). This function used to BE
     _mirrored_prefixes_from_manifest() above: it read
     `process/manifest.json`'s `upstream.vendored_at` and nothing else.
