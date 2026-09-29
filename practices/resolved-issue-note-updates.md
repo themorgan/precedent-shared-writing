@@ -6,7 +6,7 @@ severity:    default
 applies_to:  ["**"]
 occasion:    "a commit fixes, closes, or resolves something a document names in prose as a known, open issue"
 gates:       []
-index_clause: "When a commit fixes a bug, closes a gap, or resolves a limitation that some ..."
+index_clause: "fixing a known issue a document names: update that document too"
 checked_by:  null
 defines:     []
 status:      active

@@ -14,7 +14,7 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 | [branch-links](practices/branch-links.md) | on-demand | naming a git branch in a document, reply, or status update |
 | [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
 | [curly-quotes](practices/curly-quotes.md) | on-demand | writing or pasting text into any document under a repo's declared output_paths |
-| [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing or editing a document in a declared output path -- anything an outside reader will see |
+| [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing a document an outside reader will see (a declared output path) |
 | [doc-link-text](practices/doc-link-text.md) | on-demand | linking to a document in prose, a reply, or a table |
 | [doc-recipe](practices/doc-recipe.md) | on-demand | a standing constraint on one file gets stated a second time |
 | [draft-marker](practices/draft-marker.md) | on-demand | leaving a placeholder or fill-in-later note mid-draft |
