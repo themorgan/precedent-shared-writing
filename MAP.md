@@ -6,16 +6,15 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## The practice catalogue
 
-`practices/` holds 20 practice files (0 resident, 20 on-demand). One file per practice.
+`practices/` holds 19 practice files (0 resident, 19 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
 | [branch-links](practices/branch-links.md) | on-demand | naming a git branch in a document, reply, or status update |
-| [content-subdirs](practices/content-subdirs.md) | on-demand | root has accumulated three or more deliverable-content documents |
 | [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
 | [curly-quotes](practices/curly-quotes.md) | on-demand | writing or pasting text into any document under a repo's declared output_paths |
-| [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing or editing a document in a declared output path -- anything an outside reader will see |
+| [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing a document an outside reader will see (a declared output path) |
 | [doc-link-text](practices/doc-link-text.md) | on-demand | linking to a document in prose, a reply, or a table |
 | [doc-recipe](practices/doc-recipe.md) | on-demand | a standing constraint on one file gets stated a second time |
 | [draft-marker](practices/draft-marker.md) | on-demand | leaving a placeholder or fill-in-later note mid-draft |
@@ -33,10 +32,11 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## Withdrawn practices
 
-1 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
+2 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
 
 | Practice | Status | Now in force at | Why it was withdrawn |
 |---|---|---|---|
+| [content-subdirs](practices/content-subdirs.md) | retired | — (nowhere) | **Retired 2026-09-29** (Morgan: *"Let's eliminate that one also"*, of this rule, beside the retired `content-directory`). |
 | [push-back](practices/push-back.md) | deduplicated | [push-back](practices/push-back.md) | Migrated here from RepoPersonalPreferences by the phase-3 private-set migration. |
 
 ## The engine
