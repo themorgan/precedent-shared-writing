@@ -13,6 +13,15 @@ own**, and a repo may declare several shared sets — see
 
 <!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block; `python3 tools/build_views.py --check` exits non-zero on drift. Source: practices/ -- edit the practice file, never this block. -->
 
+## Resident block (~84 of 2000 token budget, 1 of 20 practices)
+
+**language-variety.** **Write English as an American writes it, and Spanish as an Argentine
+writes it** -- spelling, vocabulary and grammar alike, in replies,
+documents and commit messages. So *color*, *organize*, *apartment*,
+*the team is*; and *vos tenés*, *mirá*, *ustedes*, *auto*, *celular*.
+**Quoted material, proper names, and a variety the person asks for on a
+given piece keep their own form**; `## Detail` has the specifics.
+
 ## Occasion index
 
 ```

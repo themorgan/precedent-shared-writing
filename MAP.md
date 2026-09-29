@@ -6,7 +6,7 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## The practice catalogue
 
-`practices/` holds 19 practice files (0 resident, 19 on-demand). One file per practice.
+`practices/` holds 20 practice files (1 resident, 19 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
@@ -20,6 +20,7 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 | [draft-marker](practices/draft-marker.md) | on-demand | leaving a placeholder or fill-in-later note mid-draft |
 | [durable-list-anchors](practices/durable-list-anchors.md) | on-demand | a numbered list's entries are durable content likely to be cited by position |
 | [file-mention-links](practices/file-mention-links.md) | on-demand | mentioning a repo file in a chat reply, PR description, or commit message |
+| [language-variety](practices/language-variety.md) | resident | writing anything in English or in Spanish -- a reply, a document, a commit message |
 | [list-item-parity](practices/list-item-parity.md) | on-demand | drafting or revising a list, or a document with list-like sections |
 | [list-restraint](practices/list-restraint.md) | on-demand | about to format connected prose as bullet points |
 | [name-the-branch](practices/name-the-branch.md) | on-demand | naming a branch in a reply, a commit message, a pull request, or a GitHub comment |
