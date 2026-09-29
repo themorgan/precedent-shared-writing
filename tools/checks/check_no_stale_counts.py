@@ -80,7 +80,16 @@ COUNT_RE = re.compile(r"(?<![`\w.\-])(\d+)\s+practices\b")
 # against a total of 160 (2026-09-28). Only a block that CLOSES with the
 # same name is skipped, so an example `<!--gen:NAME-->` quoted in prose
 # cannot switch the check off for the rest of the file.
-GEN_BLOCK_RE = re.compile(r"<!--gen:([\w-]+)-->.*?<!--/gen:\1-->", re.S)
+#
+# The loader block build_views.py writes into AGENTS.md uses the other
+# marker form, `<!-- BEGIN GENERATED: NAME -->` ... `<!-- END GENERATED -->`,
+# and its "Resident block (... 1 of 20 practices)" header counts what is in
+# force across every resolved source. It went unexempted until this set
+# gained its first resident practice (2026-09-29): the header appeared, and
+# case H's fixture, which adds a repo-local practice, read it as stale.
+GEN_BLOCK_RE = re.compile(
+    r"<!--gen:([\w-]+)-->.*?<!--/gen:\1-->"
+    r"|<!-- BEGIN GENERATED: [\w-]+ -->.*?<!-- END GENERATED -->", re.S)
 
 
 
