@@ -485,6 +485,28 @@ This set has 999 practices, definitely not the real count.
 MD
 }
 
+fixture_loader_generated_block () {
+  keep_sources
+  # O2: the loader's own marker form, as build_views.py writes it into
+  # AGENTS.md -- its resident-block header counts every resolved source.
+  cat >> README.md <<'MD'
+
+<!-- BEGIN GENERATED: planted -->
+## Resident block (~84 of 2000 token budget, 1 of 999 practices)
+<!-- END GENERATED -->
+MD
+}
+
+fixture_unclosed_loader_generated_block () {
+  keep_sources
+  # O2': the BEGIN marker with no END after it must not hide what follows.
+  cat >> README.md <<'MD'
+
+An example marker, <!-- BEGIN GENERATED: planted -->, quoted in prose.
+This set has 999 practices, definitely not the real count.
+MD
+}
+
 declare_count_exemption () {   # $1 = the reason to give ("" for none)
   python3 - "$1" <<'PY'
 import json, pathlib, sys
@@ -621,6 +643,8 @@ run "M. the same shape, item still OPEN -- must still fire" fires   fixture_open
 run "N. a date, decimal or range tail is not a count"       clean   fixture_number_tails       no-engine
 run "O. a count inside a closed generated block"            clean   fixture_generated_block    no-engine
 run "O'. an unclosed gen marker does not hide what follows" fires   fixture_unclosed_generated_block no-engine
+run "O2. a count inside a closed BEGIN/END GENERATED block" clean  fixture_loader_generated_block no-engine
+run "O2'. an unclosed BEGIN GENERATED hides nothing"         fires   fixture_unclosed_loader_generated_block no-engine
 run "P. a path declared in no_stale_counts_exempt"          clean   fixture_declared_exemption no-engine
 run "P'. the same declaration with no reason still fires"   fires   fixture_declared_exemption_without_reason no-engine
 
