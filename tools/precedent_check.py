@@ -158,6 +158,7 @@ import split_practices as sp
 # offset. Never a bare datetime.date.today(): that is the container's UTC.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import precedent_time  # noqa: E402
+import generated_blocks  # noqa: E402
 
 
 # Which trees this repo MIRRORS from somewhere else, and therefore may not
@@ -170,6 +171,34 @@ import precedent_time  # noqa: E402
 # It never raises, so the only thing guarded is the import: precedent_check.py
 # ships into source sets, which vendor it without precedent_resolve.py.
 _MIRRORED_CACHE = {}
+_RECEIVED_CACHE = {}
+
+
+def _received_owners(repo=None):
+    """-> {path or prefix: owner} for the files this repo received rather
+    than wrote -- precedent_practice_refs.received_owners(), the one answer,
+    cached. {} when it cannot be imported, so nothing is dropped and every
+    finding still reports."""
+    key = str(repo or ROOT)
+    if key not in _RECEIVED_CACHE:
+        try:
+            import precedent_practice_refs as ppr
+            _RECEIVED_CACHE[key] = ppr.received_owners(repo or ROOT)
+        except Exception:                           # practice: fail-gracefully
+            _RECEIVED_CACHE[key] = {}
+    return _RECEIVED_CACHE[key]
+
+
+def _received_owner(rel, repo=None):
+    """Who wrote `rel`, when this repo received it; None when it is this
+    repo's own."""
+    if not rel:
+        return None
+    try:
+        import precedent_practice_refs as ppr
+    except Exception:                               # practice: fail-gracefully
+        return None
+    return ppr.received_owner(rel, _received_owners(repo))
 
 
 def _mirrored(repo):
@@ -242,8 +271,19 @@ class NotApplicable(Exception):
 
 
 class Finding:
-    def __init__(self, where, detail):
+    """`where` is what prints; the file a finding is about is `path` when a
+    check passes one, else `where` up to its first colon (the "file:line"
+    most checks write). The runner reads it to drop findings on files this
+    repo received, and --changed-files-only to keep findings on the change."""
+
+    def __init__(self, where, detail, path=None):
         self.where, self.detail = where, detail
+        self.path = path
+
+    def file(self):
+        if self.path is not None:
+            return self.path
+        return str(self.where or '').split(':', 1)[0].strip()
 
     def __str__(self):
         return f'{self.where}: {self.detail}' if self.where else self.detail
@@ -276,7 +316,8 @@ CHECKS = {}
 
 
 def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
-          binds_publishers=False, binds_when=(), selects_on=()):
+          binds_publishers=False, binds_when=(), selects_on=(),
+          judges_received=False):
     """Register a check. `blind_to` is what it does NOT catch, printed by
     --explain -- a check's limits belong beside it, not in a document that
     drifts from it.
@@ -366,14 +407,28 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
     flag or a general mechanism: a check is advisory only when a specific,
     dated incident justifies it (see parallel-artifact-ledger's own
     comment, 2026-09-05), the same bar checkable-gets-checked sets for
-    leaving a practice advisory-only in the first place."""
+    leaving a practice advisory-only in the first place.
+
+    `judges_received=True` keeps this check's findings on files the repo
+    RECEIVED -- another source's materialized practice or check, the
+    vendored engine, a mirrored tree (precedent_practice_refs.py's
+    received_owners()). Every other check has those findings dropped by
+    run(), once, and counted in a note naming the source that owns them:
+    that source's own run judges the file, and an edit here lasts until the
+    next sync. Before 2026-09-29 each check had to remember that skip on its
+    own, and checks-use-generated-blocks went live without it and judged a
+    consumer's received check files. Set it only on a check whose subject
+    IS the received copy -- a hand edit that diverged from what was shipped,
+    or a received file that fails to resolve here -- because that finding
+    is the consumer's to act on (revert the edit, refresh the copy)."""
     def deco(fn):
         CHECKS[slug] = dict(slug=slug, scope=scope, fn=fn, what=what,
                             blind_to=blind_to, advisory=advisory,
                             practice_backed=practice_backed,
                             binds_publishers=binds_publishers,
                             binds_when=tuple(binds_when),
-                            selects_on=tuple(selects_on))
+                            selects_on=tuple(selects_on),
+                            judges_received=judges_received)
         return fn
     return deco
 
@@ -385,10 +440,10 @@ def register_materialized_checks():
 
     WHY THIS EXISTS. Until this ran, nothing anywhere invoked those
     scripts. `precedent_materialize.py` copied them in, `precedent_land.py`
-    refused to land a team or individual practice without one, and
+    refused to land a shared or individual practice without one, and
     `spec/PRIVATE_ENFORCEMENT_BRIEF.md` told a private set how to write
     them -- and then a consuming repo held fourteen real, tested check
-    scripts (nine in precedent-team-repo-maintenance, five in
+    scripts (nine in precedent-shared-repo-maintenance, five in
     precedent-individual, as of 2026-09-06) that no command ever ran. The
     enforced channel was live for the universal catalogue and hollow for
     exactly the sources an adopting team writes for itself.
@@ -532,7 +587,13 @@ def register_materialized_checks():
             # script directly -- but its own comment assumed
             # precedent_check.py "runs both, but on a rotation slice",
             # which was false; this makes it true.
-            binds_when=(rel,))
+            binds_when=(rel,),
+            # Its one finding is labelled with the SCRIPT's path, which is
+            # itself a received file in every consumer, not with the file
+            # the script judged. Dropping findings on received files by
+            # path would silence every source-supplied check in every
+            # consuming repo, so this keeps them all.
+            judges_received=True)
 
 
 def _practice_file(slug):
@@ -911,12 +972,12 @@ def _manifest_entry(rel):
 
 
 def _foreign_practice(rel):
-    """True if a COMMITTED MANIFEST.json says another source owns it. A
-    `repo-local` entry is this repository's own, so it is not foreign --
-    see _manifest_entry for why the manifest, and not live resolution, is
-    what decides."""
-    entry = _manifest_entry(rel)
-    return entry is not None and entry.get('level') != 'repo-local'
+    """True if this repo received `rel` rather than wrote it -- asked of
+    _received_owners(), the one answer, which reads the COMMITTED
+    MANIFEST.json (a `repo-local` entry is this repository's own, so it is
+    not foreign; see _manifest_entry for why the manifest, and not live
+    resolution, is what decides)."""
+    return _received_owner(rel) is not None
 
 
 @check('catalogue-carries-stories', 'tree',
@@ -1916,7 +1977,39 @@ def _separator_foreign():
 
 # Filenames fixed by the engine, identical in every Precedent repository,
 # and therefore never a repository's own separator choice.
-ENGINE_FIXED_FILENAMES = frozenset({'precedent-source.json'})
+#
+# READ FROM THE TOOLS, NOT LISTED HERE (2026-09-29). This was a hand-kept
+# set holding only precedent-source.json, so every other name a tool fixes
+# -- reply_check.json, very-deep-check-decisions.json -- read as the
+# repository's own choice, and a set carrying two of them was refused for a
+# clash no one in it could fix. The individual set exempted its root instead,
+# which hid the cause. Now a tool that fixes a file name declares it as a
+# module-level constant named *_NAME, *_FILENAME or *_MANIFEST, and this
+# set is collected from those declarations, so a new fixed name is covered
+# the day its tool declares it (practice: upstream-fix).
+_FIXED_NAME_RE = re.compile(
+    r"""^[A-Z][A-Z0-9_]*(?:NAME|MANIFEST)\s*=\s*['"]([A-Za-z0-9._-]+\.[A-Za-z]+)['"]""",
+    re.M)
+
+
+def _engine_fixed_filenames():
+    names = set()
+    for f in sorted(pathlib.Path(__file__).resolve().parent.glob('*.py')):
+        try:
+            names.update(_FIXED_NAME_RE.findall(f.read_text(encoding='utf-8')))
+        except OSError:
+            continue
+    return frozenset(names)
+
+
+ENGINE_FIXED_FILENAMES = _engine_fixed_filenames()
+
+
+# An ISO date inside a file name (report_2026-09-19.md) carries hyphens
+# because ISO 8601 puts them there, not because anyone chose "-" as the
+# separator. Counting them made a directory with one consistent convention
+# read as mixed (a dated report or audit carries its date in its name).
+_ISO_DATE_RE = re.compile(r'\d{4}-\d{2}-\d{2}')
 
 
 @check('filename-separator', 'tree',
@@ -1964,7 +2057,7 @@ def _filename_separator(ctx):
         # The FIRST dot ends the stem: `a_b.md.template` is named after
         # `a_b.md`, so its separator was inherited from that name, not
         # chosen here.
-        stem = path.name.split('.')[0]
+        stem = _ISO_DATE_RE.sub('', path.name.split('.')[0])
         key = (str(path.parent), path.suffix)
         if '-' in stem:
             groups[key]['-'].append(path.name)
@@ -1983,13 +2076,196 @@ def _filename_separator(ctx):
             f'{dirname}/' if dirname != '.' else '.',
             f'{len(seen["-"])} file(s) use "-" ({kebab}) and '
             f'{len(seen["_"])} use "_" ({snake}) for the same kind '
-            f'(*{ext}) in one directory -- pick one, or exempt the group in '
-            f'precedent.json with the reason each name was determined '
-            f'elsewhere'))
+            f'(*{ext}) in one directory -- first fix the cause: rename the '
+            f'newer file to match its directory, or, when a tool fixes the '
+            f'name, declare it in that tool as a *_NAME constant so no '
+            f'repository counts it again. Exempt the group in precedent.json '
+            f'only when neither is possible, with the reason each name was '
+            f'determined elsewhere and a root_fix saying why the cause '
+            f'cannot be fixed (practice: upstream-fix)'))
     return out
 
 
 GENERATED_VIEWS = ('MAP.md', 'GLOSSARY.md')
+GENERATED_REGISTRY = 'tools/generated_files.json'
+
+
+def _generated_label(rel, text):
+    """-> the generator a file's label names, or None when it carries none:
+    a Markdown file's `generated_by:` frontmatter, a JSON file's top-level
+    `_generated_by` (its first word), or the old hidden GENERATED-by HTML
+    comment at its head, which counts as a label so a file still carrying
+    only that is found and listed rather than missed."""
+    head = text[:3000]
+    if rel.endswith('.md'):
+        if head.startswith('---\n'):
+            end = head.find('\n---', 4)
+            m = re.search(r'^generated_by:\s*"?([^"\n]+?)"?\s*$',
+                          head[:end if end > 0 else len(head)], re.M)
+            if m:
+                return m.group(1).strip()
+        m = re.search(r'<' + r'!-- GENERATED by (\S+)', head)
+        return m.group(1) if m else None
+    if rel.endswith('.json'):
+        m = re.search(r'^\s*"_generated_by":\s*"(\S+)', head, re.M)
+        return m.group(1) if m else None
+    return None
+
+
+@check('generated-files-registered', 'tree',
+       'every file a tool here writes wholesale is listed in '
+       'tools/generated_files.json, carries its label naming that tool, points '
+       'its reader at a source that exists, and -- where it has a check -- is '
+       'current with a fresh regeneration',
+       'a generated file that carries NO label at all: the reverse half finds '
+       'files that say they are generated and are not listed, and cannot see a '
+       'tool writing a file that says nothing -- the very deep check looks for '
+       'those by reading which tracked paths tools/*.py write. Blocks inside '
+       'hand-written documents are doc_sync.py\'s, not this list\'s.',
+       practice_backed=False,
+       selects_on=('tools/generated_files.json', '*.md', '**/*.md',
+                   'record/*.json', 'tools/build_*.py'))
+def _generated_files_registered(ctx):
+    # WHY ONE LIST (Morgan, 2026-09-29, strength: decided). Four partial
+    # lists each knew some generated files -- GENERATED_VIEWS above,
+    # doc_sync.py's PAIRS, the `do not hand-edit` header search and
+    # derived-file-marker's `DERIVED from` search -- and none knew them all,
+    # so todo/TODO.md went out of date with nothing checking it.
+    reg = ROOT / GENERATED_REGISTRY
+    if not reg.is_file():
+        raise NotApplicable(f'no {GENERATED_REGISTRY} here')
+    try:
+        entries = json.loads(reg.read_text(encoding='utf-8')).get('files') or []
+    except (ValueError, AttributeError) as e:
+        return [Finding(GENERATED_REGISTRY, f'not valid JSON: {e}')]
+    out, listed, ran = [], set(), {}
+    for e in entries:
+        rel = e.get('path', '')
+        listed.add(rel)
+        f = ROOT / rel
+        if not f.is_file():
+            out.append(Finding(GENERATED_REGISTRY,
+                               f'lists {rel}, which does not exist'))
+            continue
+        text = f.read_text(encoding='utf-8', errors='ignore')
+        gen = e.get('generated_by', '')
+        if e.get('part'):
+            if e['part'] not in text:
+                out.append(Finding(rel, f'has no {e["part"]} marker, so the '
+                                        f'part {gen} writes cannot be found'))
+        elif _generated_label(rel, text) != gen:
+            out.append(Finding(rel, f'does not open with the label naming '
+                                    f'{gen} (generated_by: frontmatter for '
+                                    f'Markdown, _generated_by for JSON) -- '
+                                    f'run {e.get("regenerate") or gen}'))
+        src = e.get('edit_instead')
+        if src and not any(ROOT.glob(src)):
+            out.append(Finding(GENERATED_REGISTRY,
+                               f'{rel}: edit_instead {src!r} matches nothing '
+                               f'here, so it sends a reader nowhere'))
+        cmd = e.get('check')
+        if cmd:
+            key = tuple(cmd)
+            if key not in ran:
+                r = subprocess.run([sys.executable, str(ROOT / cmd[0]), *cmd[1:]],
+                                   cwd=str(ROOT), capture_output=True, text=True)
+                ran[key] = (r.returncode, r.stdout + r.stderr)
+            rc, said = ran[key]
+            # One check can cover several files (build_todo_index --check
+            # writes both indexes); when it names the files that drifted,
+            # only those are reported.
+            named = [x.get('path') for x in entries if tuple(x.get('check') or ()) == key
+                     and x.get('path') and x['path'] in said]
+            if rc != 0 and (rel in named or not named):
+                out.append(Finding(rel, f'is out of date with a fresh '
+                                        f'regeneration -- run '
+                                        f'{e.get("regenerate") or cmd[0]} and '
+                                        f'commit what it rewrites'))
+    r = _git('ls-files', '-z')
+    for rel in (r.stdout.split('\0') if r.returncode == 0 else []):
+        if not rel.endswith(('.md', '.json')) or rel in listed:
+            continue
+        if 'evals' in pathlib.PurePosixPath(rel).parts[:-1]:
+            continue
+        try:
+            text = (ROOT / rel).read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        gen = _generated_label(rel, text)
+        if gen:
+            out.append(Finding(rel, f'says it is generated by {gen} and is not '
+                                    f'listed in {GENERATED_REGISTRY} -- add it, '
+                                    f'with the command that checks it is '
+                                    f'current'))
+    return out
+
+
+def _withheld_from_manifest():
+    """-> the practice files MANIFEST.json says are withheld from this public
+    tree (published in a private source and deliberately kept out), or None
+    where there is no readable MANIFEST.json. Read from the committed
+    record, never by live resolution (see rename-updates-links for why).
+    Which files this repo RECEIVED is a different question, answered once
+    by _received_owners()."""
+    try:
+        m = json.loads((ROOT / 'MANIFEST.json').read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        return None
+    return {f"practices/{slug}.md" for slug in (m.get('withheld') or [])}
+
+
+# ---- checks-use-generated-blocks --------------------------------------------
+# A check that skips generated text matches the markers through
+# tools/generated_blocks.py, never by hand (Morgan, 2026-09-29: "we should
+# check this also"). Until that day every engine scan matched the markers
+# itself and each knew one of the two styles; a shared set's
+# no-stale-counts check knew only `gen:`, read the loader block's "1 of 20
+# practices" as a stale count and refused a Promote. The engine's own scans
+# moved onto the helper the same day. This holds the checks a repo or a
+# practice source writes to the same line, since those are the ones nobody
+# in this repository reads. Every finding names its file, so into
+# pre-staging it judges only the check files a change touches, and at
+# staging every one (checks-follow-the-tier).
+_CHECK_DIRS = ('tools/checks/', 'local/tools/checks/')
+_MARKER_SPELLING = re.compile(r'BEGIN GENERATED|END GENERATED|<!--(?:/\??)?gen\b')
+
+
+@check('checks-use-generated-blocks', 'tree',
+       'no check under tools/checks/ or local/tools/checks/ matches '
+       'generated-block markers itself -- it asks tools/generated_blocks.py, '
+       'which knows both marker styles and needs the closing marker',
+       'a check that finds generated text some other way than spelling a '
+       'marker (reading a line count, say), and the engine\'s own tools/*.py, '
+       'which write the markers and so must spell them -- the engine\'s '
+       'skipping scans were moved onto the helper and verify_harness.py '
+       'pins them. Test files under tests/ plant markers on purpose and are '
+       'not read, and neither is a check MANIFEST.json says another source '
+       'wrote here: that source\'s own run judges it.',
+       practice_backed=False,
+       selects_on=('tools/checks/**/*.py', 'local/tools/checks/**/*.py'))
+def _checks_use_generated_blocks(ctx):
+    # A check another source wrote here is that source's to fix; run()
+    # drops findings on received files for every check, this one included.
+    out = []
+    for rel in _ls_files_on_disk(*_CHECK_DIRS):
+        parts = pathlib.PurePosixPath(rel).parts
+        if not rel.endswith('.py') or 'tests' in parts[:-1] \
+                or parts[-1].startswith('test_'):
+            continue
+        try:
+            text = (ROOT / rel).read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if _MARKER_SPELLING.search(line):
+                out.append(Finding(
+                    f'{rel}:{n}',
+                    'matches generated-block markers itself -- use '
+                    'tools/generated_blocks.py (mask(), blank() or spans()), '
+                    'which knows both the gen: and the BEGIN/END GENERATED '
+                    'style and ignores an opener with no closer'))
+                break
+    return out
 
 
 @check('generated-artifact-provenance', 'tree',
@@ -2649,7 +2925,7 @@ def _practice_is_reachable(ctx):
 
     # THE FIFTH CHANNEL, and why it is judged structurally rather than by
     # looking for the file. In a repo declaring `visibility: public`, the
-    # tracked loader block deliberately omits the team and individual
+    # tracked loader block deliberately omits the shared and individual
     # levels -- their text may not be committed -- and
     # tools/precedent_session_practices.py renders exactly that complement
     # into .precedent/SESSION_PRACTICES.md at session start, which
@@ -5151,7 +5427,12 @@ def _speculation_is_marked(ctx):
        "there. It scans the `_ENGINE_DIR / '<name>'` and "
        "`ROOT / 'tools' / '<name>'` spellings only, not an equivalent path "
        "built any other way (an f-string, a joined variable).",
-       practice_backed=False)
+       practice_backed=False,
+       # Its subject IS a received file: a consumer's vendored engine file
+       # naming a companion that never arrived there. BestPractice holds
+       # every companion, so only the consumer's run can see it, and the
+       # remedy (refresh the engine) is the consumer's.
+       judges_received=True)
 def _vendored_engine_file_refs_resolve(ctx):
     tools_dir = ROOT / 'tools'
     findings = []
@@ -6815,15 +7096,6 @@ def _rename_updates_links(ctx):
     # them inside a vendored tree nobody can edit there, and every one of
     # them unactionable. MANIFEST.json's `withheld` list records exactly
     # this, written by precedent_materialize.py.
-    # Files this repo received rather than wrote (see the skip below).
-    _vendored_engine = set()
-    try:
-        _em = json.loads(
-            (ROOT / 'tools' / 'ENGINE_MANIFEST.json').read_text(encoding='utf-8'))
-        _vendored_engine = {f"tools/{f}" for f in (_em.get('files') or [])}
-    except (ValueError, OSError):
-        pass
-
     withheld = set()
     # Materialized output is the same third state one level further out.
     # precedent_materialize.py DELETES AND REWRITES practices/ and
@@ -6841,22 +7113,11 @@ def _rename_updates_links(ctx):
     # old directory name as the canonical EXAMPLE of a convention, none of
     # which points at anything in the consuming repo, and not one of which
     # that repo could fix.
-    received = set()
-    try:
-        _m = json.loads((ROOT / 'MANIFEST.json').read_text(encoding='utf-8'))
-        withheld = {f"practices/{slug}.md" for slug in (_m.get('withheld') or [])}
-        _local = {s.get('name') for s in (_m.get('sources') or [])
-                  if isinstance(s, dict) and s.get('level') == 'repo-local'}
-        for _e in (_m.get('practices') or []):
-            if isinstance(_e, dict) and _e.get('slug') \
-                    and _e.get('source') not in _local:
-                received.add(f"practices/{_e['slug']}.md")
-        for _e in (_m.get('checks') or []):
-            if isinstance(_e, dict) and _e.get('path') \
-                    and _e.get('source') not in _local:
-                received.add(_e['path'])
-    except (ValueError, OSError):
-        pass
+    # Those files are dropped by run(), which drops a finding on any file
+    # this repo received, for every check (see _received_owners()).
+    _withheld = _withheld_from_manifest()
+    if _withheld is not None:
+        withheld = _withheld
 
     _retired_exempt = _decommissioning_record_exemptions()
 
@@ -6887,20 +7148,13 @@ def _rename_updates_links(ctx):
             if old in withheld:
                 continue      # withheld, not deleted -- see the note above
             # A file the consuming repo RECEIVED cannot be repointed there:
-            # a mirrored tree and the vendored engine are copied wholesale
-            # from a published commit, and an edit is overwritten by the next
-            # refresh. The reference is upstream's, and so is the fix.
-            #
-            # THE VENDORED CATALOGUE IS THE THIRD SUCH TREE and this check did
-            # not know it. The engine and the materialized tree were already
-            # attributed from the committed manifest; the catalogue was
-            # excluded by the literal 'process/upstream/', which is
-            # INSTALL.md §1's layout only. A §0 consumer deleting one of its
-            # OWN files got two findings inside Precedent's practice prose,
-            # where the path named is correct upstream and where the consumer
-            # can repoint nothing. Ask the engine (practice: durable-fix).
-            if rel.startswith(_mirrored(ROOT)) or rel in _vendored_engine \
-                    or rel in received or rel == DECOMMISSIONED_PATHS_REGISTRY \
+            # a mirrored tree, the vendored engine and another source's
+            # materialized files are copied wholesale, and an edit is
+            # overwritten by the next refresh. run() drops those findings
+            # for every check; asking the same one answer here as well only
+            # saves reading the files (practice: durable-fix).
+            if _received_owner(rel) is not None \
+                    or rel == DECOMMISSIONED_PATHS_REGISTRY \
                     or any(_exempt_matches(rel, e) for e in _retired_exempt):
                 # The decommissioning registry names every path this repo has
                 # deleted, on purpose (practice: decommission-deletes-files) --
@@ -6922,19 +7176,16 @@ def _rename_updates_links(ctx):
                 text = f.read_text(encoding='utf-8', errors='ignore')
             except OSError:
                 continue
-            in_generated = False
-            for i, line in enumerate(text.splitlines(), 1):
+            lines = text.splitlines()
+            for i, (line, in_generated) in enumerate(
+                    zip(lines, generated_blocks.mask(lines)), 1):
                 # The loader block is rewritten wholesale by build_views.py
                 # from the practice sources, so a reference inside it is the
                 # sources' to fix, exactly like the materialized files it is
                 # summarising. Skipped as a REGION, not as a file: the
                 # hand-written half of the same document must still be
                 # repointed, and usually is the thing that most needs to be.
-                if '<!-- BEGIN GENERATED: precedent-loader -->' in line:
-                    in_generated = True
-                elif '<!-- END GENERATED -->' in line:
-                    in_generated = False
-                    continue
+                # Either marker style counts (tools/generated_blocks.py).
                 if in_generated:
                     continue
                 # A permalink pinned to a commit names the file as it was at
@@ -7053,6 +7304,430 @@ def _two_check_levels(ctx):
                               f'"the check" has to re-derive what that '
                               f'means every time')]
     return []
+
+
+@check('routing-reason', 'tree',
+       'every active on-demand practice in the engine\'s own catalogue says '
+       'why its applies_to is what it is, in its own applies_to_why field',
+       'whether the reason is a GOOD one, or whether the globs match it -- '
+       'only that a reason was written down where the practice is. A source '
+       'set or consumer is not held to it: the field is optional there, '
+       'since the second file that made it necessary only ever existed here.',
+       practice_backed=False,
+       selects_on=('practices/*.md', 'tools/routing_scope.json'))
+def _routing_reason(ctx):
+    # WHY THE REASON LIVES IN THE PRACTICE (2026-09-29). It used to live in
+    # tools/routing_scope.json, one entry per practice, and a harness test
+    # failed when a practice had none. The second list was the cause of the
+    # failure it tested for: five new practices arrived without entries, the
+    # test caught them only at staging, and a deleted practice would have
+    # left its entry behind with nothing to notice. The list's own copy of
+    # `gates` had already drifted on fourteen practices. Morgan, 2026-09-29:
+    # prevent what caused it, not only check for it later. With the reason
+    # in the file, a practice cannot arrive or leave without it, and this
+    # check pins its finding to that one file, so pre-staging runs it
+    # (practice: upstream-fix).
+    #
+    # The engine's origin only: it vendors no engine into itself, so it has
+    # no ENGINE_MANIFEST.json, and it carries the harness the old test
+    # lived in.
+    if _engine_manifest() or not (ctx.root / 'tools' / 'verify_harness.py').is_file():
+        raise NotApplicable('not the engine\'s own repository -- '
+                            'applies_to_why is optional here')
+    practices_dir = ctx.root / 'practices'
+    if not practices_dir.is_dir():
+        raise NotApplicable('no practices/ directory')
+    out = []
+    for f in sorted(practices_dir.glob('*.md')):
+        try:
+            fm, _sections = sp._read_practice_file(f)
+        except sp.PracticeFileError:
+            continue
+        if (fm.get('tier') or '').strip() != 'on-demand':
+            continue
+        if (fm.get('status', 'active') or 'active').strip().strip('"') != 'active':
+            continue
+        why = (fm.get('applies_to_why') or '').strip().strip('"').strip()
+        if not why:
+            out.append(Finding(
+                str(f.relative_to(ctx.root)),
+                'has no applies_to_why -- add one line under applies_to '
+                'saying why these globs identify the practice\'s occasion, '
+                'or why it stays at "**" and which channel reaches it '
+                '(the occasion index, a gate, a check). '
+                'See spec/PRACTICE_FORMAT.md, "applies_to_why".'))
+    out += _glob_changed_reason_did_not(ctx, practices_dir)
+    return out
+
+
+def _glob_changed_reason_did_not(ctx, practices_dir):
+    """A practice whose applies_to changed since the base while its
+    applies_to_why stayed word for word the same.
+
+    WHY (2026-09-29). While the reason lived in tools/routing_scope.json,
+    changing a glob meant editing two files, which prompted a look at the
+    reason. With the reason on the line under the glob that nudge is gone,
+    and a glob can change under a sentence that explains the old one.
+    Morgan, 2026-09-29, agreeing to this check: a pattern change must come
+    with its reason looked at again. It cannot tell a real update from a
+    token one; it makes the question unskippable, not the answer good.
+    Only a practice that existed at the base is judged -- a new one has no
+    old reason to compare."""
+    base = (ctx.range.split('..')[0] if getattr(ctx, 'range', None)
+            else _published_default_branch())
+    if not base:
+        return []
+    out = []
+    for f in sorted(practices_dir.glob('*.md')):
+        rel = str(f.relative_to(ctx.root))
+        before = _git('show', f'{base}:{rel}')
+        if before.returncode != 0:
+            continue
+        try:
+            old_fm, _ = sp._parse_practice_text(before.stdout, rel)
+            new_fm, _ = sp._read_practice_file(f)
+        except sp.PracticeFileError:
+            continue
+        if (old_fm.get('applies_to') or '').strip() == (new_fm.get('applies_to') or '').strip():
+            continue
+        if (old_fm.get('applies_to_why') or '').strip() != (new_fm.get('applies_to_why') or '').strip():
+            continue
+        out.append(Finding(rel, f'applies_to changed since {base} '
+                                f'({old_fm.get("applies_to", "").strip()} -> '
+                                f'{new_fm.get("applies_to", "").strip()}) but '
+                                f'applies_to_why did not -- update the reason '
+                                f'for the new pattern, or, if it still holds, '
+                                f'add a few words saying you checked it'))
+    return out
+
+
+@check('retired-words', 'tree',
+       'no live text uses a retired word: the engine\'s own (tools/'
+       'our_language.json, each finding naming the replacement) in Markdown, '
+       'and -- where a repository declares process/retired_vocabulary.json -- '
+       'that repository\'s own retired terms in any text file outside its '
+       'declared exempt_files',
+       'history, on purpose: todo/, decisions/, gotchas/, record/, evals/, a '
+       'document whose frontmatter says kind: record or a finished status, '
+       'a practice\'s ## Story, approved_by, text in quotation marks, and a '
+       'line that says it is about the retirement itself -- the same rules '
+       'for both lists, in Markdown. The engine\'s words are read in '
+       'Markdown only (code comments and messages were cleaned by hand when '
+       'each word was retired), and a consumer repository is not held to '
+       'them: they are this engine\'s vocabulary. A repository\'s own terms '
+       'are read in every text file, as they always were.',
+       practice_backed=False,
+       selects_on=('*.md', '**/*.md', 'tools/our_language.json',
+                   'tools/our_language.py', 'process/retired_vocabulary.json'))
+def _retired_words(ctx):
+    # practice: rename-updates-links ("a term ... renamed or retired, every
+    # place that still uses the old name ... is updated"). WHY THIS IS A
+    # REGISTRY AND NOT A CHECK PER WORD (2026-09-29): "team set" was retired
+    # by searching for that one phrase, so "team source", "team repo",
+    # `--level team` and a code path that only read level "team" all
+    # survived it, and the last one hid a real bug. Morgan asked for the old
+    # word cleaned up everywhere and for the cause fixed rather than a check
+    # added after it (practice: upstream-fix). Retiring the next word is one
+    # entry in our_language.json's `retired` list.
+    #
+    # ONE SCANNER FOR BOTH LISTS (2026-09-29, Morgan: "if you now do the
+    # whole job and that's redundant, then let's deprecate that"). A
+    # repository's own process/retired_vocabulary.json used to be scanned by
+    # migration-scrubs-vocabulary, with whole-file exemptions only; it is
+    # read here now, with the same history rules as the engine's words, and
+    # that check keeps only its other job (a leftover pre-migration pack).
+    try:
+        import our_language as _ol
+    except ImportError:
+        _ol = None
+    out, applies = [], False
+    if (_ol is not None and _ol.REGISTRY.is_file()
+            and _engine_manifest().get('kind') != 'consumer'):
+        applies = True
+        out += [Finding(f'{rel}:{n}',
+                        f'uses {word!r}, retired -- say {repl!r} instead '
+                        f'(tools/our_language.json lists what replaced it; a '
+                        f'quotation or a record of the past keeps the old word)')
+                for rel, n, word, repl, _line in _ol.retired_uses(ctx.root)]
+    cfg_path = ROOT / RETIRED_VOCAB_CONFIG
+    if cfg_path.is_file():
+        applies = True
+        out += _repo_retired_terms(cfg_path, _ol)
+    if not applies:
+        raise NotApplicable('neither the engine\'s retired words (a consumer '
+                            'is not held to them) nor a '
+                            f'{RETIRED_VOCAB_CONFIG} of this repository\'s own')
+    return sorted(out, key=lambda f: f.where)
+
+
+def _repo_retired_terms(cfg_path, _ol):
+    """Findings for a repository's own retired terms -- the scan that was
+    migration-scrubs-vocabulary's second half until 2026-09-29, unchanged in
+    what it reads and what it exempts, with the engine's history rules added
+    for Markdown."""
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as e:
+        return [Finding(RETIRED_VOCAB_CONFIG, f'not valid JSON: {e}')]
+    if not isinstance(cfg, dict):
+        # A bare `["OldName"]` array where `{"terms": [...]}` belongs once
+        # raised an uncaught AttributeError and took every other check in
+        # the run down with it (2026-09-03); it is a finding, not a crash.
+        return [Finding(RETIRED_VOCAB_CONFIG,
+                        f'must be a JSON object with a "terms" list (e.g. '
+                        f'{{"terms": [...], "exempt_files": [...]}}), not a '
+                        f'{type(cfg).__name__}')]
+    terms = cfg.get('terms') or []
+    exempt_files = cfg.get('exempt_files') or []
+    if not isinstance(terms, list) or not isinstance(exempt_files, list):
+        bad = 'terms' if not isinstance(terms, list) else 'exempt_files'
+        return [Finding(RETIRED_VOCAB_CONFIG,
+                        f'{bad!r} must be a JSON array of strings, not a '
+                        f'{type(cfg[bad]).__name__}')]
+    if not terms:
+        return []
+    # An exempt_files entry ending in `/` exempts a directory: a
+    # materialized one holds other sources' content that can share a
+    # retired term by coincidence, and its file list changes every sync.
+    exempt_files = [RETIRED_VOCAB_CONFIG] + exempt_files
+    retired = [(t, 'this repository\'s current wording', [_retired_term_re(t)])
+               for t in terms]
+    out = []
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        rel_dir = pathlib.Path(dirpath).relative_to(ROOT).as_posix()
+        rel_dir = '' if rel_dir == '.' else rel_dir
+        # .git is never this repo's content; process/upstream/ mirrors a
+        # different repo; agent worktrees are other checkouts of this one.
+        dirnames[:] = [d for d in dirnames
+                       if (f'{rel_dir}/{d}' if rel_dir else d)
+                       not in ('.git', 'process/upstream',
+                               AGENT_WORKTREES.rstrip('/'))]
+        for name in filenames:
+            rel = f'{rel_dir}/{name}' if rel_dir else name
+            if rel in RETIRED_VOCAB_SKIP_FILES:
+                continue
+            if any(_exempt_matches(rel, e) for e in exempt_files):
+                continue
+            if rel in _vendored_engine_files():
+                continue
+            try:
+                text = (ROOT / rel).read_text(encoding='utf-8')
+            except (UnicodeDecodeError, OSError):
+                continue
+            if rel.endswith('.md') and _ol is not None:
+                hits = [(n, w) for n, w, _r, _l in
+                        _ol.retired_uses_in(rel, text, retired)]
+            else:
+                hits = [(i, term) for i, line in enumerate(text.splitlines(), 1)
+                        for term in terms if _retired_term_re(term).search(line)]
+            for i, term in hits:
+                out.append(Finding(f'{rel}:{i}',
+                                   f'still carries retired term {term!r} -- '
+                                   f'scrub it, or add this file (or its '
+                                   f'directory, trailing "/") to exempt_files '
+                                   f'if it is genuinely a historical record or '
+                                   f'materialized third-party content'))
+    return out
+
+
+_BARE_CITATION_RE = re.compile(r'\bpractice\s+(\d+)\b', re.IGNORECASE)
+_SLUG_LINK_RE = re.compile(r'\]\(([a-z0-9]+(?:-[a-z0-9]+)*)\.md\)')
+_GITHUB_REPO_RE = re.compile(
+    r'https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)')
+_UPSTREAM_OWNER_REPO = 'alex137/BestPractice'
+
+
+@check('practice-file-shape', 'tree',
+       'each practice file in the engine\'s own catalogue is well-formed on '
+       'its own: its slug is its filename and no other file has it; a '
+       'checked_by names a script that exists; its body cites no practice by '
+       'number and every [slug](slug.md) link names a real practice; it '
+       'links no GitHub repository but this one; its ## Rule is non-empty '
+       'and does not end on a lead-in; and an on-demand practice has a '
+       'written, complete index_clause within the length limit',
+       'whether the Rule is good, or the index line apt -- only the shape a '
+       'script can see. A source set or consumer is not held to it here: '
+       'their practices link other sources\' slugs by URL, and a consumer\'s '
+       'catalogue is materialized, not authored.',
+       practice_backed=False,
+       selects_on=('practices/*.md', 'AGENTS.md'))
+def _practice_file_shape(ctx):
+    # MOVED FROM THE TEST SUITE (2026-09-29). Each of these was a
+    # verify_harness.py check -- check_slug_set, check_checked_by_targets_
+    # exist, check_no_bare_numeric_citations, check_slug_link_integrity,
+    # check_practices_link_only_reachable_repos, check_rule_is_self_
+    # contained, check_index_clauses -- so a practice file broken in any of
+    # these ways landed on pre-staging and was caught only at staging, 20
+    # minutes of suite later. Every one judges one file and takes
+    # milliseconds, and a finding here names that file, so the pre-staging
+    # changed-files run keeps it (Morgan, 2026-09-29: make the per-file
+    # checks at pre-staging thorough). The harness copies were deleted, not
+    # kept beside these: two checks of one property is the redundancy the
+    # very deep check's question 8 looks for.
+    if _engine_manifest() or not (ctx.root / 'tools' / 'verify_harness.py').is_file():
+        raise NotApplicable('not the engine\'s own repository')
+    practices_dir = ctx.root / 'practices'
+    if not practices_dir.is_dir():
+        raise NotApplicable('no practices/ directory')
+    try:
+        import build_views as _bv
+    except ImportError as e:
+        raise NotApplicable(f'build_views did not import: {e}')
+    parsed = {}
+    for f in sorted(practices_dir.glob('*.md')):
+        try:
+            parsed[f.stem] = (f, *sp._read_practice_file(f))
+        except sp.PracticeFileError:
+            continue          # an unparseable file is another check's finding
+    by_slug = collections.defaultdict(list)
+    for stem, (f, fm, _s) in parsed.items():
+        by_slug[(fm.get('slug') or '').strip()].append(f)
+    out = []
+
+    def rel(f):
+        return str(f.relative_to(ctx.root))
+
+    for stem, (f, fm, sections) in parsed.items():
+        slug = (fm.get('slug') or '').strip()
+        if slug != stem:
+            out.append(Finding(rel(f), f'frontmatter slug {slug!r} is not the '
+                                       f'filename {stem!r}'))
+        elif len(by_slug[slug]) > 1:
+            out.append(Finding(rel(f), f'slug {slug!r} is also used by '
+                                       + ', '.join(rel(o) for o in by_slug[slug]
+                                                   if o != f)))
+        target = (fm.get('checked_by') or 'null').strip().strip('"')
+        if target not in ('null', '') and not (ctx.root / target).exists():
+            out.append(Finding(rel(f), f'checked_by names {target!r}, which does '
+                                       f'not exist -- the practice claims '
+                                       f'enforcement it does not have'))
+        body = ' '.join(sections.get(k, '') for k in sections)
+        for m in _BARE_CITATION_RE.finditer(body):
+            out.append(Finding(rel(f), f'cites "practice {m.group(1)}" by number; '
+                                       f'link it by slug, [slug](slug.md), instead'))
+        for m in _SLUG_LINK_RE.finditer(body):
+            if m.group(1) not in parsed:
+                out.append(Finding(rel(f), f'links {m.group(1)}.md, which is not a '
+                                           f'practice in this catalogue'))
+        for m in _GITHUB_REPO_RE.finditer(f.read_text(encoding='utf-8', errors='ignore')):
+            owner_repo = f'{m.group(1)}/{m.group(2)}'
+            if owner_repo.lower() != _UPSTREAM_OWNER_REPO.lower():
+                out.append(Finding(rel(f), f'links {owner_repo}, a repository a '
+                                           f'reader of a shipped practice has no '
+                                           f'reason to be able to open -- name it '
+                                           f'instead of linking it'))
+        rule = (sections.get('rule') or '').strip()
+        if not rule:
+            out.append(Finding(rel(f), 'empty ## Rule -- a practice with nothing '
+                                       'to do is not loadable on its own'))
+        elif rule.endswith(':'):
+            out.append(Finding(rel(f), f'## Rule ends on a colon '
+                                       f'({rule.splitlines()[-1][:60]!r}) -- what it '
+                                       f'introduces is not in the Rule'))
+        if (fm.get('tier') or '').strip() == 'on-demand':
+            clause = _bv._json_str(fm.get('index_clause', ''))
+            if not clause:
+                out.append(Finding(rel(f), 'no index_clause -- an on-demand '
+                                           'practice needs the line that gets it '
+                                           'opened'))
+            else:
+                if len(clause) > _bv.INDEX_CLAUSE_MAX:
+                    out.append(Finding(rel(f), f'index_clause is {len(clause)} '
+                                               f'characters, over '
+                                               f'{_bv.INDEX_CLAUSE_MAX}'))
+                if clause.rstrip().endswith(('...', '…', ':')):
+                    out.append(Finding(rel(f), f'index_clause does not finish its '
+                                               f'thought: {clause!r}'))
+                if clause[:1].isupper() and not clause.startswith(('A ', 'I ')):
+                    out.append(Finding(rel(f), f'index_clause reads as a sentence, '
+                                               f'not a table cell: {clause!r}'))
+    # The instructions file carried the same two citation rules in the
+    # harness, and moves with them.
+    agents = ctx.root / 'AGENTS.md'
+    if agents.is_file():
+        text = agents.read_text(encoding='utf-8', errors='ignore')
+        for m in _BARE_CITATION_RE.finditer(text):
+            out.append(Finding('AGENTS.md', f'cites "practice {m.group(1)}" by '
+                                            f'number; link it by slug instead'))
+        for m in re.finditer(r'\]\(practices/([a-z0-9]+(?:-[a-z0-9]+)*)\.md\)', text):
+            if m.group(1) not in parsed:
+                out.append(Finding('AGENTS.md', f'links practices/{m.group(1)}.md, '
+                                                f'which is not a practice here'))
+    return out
+
+
+def _exemption_lists(cfg):
+    """{key: [entry, ...]} for every exemption list precedent.json declares:
+    each `*_exempt` key, and `not_binding`."""
+    out = {}
+    for k, v in (cfg or {}).items():
+        if k.startswith('_') or not isinstance(v, list):
+            continue
+        if k.endswith('_exempt') or k == 'not_binding':
+            out[k] = v
+    return out
+
+
+def _entry_identity(entry):
+    # An entry is the same entry when everything but its root_fix is the
+    # same, so adding a root_fix to an old entry never makes it "new".
+    if isinstance(entry, dict):
+        entry = {k: v for k, v in entry.items() if k != 'root_fix'}
+    return json.dumps(entry, sort_keys=True)
+
+
+@check('upstream-fix', 'tree',
+       'every exemption-list entry in precedent.json that is new against the '
+       'base branch carries a root_fix: what was fixed instead, or why the '
+       'check cannot learn the case',
+       'whether the root_fix is TRUE, or whether a root fix was really out of '
+       'reach -- only that the question was answered in writing. Entries '
+       'already on the base branch are left alone until someone touches '
+       'them, and an exemption declared anywhere but precedent.json is not '
+       'seen.')
+def _exemption_names_its_root_fix(ctx):
+    # practice: upstream-fix, point 6. Morgan, 2026-09-29: "whenever we need
+    # to add an 'exemption' of any sort anywhere, we always use that as an
+    # example of a root fix opportunity." The same day a set exempted its
+    # whole root from filename-separator when the check only needed to learn
+    # two names engine tools fix -- the exemption hid the cause.
+    path = ctx.root / 'precedent.json'
+    try:
+        now = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise NotApplicable('no readable precedent.json')
+    lists = _exemption_lists(now)
+    if not any(lists.values()):
+        return []
+    base = _published_default_branch()
+    if not base:
+        raise NotApplicable('no base branch to compare against, so no entry '
+                            'can be told apart as new')
+    shown = _git('show', f'{base}:precedent.json')
+    try:
+        before = _exemption_lists(json.loads(shown.stdout)) if shown.returncode == 0 else {}
+    except ValueError:
+        before = {}
+    out = []
+    for key, entries in lists.items():
+        old = {_entry_identity(e) for e in before.get(key, [])}
+        for e in entries:
+            if _entry_identity(e) in old:
+                continue
+            fix = e.get('root_fix') if isinstance(e, dict) else None
+            if isinstance(fix, str) and fix.strip():
+                continue
+            label = (e.get('path') or e.get('slug') or e.get('name') or '?') \
+                if isinstance(e, dict) else str(e)
+            out.append(Finding(
+                'precedent.json',
+                f'{key} gains an entry for {label!r} with no root_fix -- an '
+                f'exemption is a sign the cause has not been fixed. First '
+                f'ask why the check is wrong about this case and teach it if '
+                f'it can learn (then drop the entry). If it cannot, or not in '
+                f'this session, add "root_fix": saying which, and hand the '
+                f'root fix off (practice: upstream-fix)'))
+    return out
 
 
 @check('routing-audit', 'tree',
@@ -7282,8 +7957,21 @@ def _parallel_artifact_ledger(ctx):
     # CI checkout, most obviously) `--max-parents=0` cannot be trusted to
     # find every commit this check should treat as "can't verify, don't
     # guess" the same way it already treats a genuine root.
-    roots = set(_git('rev-list', '--max-parents=0', 'HEAD').stdout.split())
+    # A RANGED RUN READS ONLY THE RANGE (2026-09-29). The pre-staging push
+    # check passes --range <landing>...HEAD with --changed-files-only, and
+    # this check used to walk each member directory's WHOLE history there
+    # anyway -- and then pinned its finding to LEDGER.md, a file the push
+    # usually did not change, so the changed-files filter dropped it: it
+    # read the full history and could never refuse. Morgan, 2026-09-29:
+    # "pre-staging should never do any check of a full history." Ranged,
+    # it reads only the commits the push brings and pins each finding to the
+    # member file the commit changed, which the filter keeps. The full check
+    # at staging still reads everything.
+    ranged = bool(getattr(ctx, 'range', None))
+    roots = (set() if ranged else
+             set(_git('rev-list', '--max-parents=0', 'HEAD').stdout.split()))
     roots |= _shallow_boundary_commits()
+    range_base = ctx.range.split('..')[0] if ranged else None
     findings = []
     for member_dir in _LEDGER_MEMBER_DIRS:
         # `git log` is newest-first, so the LAST entry is this member
@@ -7299,8 +7987,18 @@ def _parallel_artifact_ledger(ctx):
         # request caught it, and had to be written into the ledger by hand
         # as a row saying, in effect, "no transfer verdict applicable".
         # (closed and pruned from TODO.md; was the `ledger-root-commit-exemption` item.)
-        out = _git('log', '--no-merges', '--format=%H', '--', member_dir).stdout.split()
-        inception = {out[-1]} if out else set()
+        if ranged:
+            out = _git('log', '--no-merges', '--format=%H', ctx.range,
+                       '--', member_dir).stdout.split()
+            # A member created inside the range is inception, told apart by
+            # its directory not existing at the range's base -- no history
+            # walk needed.
+            created_here = _git('cat-file', '-e',
+                                f'{range_base}:{member_dir}').returncode != 0
+            inception = {out[-1]} if out and created_here else set()
+        else:
+            out = _git('log', '--no-merges', '--format=%H', '--', member_dir).stdout.split()
+            inception = {out[-1]} if out else set()
         for full_hash in out:
             if full_hash in roots or full_hash in inception:
                 continue
@@ -7316,8 +8014,13 @@ def _parallel_artifact_ledger(ctx):
                         f'and git could not show whether it added one '
                         f'itself -- not a finding, and not a pass'))
                     continue
+                where = 'templates/harness/LEDGER.md'
+                if ranged:
+                    touched = _git('show', '--name-only', '--format=',
+                                   full_hash, '--', member_dir).stdout.split()
+                    where = touched[0] if touched else where
                 findings.append(Finding(
-                    'templates/harness/LEDGER.md',
+                    where,
                     f'no row references {full_hash[:7]} ({member_dir}), a '
                     f'commit that changed a member of the harness-adapter '
                     f'family -- add a dated row with a per-member verdict'))
@@ -7335,6 +8038,7 @@ def _parallel_artifact_ledger(ctx):
     # commit twice by design, in the link text and the URL.
     for full_hash in {h for d in _LEDGER_MEMBER_DIRS
                       for h in _git('log', '--no-merges', '--format=%H',
+                                    *([ctx.range] if ranged else []),
                                     '--', d).stdout.split()}:
         # Counted over the change cells only -- see
         # _ledger_change_cells(). Counting whole lines made three correct
@@ -7657,7 +8361,7 @@ def _code_cites_practice(ctx):
             # A slug some IN-FORCE practice declares it overrides is
             # superseded, not missing. In a consuming repo a higher-precedence
             # source can replace a universal practice under a different name
-            # -- precedent-team-repo-maintenance' `rule-links` overrides the
+            # -- precedent-shared-repo-maintenance' `rule-links` overrides the
             # universal `doc-references-are-links` -- and the overridden slug
             # then resolves to no file at all. The universal engine code that
             # cites it is still correct about why it exists; the rule simply
@@ -7882,28 +8586,22 @@ def _leftover_old_packs():
 
 @check('migration-scrubs-vocabulary', 'tree',
        "a migrated repo carries no leftover pre-migration practice pack "
-       "(process/manifest_*.json and its tree), and -- where the repo has "
-       "declared process/retired_vocabulary.json -- none of its listed terms "
-       "outside the declared exempt files/directories",
-       "the SECOND half is opt-in: the terms themselves (a specific old "
-       "repo's name, a retired secret) are never something BestPractice "
-       "could know in advance, so a repo that has declared no config is not "
-       "scanned for words at all. The pack half needs no declaration but is "
-       "scoped to a repo that has already migrated (a precedent.json at the "
-       "root) -- the old pack mechanism is still supported for one that has "
-       "not, and firing there would call a working install broken. Neither "
-       "half can tell whether the pack's CONTENT actually reached a "
-       "Precedent source: it sees that the tree is still here, never "
-       "whether deleting it would lose a rule. process/upstream/ is always "
-       "excluded, vendored content never being this repo's own migration to "
-       "finish.")
+       "(process/manifest_*.json and its tree)",
+       "the vocabulary half moved to retired-words on 2026-09-29, which reads "
+       "a declared process/retired_vocabulary.json with history-aware rules. "
+       "This half is scoped to a repo that has already migrated (a "
+       "precedent.json at the root) -- the old pack mechanism is still "
+       "supported for one that has not, and firing there would call a "
+       "working install broken. It cannot tell whether the pack's CONTENT "
+       "actually reached a Precedent source: it sees that the tree is still "
+       "here, never whether deleting it would lose a rule.")
 def _migration_scrubs_vocabulary(ctx):
     leftover = [
         Finding(man,
                 f'is the pre-migration practice-pack mechanism, in a repo '
                 f'that has already migrated to the Precedent loader'
                 + (f' (its tree is still at {tree}/)' if tree else '')
-                + '. A pack\'s rules live in a team or individual source '
+                + '. A pack\'s rules live in a shared or individual source '
                   'now, so the tree is a second, unsynced copy of rules '
                   'nobody reads. Retire it through the audit rather than by '
                   'hand: `python3 tools/precedent_decommission.py '
@@ -7916,97 +8614,18 @@ def _migration_scrubs_vocabulary(ctx):
                     'and this stops asking.')
         for man, tree in _leftover_old_packs()]
 
-    cfg_path = ROOT / RETIRED_VOCAB_CONFIG
-    if not cfg_path.is_file():
-        if leftover:
-            return leftover
-        raise NotApplicable(f'no {RETIRED_VOCAB_CONFIG} -- this repo has not '
-                            f'declared any retired vocabulary to scrub for, '
-                            f'and carries no leftover pre-migration pack')
-    try:
-        cfg = json.loads(cfg_path.read_text(encoding='utf-8'))
-    except json.JSONDecodeError as e:
-        return leftover + [Finding(RETIRED_VOCAB_CONFIG, f'not valid JSON: {e}')]
-    if not isinstance(cfg, dict):
-        # Valid JSON, wrong shape (e.g. a bare `["OldName"]` array where a
-        # `{"terms": [...]}` object belongs) used to reach `cfg.get(...)`
-        # below and raise an uncaught AttributeError, taking down every
-        # OTHER check in the same run with it (found in a 2026-09-03
-        # deep-check audit) -- a malformed config is exactly the kind of
-        # thing this check exists to catch, not crash on.
-        return leftover + [Finding(RETIRED_VOCAB_CONFIG,
-                        f'must be a JSON object with a "terms" list (e.g. '
-                        f'{{"terms": [...], "exempt_files": [...]}}), not a '
-                        f'{type(cfg).__name__}')]
-    terms = cfg.get('terms') or []
-    exempt_files = cfg.get('exempt_files') or []
-    if not isinstance(terms, list) or not isinstance(exempt_files, list):
-        bad = 'terms' if not isinstance(terms, list) else 'exempt_files'
-        return leftover + [Finding(RETIRED_VOCAB_CONFIG,
-                        f'{bad!r} must be a JSON array of strings, not a '
-                        f'{type(cfg[bad]).__name__}')]
-    if not terms:
-        if leftover:
-            return leftover
-        raise NotApplicable(f'{RETIRED_VOCAB_CONFIG} declares no terms -- '
-                            f'nothing to scrub for')
-    # A directory exemption (an exempt_files entry ending in `/`) exists for
-    # exactly one reason: a MATERIALIZED, regenerated directory (this repo's
-    # own practices/, filled in by precedent_materialize.py on every
-    # precedent_sync_views.py run) can legitimately hold OTHER repos' own
-    # content -- another source's own practice file citing ITS OWN
-    # provenance, say -- that happens to share a literal substring with a
-    # term this repo's migration is scrubbing for its own reasons. That
-    # content isn't this repo's own migration to finish, the same reasoning
-    # that already exempts process/upstream/ below, and a materialized
-    # directory's file list changes on every sync, so hand-listing it
-    # file-by-file in exempt_files would go stale the next time a slug is
-    # added or dropped. Found for real, migrating a dependent repo
-    # (2026-09-03): 'RepoPersonalPreferences' collided with a shared-source
-    # practice's own approved_by provenance, and 'PERSONAL_PACK_TOKEN'
-    # collided with this file's own migration-scrubs-vocabulary.md Story
-    # section, which uses that string as ITS illustrative example -- both
-    # forced dropping otherwise-real retired terms rather than exempting the
-    # one directory they were colliding in.
-    exempt_files = [RETIRED_VOCAB_CONFIG] + exempt_files
-    out = list(leftover)
-    for dirpath, dirnames, filenames in os.walk(ROOT):
-        rel_dir = pathlib.Path(dirpath).relative_to(ROOT).as_posix()
-        rel_dir = '' if rel_dir == '.' else rel_dir
-        # Prune .git and the vendored copy before descending -- .git is
-        # never this repo's own content, and process/upstream/ is a
-        # byte-identical mirror of a DIFFERENT repo, never hand-edited
-        # regardless of what it happens to still say.
-        # And a harness's agent worktrees: other checkouts of this repo, on
-        # other branches, gitignored (AGENT_WORKTREES).
-        dirnames[:] = [d for d in dirnames
-                       if (f'{rel_dir}/{d}' if rel_dir else d)
-                       not in ('.git', 'process/upstream',
-                               AGENT_WORKTREES.rstrip('/'))]
-        for name in filenames:
-            rel = f'{rel_dir}/{name}' if rel_dir else name
-            if rel in RETIRED_VOCAB_SKIP_FILES:
-                continue
-            if any(_exempt_matches(rel, e) for e in exempt_files):
-                continue
-            if rel in _vendored_engine_files():
-                continue
-            try:
-                text = (ROOT / rel).read_text(encoding='utf-8')
-            except (UnicodeDecodeError, OSError):
-                continue
-            for i, line in enumerate(text.splitlines(), 1):
-                for term in terms:
-                    if _retired_term_re(term).search(line):
-                        out.append(Finding(f'{rel}:{i}',
-                                            f'still carries retired term '
-                                            f'{term!r} -- scrub it, or add '
-                                            f'this file (or its directory, '
-                                            f'trailing "/") to exempt_files '
-                                            f'if it is genuinely a historical '
-                                            f'record or materialized '
-                                            f'third-party content'))
-    return sorted(out, key=lambda f: f.where)
+    # THE WORD SCAN MOVED (2026-09-29). This check also used to scan for a
+    # repository's own retired terms (process/retired_vocabulary.json); that
+    # is retired-words' job now, one scanner for the engine's words and a
+    # repository's own, with history left alone by section, quotation and
+    # document status rather than by whole file (Morgan, 2026-09-29: "if you
+    # now do the whole job and that's redundant, then let's deprecate
+    # that"). What stays here is the half nothing else does.
+    if leftover:
+        return leftover
+    raise NotApplicable('carries no leftover pre-migration practice pack '
+                        '(a declared retired_vocabulary.json is read by '
+                        'retired-words)')
 
 
 # practice: open-item-disposition -- the grammar of the disposition line, so
@@ -8628,8 +9247,8 @@ SESSION_LOAD_SURFACES = ('AGENTS.md', 'CLAUDE.md', '.precedent/SESSION_PRACTICES
 #
 # WHAT IS DELIBERATELY NOT SCANNED: the generated loader block. It is a copy
 # of practice text ON PURPOSE, which is the whole design, so reporting it
-# would be reporting the mechanism working. Everything between the BEGIN/END
-# GENERATED markers is cut before the scan.
+# would be reporting the mechanism working. Every generated block, in either
+# marker style, is cut before the scan (tools/generated_blocks.py).
 _DUP_SHINGLE = 12
 _DUP_MIN_RUN = 3
 
@@ -8650,22 +9269,7 @@ def _dup_shingles(words, n=_DUP_SHINGLE):
 
 
 def _strip_generated(text):
-    try:
-        import build_views as _bv
-        b, e = _bv.BEGIN_MARKER, _bv.END_MARKER
-    except Exception:
-        b, e = '<!-- BEGIN GENERATED: precedent-loader -->', '<!-- END GENERATED -->'
-    out, pos = [], 0
-    while True:
-        i = text.find(b, pos)
-        if i < 0:
-            out.append(text[pos:])
-            return ''.join(out)
-        out.append(text[pos:i])
-        j = text.find(e, i)
-        if j < 0:
-            return ''.join(out)
-        pos = j + len(e)
+    return generated_blocks.blank(text)
 
 
 def _practice_corpus(root):
@@ -9204,6 +9808,7 @@ def _run_with_coverage_retry(tree_slugs, other_slugs, ctx, scopes, exempt):
 def run(slugs, ctx, scopes, exempt=None):
     exempt = exempt or {}
     results = []
+    ctx.received_dropped = {}       # per owner; main() prints it as a note
     for slug in slugs:
         c = CHECKS[slug]
         if c['scope'] not in scopes:
@@ -9255,6 +9860,24 @@ def run(slugs, ctx, scopes, exempt=None):
             # make the check red.
             unverified = [f for f in returned if isinstance(f, Unverified)]
             findings = [f for f in returned if not isinstance(f, Unverified)]
+            # A finding on a file this repo RECEIVED belongs to the source
+            # that wrote it, and that source's own run judges it; an edit
+            # here lasts until the next sync. Dropped here, once, for every
+            # check, so no check has to remember -- the one that forgot
+            # (checks-use-generated-blocks, 2026-09-29) judged a consumer's
+            # received check files. A check whose subject IS the received
+            # copy opts out with judges_received (see check()).
+            if findings and not c.get('judges_received'):
+                kept = []
+                for f in findings:
+                    owner = _received_owner(f.file()
+                                            if hasattr(f, 'file') else None)
+                    if owner is None:
+                        kept.append(f)
+                    else:
+                        ctx.received_dropped[owner] = \
+                            ctx.received_dropped.get(owner, 0) + 1
+                findings = kept
             results.append((slug, 'VIOLATION' if findings else 'PASS',
                             findings, None, unverified))
         except NotApplicable as e:
@@ -9371,12 +9994,12 @@ def main():
         in_change = {c.rstrip('/') for c in ctx.changed}
         # A practice file sync wrote -- any the committed MANIFEST.json names
         # -- is not this change's own writing, even when this change is the
-        # update that wrote it: its text is the publishing source's, fixed
-        # there and judged there, and anything done to it here is
-        # overwritten by the next sync. practice-links-travel skips it for
-        # the same reason. Found 2026-09-28: a consuming repo's Update
+        # update that wrote it. Found 2026-09-28: a consuming repo's Update
         # Vendors failed its pre-staging check on an acronym inside
-        # vendor-update-runbook, a file it cannot change.
+        # vendor-update-runbook, a file it cannot change. run() now drops
+        # findings on another source's files for every check; what is left
+        # for this to catch is a materialized copy of the repo's OWN
+        # repo-local practice, which is judged where it is authored.
         for c in list(in_change):
             if c.startswith('practices/') and c.endswith('.md') \
                     and _manifest_entry(c) is not None:
@@ -9386,7 +10009,8 @@ def main():
         for slug, status, findings, why, uv in results:
             if status == 'VIOLATION':
                 kept = [f for f in findings
-                        if str(getattr(f, 'where', '') or '').split(':', 1)[0]
+                        if (f.file() if hasattr(f, 'file') else
+                            str(getattr(f, 'where', '') or '').split(':', 1)[0])
                         in in_change]
                 outside_change += len(findings) - len(kept)
                 status = 'VIOLATION' if kept else 'PASS'
@@ -9461,6 +10085,14 @@ def main():
         print(f'note: {tree_scope_note}')
     if coverage_note:
         print(f'note: {coverage_note}')
+    received_dropped = getattr(ctx, 'received_dropped', None) or {}
+    if received_dropped:
+        owners = ', '.join(f'{n} for {o}' for o, n in sorted(
+            received_dropped.items()))
+        print(f'note: {sum(received_dropped.values())} finding(s) were on files '
+              f'this repository received rather than wrote, and were not judged '
+              f'here -- {owners}. Each is that source\'s to fix, where its own '
+              f'run judges it; an edit here lasts until the next sync.')
 
     n_uv = sum(len(r[4]) for r in unverified)
     print(f'\nprecedent_check: {len(passed)} passed, {len(violated)} violated, '

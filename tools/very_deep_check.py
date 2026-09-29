@@ -33,7 +33,7 @@ READ practices/very-deep-check.md's Why section before trusting this
 mechanism's own reliability -- it has not been evaluated the way
 full-practice-audit and routing-audit have.
 
-Runs the BOOTSTRAP GENERATOR against every resolved team/individual
+Runs the BOOTSTRAP GENERATOR against every resolved shared/individual
 source and diffs the result file by file -- the one direction neither
 `bootstrap_source.verify()` (does a real set still have every skeleton file?)
 nor `_template_freshness()` (does the skeleton still ship what real sets
@@ -55,7 +55,7 @@ the files and quotes the shared lines; it does not claim which side is wrong,
 since the sets sharing an older build and the template missing a change look
 identical from here.
 
-A missing declared team or individual source FAILS this tool by default
+A missing declared shared or individual source FAILS this tool by default
 (practice: very-deep-check) -- the ordinary loader degrades gracefully when
 one is absent, which is right for routine loading but wrong here: a very
 deep check that silently runs without a source it was told to check is not
@@ -150,7 +150,7 @@ Run:
       (e.g. "precedent-beta-v01" in this repo, while the sweep still
       defaults to "main" for every other source).
   python3 tools/very_deep_check.py --allow-missing-sources
-      -- proceed even if a declared team/individual source isn't present.
+      -- proceed even if a declared shared/individual source isn't present.
   python3 tools/very_deep_check.py --skip-branch-scan
       -- enumerate and check sources only; skip the git merge scan.
   python3 tools/very_deep_check.py --skip-base-drift
@@ -211,7 +211,7 @@ Run:
       record/stale_branches.md. Written on every run that does not pass
       --skip-branch-scan; this only relocates it.
 Exit: 1 if any repo in force is not provably current (unless --allow-stale),
-or if a declared team/individual source is missing (unless
+or if a declared shared/individual source is missing (unless
 --allow-missing-sources); 0 otherwise.
 """
 import collections, datetime, io, json, os, pathlib, re, shutil, subprocess, sys, tempfile, time, urllib.parse
@@ -262,6 +262,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import parse_check as pcheck  # noqa: E402
 import precedent_bootstrap_source as bootstrap_source  # noqa: E402
 import split_practices as sp  # noqa: E402
+
+# The decisions ledger's file name, fixed by this tool in every set. Declared
+# as a *_NAME constant so precedent_check.py's filename-separator check reads
+# it as a name the engine fixes rather than one the set chose.
+DECISIONS_NAME = 'very-deep-check-decisions.json'
 import build_views as bv  # noqa: E402
 import leak_gate  # noqa: E402
 
@@ -648,6 +653,68 @@ def _declared_base_branch(repo_dir):
     except Exception:
         return None
 
+def _second_practice_lists(repo_dir, threshold=0.8):
+    """-> [(rel, named, total)] for every tracked, hand-kept file that names
+    at least THRESHOLD of the active practices by slug -- a second list of
+    the whole catalogue, the shape question 8 of the checklist ("are there
+    two of anything that should be one?") asks about and a reader rarely
+    spots by eye.
+
+    WHY (2026-09-29). tools/routing_scope.json listed every practice by
+    hand for four weeks, a harness test failing whenever it and the practice
+    files disagreed, and its own copy of each practice's gates had drifted
+    on fourteen of them before anyone noticed. Question 8 already named "a
+    constant list maintained in two files"; it is answered by reading, and
+    nobody read for this one. Morgan, 2026-09-29: add a check for needless
+    redundancy to the very deep check. This is its mechanical half: it
+    finds the candidates, and a reader decides which are views (generated,
+    fine) and which are copies (a second source of truth to remove).
+
+    Generated files are skipped: build_views.py's views, and every document
+    doc_sync.py fills -- a generated list IS the fix, not the problem."""
+    root = pathlib.Path(repo_dir)
+    pdir = root / 'practices'
+    if not pdir.is_dir():
+        return []
+    slugs = []
+    for f in sorted(pdir.glob('*.md')):
+        try:
+            fm, _ = sp._read_practice_file(f)
+        except sp.PracticeFileError:
+            continue
+        if (fm.get('status', 'active') or 'active').strip().strip('"') == 'active':
+            slugs.append(fm.get('slug', f.stem).strip())
+    if len(slugs) < 5:
+        return []
+    generated = {'AGENTS.md', 'MAP.md', 'GLOSSARY.md', 'CLAUDE.md'}
+    try:
+        sys.path.insert(0, str(root / 'tools'))
+        import doc_sync as _ds
+        generated |= {doc for doc, _block, _script in getattr(_ds, 'PAIRS', ())}
+    except Exception:
+        pass
+    finally:
+        if sys.path and sys.path[0] == str(root / 'tools'):
+            sys.path.pop(0)
+    r = subprocess.run(['git', '-C', str(root), 'ls-files'],
+                       capture_output=True, text=True)
+    out = []
+    pats = {s: re.compile(r'(?<![\w-])' + re.escape(s) + r'(?![\w-])') for s in slugs}
+    for rel in r.stdout.split():
+        if rel.startswith('practices/') or rel in generated:
+            continue
+        if not rel.endswith(('.json', '.md', '.py', '.txt', '.yml', '.yaml')):
+            continue
+        try:
+            text = (root / rel).read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        named = sum(1 for s in slugs if pats[s].search(text))
+        if named >= threshold * len(slugs):
+            out.append((rel, named, len(slugs)))
+    return out
+
+
 def _vendored_exclusion_findings(repo_dir):
     """-> [str] findings, or None if `repo_dir` is not a vendored consumer.
 
@@ -751,7 +818,7 @@ def _default_remote_branch(repo_dir):
     """-> the short branch name origin/HEAD points at ('main', typically),
     or None if it can't be determined. `refs/remotes/origin/HEAD` is not set
     on every clone this tool will see -- reproduced directly on this repo's
-    own sibling checkouts of precedent-team-repo-maintenance and
+    own sibling checkouts of precedent-shared-repo-maintenance and
     precedent-individual, both attached (not `git clone`d normally) without
     it, where `git symbolic-ref --short refs/remotes/origin/HEAD` just fails
     rather than degrading -- so fall back to checking for a same-named
@@ -1894,7 +1961,7 @@ def _config_key_reads(repo_dir, others=()):
     THE INCIDENT (spec/CI_MINUTES_PLAN.md item 15, corrected 2026-09-21).
     The plan told a session to set `ci_workflows: disabled` in a consuming
     repo's precedent.json and then delete a workflow. `ci_preference()`
-    resolves that key from an individual or team SOURCE's identity.json and
+    resolves that key from an individual or shared source's identity.json and
     never from a consumer's precedent.json, so the key would have been read
     by nothing, and the deletion would have carried a commit message
     claiming a toggle permitted it. A session read the engine and refused.
@@ -4012,7 +4079,7 @@ def _load_decisions_ledger(root_path):
     than as some fifth verdict nothing here knows how to handle."""
     try:
         data = json.loads(
-            (pathlib.Path(root_path) / 'very-deep-check-decisions.json')
+            (pathlib.Path(root_path) / DECISIONS_NAME)
             .read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
@@ -4370,7 +4437,17 @@ def _bootstrap_drift_one(level, name, path, collect=None):
             # would report a deliberate decision as drift every run
             # (practice: control-asserts-which-failure -- a check that fires
             # on the wrong thing teaches people to skim it).
-            if rel in owned or rel.endswith('settings.json'):
+            # tools/session_load_budgets.json is seeded by MEASURING the set's
+            # rendered .precedent/SESSION_PRACTICES.md -- skipped above
+            # because it differs between any two generations by construction
+            # -- so the budgets inherit that difference; and once written
+            # they are the set's own, with ceilings reviewed by hand
+            # (practice: session-load-budget). A difference is a note. Found
+            # 2026-09-29: a Promote's full check reported a set generated
+            # seconds earlier as drifted here, after the sibling sources the
+            # render reads had been refreshed mid-run.
+            if (rel in owned or rel.endswith('settings.json')
+                    or rel == os.path.join('tools', 'session_load_budgets.json')):
                 notes.append(rel)
                 continue
             eng_name = pathlib.Path(rel).name
@@ -4458,7 +4535,7 @@ def _pass_generator_stderr_once(text):
 
 
 def _bootstrap_drift(sources, collect=None):
-    """-> [str] _bootstrap_drift_one across every resolved team/individual
+    """-> [str] _bootstrap_drift_one across every resolved shared/individual
     source, or one line saying why nothing was compared. A section that
     prints nothing when no source resolved reads exactly like a section
     that compared everything and found it clean
@@ -4474,7 +4551,7 @@ def _bootstrap_drift(sources, collect=None):
         out.extend(_bootstrap_drift_one(level, s.get('name'), path,
                                         collect=collect))
     if not seen:
-        return ['no team or individual source resolved here, so the generator '
+        return ['no shared or individual source resolved here, so the generator '
                 'was NOT compared against anything -- this is a skip, not a '
                 'clean result. Attach the sets and re-run.']
     return out
@@ -5675,7 +5752,140 @@ def _referenced_repos(repo_dir):
     return found
 
 
-def repo_visibility_audit(repo_dir, blocklist_path=None, out=None):
+# RENAMED REPOSITORIES, and what the run does about them (Morgan,
+# 2026-09-29, strength: decided). Every audit that asks GitHub about a
+# repository records here when the answer comes back under a different full
+# name: {(old owner, old name): "new owner/new name"}. fix_repo_renames()
+# then repoints each clone's remote and rewrites every CURRENT reference in
+# every repo in force, in the working tree for the session to review and
+# commit. Before, a rename was reported and left to whoever read the line,
+# and only names in always-loaded instructions files were ever asked about.
+RENAMED = {}
+PRIVATE_RENAMED = set()
+
+
+def _dir_is_public(repo_dir):
+    """True unless the repository says it is private. Unknown counts as
+    public: a private repository's new name is never written where we cannot
+    tell who reads it."""
+    f = pathlib.Path(repo_dir) / 'precedent-source.json'
+    try:
+        return json.loads(f.read_text(encoding='utf-8')).get('visibility') != 'private'
+    except (OSError, ValueError, AttributeError):
+        return True
+
+
+def unlisted_generated_candidates(repo_root):
+    """-> [(path, why)] tracked files a tool may write wholesale that
+    tools/generated_files.json does not list -- for the session to JUDGE,
+    never findings. Two signals: a tracked .md or .json path written within
+    three lines of a write call in tools/*.py (the harness excluded: it
+    writes fixtures), and a tracked Markdown file whose opening lines say it
+    is generated but carry no label. The precedent_check half
+    (generated-files-registered) catches a LABELLED file that is not listed;
+    this is the reverse search for one that says nothing (Morgan,
+    2026-09-29)."""
+    repo_root = pathlib.Path(repo_root)
+    reg = repo_root / 'tools' / 'generated_files.json'
+    if not reg.is_file():
+        return []
+    try:
+        listed = {e.get('path') for e in
+                  json.loads(reg.read_text(encoding='utf-8')).get('files') or []}
+    except (ValueError, AttributeError):
+        return []
+    rc, out, _e = _run_git(repo_root, 'ls-files')
+    tracked = set(out.split()) if rc == 0 else set()
+    try:
+        import doc_sync
+        listed |= {d for d, _n, _s in doc_sync.PAIRS}
+    except Exception:                                   # noqa: BLE001
+        pass
+    skip = re.compile(r'(practices/|todo/todo-|gotchas/gotcha-|evals/|templates/)')
+    write = re.compile(r"write_text\(|open\([^)]*['\"][wa]b?['\"]|json\.dump\(")
+    lit_re = re.compile(r"['\"]([\w./-]+\.(?:md|json))['\"]")
+    found = {}
+    for py in sorted((repo_root / 'tools').glob('*.py')):
+        if py.name == 'verify_harness.py':
+            continue
+        lines = py.read_text(encoding='utf-8', errors='ignore').split('\n')
+        for i, line in enumerate(lines):
+            if not write.search(line):
+                continue
+            window = '\n'.join(lines[max(0, i - 3):i + 1])
+            for lit in set(lit_re.findall(window)):
+                for path in tracked:
+                    if (path == lit or path.endswith('/' + lit)) and \
+                            path not in listed and not skip.match(path):
+                        found.setdefault(path, f'written near {py.name}:{i + 1}')
+    say = re.compile(r'\b(generated|regenerat\w*|rebuilt from)\b', re.I)
+    for path in sorted(tracked):
+        if not path.endswith('.md') or path in listed or skip.match(path):
+            continue
+        try:
+            head = '\n'.join((repo_root / path).read_text(
+                encoding='utf-8', errors='ignore').split('\n')[:6])
+        except OSError:
+            continue
+        if say.search(head) and 'generated_by:' not in head:
+            found.setdefault(path, 'its opening lines say it is generated, '
+                                   'and it carries no label')
+    return sorted(found.items())
+
+
+def fix_repo_renames(renamed, repo_dirs, private=frozenset(), out=None):
+    """Repoint remotes and rewrite current references for each rename.
+
+    -> [(repo_dir, what changed)]. History is left as written, by the same
+    rules the retired-words check uses (our_language.is_history and its
+    line rules: todo/, decisions/, gotchas/, record/, evals/, a record or
+    finished document, a practice's ## Story, approved_by, quotations, and
+    a line that says it is about a rename). A NEW name that is private is
+    never written into a repository that may be public: that reference is
+    listed for the session to reword in general terms instead."""
+    import our_language as ol
+    out = out if out is not None else sys.stdout
+    changed = []
+    for d in repo_dirs:
+        d = pathlib.Path(d)
+        rc, url, _e = _run_git(d, 'remote', 'get-url', 'origin')
+        for (o, n), new in renamed.items():
+            pat = re.compile(r'(?<![\w.-])' + re.escape(f'{o}/{n}')
+                             + r'(?=\.git\b|[^\w-]|$)', re.I)
+            if rc == 0 and pat.search(url or ''):
+                _run_git(d, 'remote', 'set-url', 'origin', pat.sub(new, url.strip()))
+                changed.append((str(d), f'origin remote repointed to {new}'))
+        public = _dir_is_public(d)
+        for rel, text in _tracked_text_files(d):
+            if ol.is_history(rel, text):
+                continue
+            new_text, edits = text, 0
+            for (o, n), new in renamed.items():
+                pats = [re.compile(r'(?<![\w.-])' + re.escape(f'{o}/{n}')
+                                   + r'(?![\w-])', re.I)]
+                hits = ol.retired_uses_in(rel, new_text, [(f'{o}/{n}', new, pats)])
+                if not hits:
+                    continue
+                if public and new in private:
+                    changed.append((str(d), f'{rel}: names {o}/{n}, now the '
+                                            f'PRIVATE {new} -- NOT rewritten; '
+                                            f'reword it in general terms'))
+                    continue
+                lines = new_text.split('\n')
+                for ln, *_rest in hits:
+                    lines[ln - 1] = pats[0].sub(new, lines[ln - 1])
+                    edits += 1
+                new_text = '\n'.join(lines)
+            if edits:
+                (d / rel).write_text(new_text, encoding='utf-8')
+                changed.append((str(d), f'{rel}: {edits} line(s) rewritten'))
+    for d, what in changed:
+        print(f'  RENAME FIX {d}: {what}', file=out)
+    return changed
+
+
+def repo_visibility_audit(repo_dir, blocklist_path=None, out=None,
+                          also=()):
     """-> (findings, notes). Findings are real; notes are what could not run.
 
     A repository this PUBLIC tree names, which is PRIVATE, is a finding
@@ -5810,6 +6020,16 @@ def repo_visibility_audit(repo_dir, blocklist_path=None, out=None):
                 unreachable.setdefault(str(msg), []).append(f'{owner}/{name}')
             continue
         checked += 1        # only now is the visibility actually KNOWN
+        _canon = str(data.get('full_name') or '')
+        if _canon and _canon.lower() != f'{owner}/{name}'.lower():
+            RENAMED[(owner, name)] = _canon
+            if data.get('private'):
+                PRIVATE_RENAMED.add(_canon)
+            findings.append(
+                f'{owner}/{name} is named in this tree ({len(set(files))} '
+                f'file(s), e.g. {", ".join(sorted(set(files))[:3])}) and the '
+                f'API answers {_canon} -- it has been RENAMED. The run '
+                f'rewrites the current references (see RENAME FIX).')
         if data.get('private'):
             why = allowed.get(f'{owner}/{name}'.lower())
             if why:
@@ -5850,6 +6070,29 @@ def repo_visibility_audit(repo_dir, blocklist_path=None, out=None):
                 f'blocklist. A stale entry costs real content: it forces hits '
                 f'clearable only by deleting text about a public repository. '
                 f'Re-check and remove the entry, recording the evidence.')
+
+    # THE OTHER REPOS IN FORCE are asked only whether a name they carry has
+    # been RENAMED -- never about visibility, which is this public tree's
+    # question: a private set naming a private repository is not a leak.
+    # A name this tree already asked about is not asked twice.
+    for extra in also:
+        for (owner, name), files in sorted(_referenced_repos(extra).items()):
+            if (owner, name) in refs:
+                continue
+            data, err = _api_json(f'repos/{owner}/{name}')
+            if err or not isinstance(data, dict) or 'full_name' not in data:
+                continue
+            _canon = str(data.get('full_name') or '')
+            if _canon.lower() != f'{owner}/{name}'.lower():
+                RENAMED[(owner, name)] = _canon
+                if data.get('private'):
+                    PRIVATE_RENAMED.add(_canon)
+                findings.append(
+                    f'{owner}/{name} is named in {pathlib.Path(extra).name} '
+                    f'({", ".join(sorted(set(files))[:3])}) and the API answers '
+                    f'{_canon} -- it has been RENAMED. The run rewrites the '
+                    f'current references (see RENAME FIX).')
+            refs[(owner, name)] = files
 
     for why, names in sorted(unreachable.items()):
         notes.append(
@@ -6259,6 +6502,7 @@ def instruction_file_repo_refs_audit(repo_root, sources=(), missing=(),
         checked += 1
         canonical = str(data.get('full_name') or '')
         if canonical and canonical.lower() != f'{owner}/{name}'.lower():
+            RENAMED[(owner, name)] = canonical
             findings.append(
                 f'{owner}/{name} is named in {seen} and the API answers '
                 f'{canonical} -- it has been RENAMED. The old name keeps '
@@ -6392,6 +6636,7 @@ def repos_in_force_audit(repo_root, sources=(), missing=(), base_url=None,
                 f'as archived: it reads and does not accept work.')
         canonical = str(data.get('full_name') or '')
         if canonical and canonical.lower() != f'{owner}/{name}'.lower():
+            RENAMED[(owner, name)] = canonical
             findings.append(
                 f'{label} is declared or cloned as {owner}/{name} and the '
                 f'API answers {canonical} -- it has been RENAMED, and every '
@@ -7206,15 +7451,16 @@ def _write_branch_report(branch_scans, out_path, repo_root, held_back=(),
                  'very deep check: every merged-and-undeleted and every '
                  'unmerged branch across this checkout and its declared '
                  'sources, one verdict owed per row."')
+    # The generated-file label (tools/generated_files.json; Morgan,
+    # 2026-09-29), in the lifecycle frontmatter this file already carries.
+    lines.append('generated_by: tools/very_deep_check.py')
+    lines.append('edit_instead: "nothing -- rerun the very deep check"')
+    lines.append('note: "Generated by tools/very_deep_check.py. Don\'t edit '
+                 'here; rerun python3 tools/very_deep_check.py and commit '
+                 'the result instead."')
     lines.append('---')
     lines.append('')
     lines.append('# Stale and unmerged branches')
-    lines.append('')
-    lines.append('<!-- GENERATED by tools/very_deep_check.py -- never '
-                 'hand-edit. Regenerated on every `very_deep_check.py` run '
-                 'that does not pass --skip-branch-scan; run it again and '
-                 'commit the result to refresh this file. Source: '
-                 'practices/very-deep-check.md, pass 4. -->')
     lines.append('')
     lines.append(f'Generated {precedent_time.stamp_iso(repo_root)}, '
                  f'sweeping this checkout plus every source its '
@@ -7613,6 +7859,22 @@ def _main(box):
         print()
     if led:
         led.end(findings=len(_vendor_findings or []))
+    if led:
+        led.start('SECOND LISTS OF PRACTICES')
+    _second_lists = _second_practice_lists(_root)
+    if not as_json:
+        print("SECOND LISTS OF PRACTICES -- hand-kept files naming most of the "
+              "catalogue by slug\n(question 8: is each a generated view, or a "
+              "second copy that can drift?)\n")
+        if not _second_lists:
+            print("  OK: no hand-kept file names 80% or more of the active practices.")
+        for _rel, _n, _tot in _second_lists:
+            print(f"  CANDIDATE: {_rel} names {_n} of {_tot} active practices -- "
+                  f"read it: a view built from the practice files is fine; a "
+                  f"list kept by hand is a second source of truth")
+        print()
+    if led:
+        led.end(findings=len(_second_lists))
 
     data = enumerate_scope(repo, user_config)
 
@@ -7970,6 +8232,28 @@ def _main(box):
                       f"push or link it. Add rows for unlanded branches you "
                       f"recommend deleting with --recommend FILE.json "
                       f"(python3 tools/precedent_review_page.py --help).\n")
+                # Part 3 of the page (Morgan, 2026-09-29): pairs that read
+                # alike, which only the session can judge -- wording also
+                # matches rules that do different jobs.
+                _pairs = _rp.similar_pairs(data['sources'])
+                _cands = unlisted_generated_candidates(repo_root)
+                print(f"GENERATED FILES -- {len(_cands)} tracked file(s) a "
+                      f"tool may write that tools/generated_files.json does "
+                      f"not list. Judge each: list it (with its label and "
+                      f"check), or say why it is not generated.")
+                for _path, _why in _cands:
+                    print(f"  {_path}: {_why}")
+                print()
+                print(f"MAY OVERLAP -- {len(_pairs)} practice pair(s) read "
+                      f"alike (same slug in two sources, alike across "
+                      f"sources, alike within one). Judge EACH: merge them "
+                      f"(say where) or keep both (say why), then rewrite "
+                      f"the page with --verdicts FILE.json.")
+                for _p in _pairs:
+                    print(f"  {_p['score']:.2f} {_p['kind']:17} "
+                          f"{_p['a']['slug']} ({_p['a']['source']})  ~  "
+                          f"{_p['b']['slug']} ({_p['b']['source']})")
+                print()
             except (Exception, SystemExit) as exc:          # noqa: BLE001
                 print(f"REVIEW PAGE: NOT written ({type(exc).__name__}: "
                       f"{exc}) -- run python3 tools/precedent_review_page.py "
@@ -9090,11 +9374,24 @@ def _main(box):
             _bl = str(leak_gate.resolve_blocklist_path()[0] or '') or None
         except Exception:                                        # noqa: BLE001
             _bl = os.environ.get('PRECEDENT_LEAK_BLOCKLIST')
-        _vf, _vn = repo_visibility_audit(repo_root, _bl)
+        _tops = []
+        for _s in data['sources']:
+            _rc, _top, _e = _run_git(pathlib.Path(_s['path']), 'rev-parse',
+                                     '--show-toplevel')
+            _top = (_top or '').strip()
+            if _rc == 0 and _top and pathlib.Path(_top).resolve() != \
+                    pathlib.Path(repo_root).resolve() and _top not in _tops:
+                _tops.append(_top)
+        _vf, _vn = repo_visibility_audit(repo_root, _bl, also=_tops)
         for f in _vf:
             print(f'  FINDING: {f}')
         for n in _vn:
             print(f'  note: {n}')
+        if RENAMED:
+            fix_repo_renames(RENAMED, [repo_root, *_tops], PRIVATE_RENAMED)
+            print('  Review the rewritten files and commit them in each repo; '
+                  'history (Story sections, records, quotations) keeps the '
+                  'old name on purpose.')
         # The offline half: names nothing has typed YET. These are
         # recommendations for the person, not findings against the tree --
         # this is the one place they are raised (practice: very-deep-check;
