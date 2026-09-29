@@ -29,10 +29,10 @@
     "",
     "No leak-gate.yml is installed in this repo as of this correction, so",
     "nothing was actually left unscanned -- the fix is forward-looking. The",
-    "durable fix belongs upstream, in the template: read",
+    "durable fix landed upstream on 2026-09-21: BestPractice's",
+    "templates/github-actions/leak-gate.yml.template reads",
     "github.event.repository.private, which GitHub supplies and no repository",
-    "can misdeclare, and treat any disagreement with this file as public. That",
-    "is being carried in BestPractice, not here.",
+    "can misdeclare, so a declared visibility can no longer narrow the scan.",
     "",
     "The original note, kept because its reasoning is still correct and is why",
     "this key exists at all: declared OUTRIGHT, because",
@@ -121,6 +121,15 @@
     "Set here rather than by editing the vendored hook (practice:",
     "layered-practice-packs, registry-source-of-truth). Morgan's instruction,",
     "2026-09-10. practice: timestamps-carry-offset."
+  ],
+  "_grandfathered_commit_shas_comment": [
+    "Kept as a record, not an exemption anything enforces. Since 2026-09-25 this",
+    "set vendors neither check_commit_author.py nor check_buenos_aires_dates.py",
+    "(both moved to the individual set), and the routine scope looks only at",
+    "commits not yet on a remote, so nothing here trips on these SHAs. The only",
+    "reader left is very_deep_check.py's IDENTITY REALITY section, which",
+    "subtracts them so an old, explained commit is not reported again. Noted",
+    "2026-09-28 by a very deep check."
   ],
   "grandfathered_commit_shas": [
     {

@@ -25,6 +25,8 @@ Link a thing the first time a given document or reply names it, then use the pla
 
 A rule of any practice set has one canonical citation form: the slug, linked to its anchor. A positional number ("rule 14") is never a citation -- it names where a rule sits today, not which rule it is.
 
+Because this practice replaces universal `doc-references-are-links` (`overrides:`), it carries that practice's other two clauses too: write `≈` for "approximately", never `~` (two tildes on one line render as strikethrough on GitHub); and keep links plain markdown, never a raw HTML anchor for `target=`, which GitHub's sanitizer strips (*as of 2026-08*).
+
 ## Why
 A reply that says "fixed in the header rule, see the backlog item" is exactly as unhelpful as a document that says it -- a reply is usually more disposable, which is why it needs the links more, not less. This is stricter than a plain doc-references-are-links convention about where the link lands and what counts as mentionable, so it replaces that practice rather than sitting beside it.
 

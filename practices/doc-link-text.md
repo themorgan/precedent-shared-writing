@@ -16,7 +16,7 @@ added:       2026-09-19
 approved_by: "Morgan F"
 ---
 ## Rule
-When `rule-links` puts a link on a mentioned document, the link text is the document's name -- its title, or the plain name people call it by -- never the bare filename. The href still points at the real file. Write `[the Glossary](GLOSSARY.md)` or `[the repository map](MAP.md)`, not `[GLOSSARY.md](GLOSSARY.md)`.
+When [`rule-links`](rule-links.md) puts a link on a mentioned document, the link text is the document's name -- its title, or the plain name people call it by -- never the bare filename. The href still points at the real file. Write `[the Glossary](GLOSSARY.md)` or `[the repository map](MAP.md)`, not `[GLOSSARY.md](GLOSSARY.md)`.
 
 ## Detail
 The document's name is its own `# H1` heading where it has one place in the reader's flow -- "the Glossary" for `GLOSSARY.md`, "the repository map" for `MAP.md` -- lowercase and folded into the sentence like any other noun, not Title Cased just because the heading is. A document with no heading of its own (a generated index, a data file) keeps its filename as the text; there is no name to substitute.

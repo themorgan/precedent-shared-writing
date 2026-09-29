@@ -18,7 +18,9 @@ the practice names: "goes stale... with nothing to flag it"). It says
 nothing about whether stating the count at all was the right call, or
 whether some other document's exact-count sentence should be rewritten to
 the qualitative form the Rule prefers -- that's still a judgment call, per
-the practice's own Install text, and stays one.
+the practice's own Install text, and stays one. A repo states that judgment
+for a whole file or directory once, with its reason, in precedent.json's
+`no_stale_counts_exempt` (see _declared_exemptions).
 
 Exit 0 and print nothing when clean. Exit 1 and print the practice's own
 Rule text (never a paraphrase) plus the specific finding(s) on a violation.
@@ -30,6 +32,7 @@ respectively, so "I could not check" was reported as "I found a
 violation" and as "I broke". Both are lies a green or red run cannot be
 read through.
 """
+import functools
 import json
 import os
 import pathlib
@@ -59,7 +62,25 @@ PRACTICES_DIR = ROOT / "practices"
 # Deliberately narrow: "<N> practices" naming THIS repo's own count. Does not
 # match "N rules", "N practices" describing some OTHER repo's set (context a
 # script can't resolve from text alone), or a count inside a code span.
-COUNT_RE = re.compile(r"(?<![`\w])(\d+)\s+practices\b")
+#
+# The lookbehind also refuses a number that is the TAIL of something larger:
+# the day of a date ("a 2026-09-08 practices-and-lint commit"), the fraction
+# of a decimal ("13.2 practices per case"), the upper end of a range
+# ("52-to-54 practices"). Each read as "states 8 / 2 / 54 practices" against
+# the engine's own repository on 2026-09-28, and none of them is a count.
+COUNT_RE = re.compile(r"(?<![`\w.\-])(\d+)\s+practices\b")
+
+# A generated block (`<!--gen:NAME-->` ... `<!--/gen:NAME-->`) is written by
+# the repo's own generator from the live catalogue on every run, and its own
+# drift check (doc_sync.py upstream) already fails when it falls behind. A
+# count inside one is the "genuinely maintained alongside the thing it
+# counts" case the practice exempts by name. It can also count something
+# this check does not -- every declared source, not only the repo's own --
+# which is how the engine's generated "11 of 165 practices" read as stale
+# against a total of 160 (2026-09-28). Only a block that CLOSES with the
+# same name is skipped, so an example `<!--gen:NAME-->` quoted in prose
+# cannot switch the check off for the rest of the file.
+GEN_BLOCK_RE = re.compile(r"<!--gen:([\w-]+)-->.*?<!--/gen:\1-->", re.S)
 
 
 
@@ -421,11 +442,63 @@ def _is_closed_todo_item(rel: str) -> bool:
     return bool(_CLOSED_STATUS_RE.search(parts[1]))
 
 
+# --- A repo's own declared exemptions, each with its reason ---------------
+#
+# `no_stale_counts_exempt` in the audited repo's precedent.json: a list of
+# {"path": ..., "reason": ...}, the same shape and the same requirement as
+# `filename_separator_exempt` (read by the engine's filename-separator
+# check). `path` is a file, or a directory that exempts everything under it.
+# THE REASON IS WHAT MAKES IT AN EXEMPTION: an entry without one exempts
+# nothing and is reported, because a silenced check is not a decision.
+#
+# WHY (2026-09-28). Run against the engine's own repository, this check
+# reported dozens of counts in documents whose whole job is to record what
+# was true on a day -- a superseded catalogue frozen at the size it had when
+# it stopped, a plan's measurements, an audit's figures. Every one is the
+# "tied to what it counts" case, and the check cannot see that from the
+# text; the repo can say so, once, with its reason, in the file that already
+# carries its other declared exemptions.
+EXEMPT_KEY = "no_stale_counts_exempt"
+
+
+@functools.lru_cache(maxsize=None)
+def _declared_exemptions() -> tuple[list[str], list[str]]:
+    """-> (exempt path prefixes, findings about malformed entries)."""
+    config = ROOT / "precedent.json"
+    try:
+        entries = json.loads(config.read_text(encoding="utf-8")).get(EXEMPT_KEY) or []
+    except (OSError, ValueError, AttributeError):
+        return [], []
+    paths, problems = [], []
+    if not isinstance(entries, list):
+        return [], [f"precedent.json: {EXEMPT_KEY} is not a list of "
+                    f"{{\"path\", \"reason\"}} entries, so it exempts nothing"]
+    for entry in entries:
+        path = str((entry or {}).get("path") or "") if isinstance(entry, dict) else ""
+        path = path.strip().removeprefix("./").rstrip("/")
+        if not path or path == ".":
+            problems.append(f"precedent.json: a {EXEMPT_KEY} entry names no "
+                            f"file or directory, so it exempts nothing: {entry!r}")
+            continue
+        if not str(entry.get("reason") or "").strip():
+            problems.append(f"precedent.json: {EXEMPT_KEY} entry {path!r} gives "
+                            f"no reason, so it exempts nothing -- say why the "
+                            f"counts there are not claims about today")
+            continue
+        paths.append(path)
+    return paths, problems
+
+
+def _declared_exempt(rel: str) -> bool:
+    return any(rel == p or rel.startswith(p + "/")
+               for p in _declared_exemptions()[0])
+
+
 def not_actionable_here(rel: str) -> bool:
     prefixes = _mirrored_prefixes()
     return (bool(prefixes) and rel.startswith(prefixes)) \
         or _foreign_practice(rel) or _is_generated(rel) \
-        or _is_closed_todo_item(rel)
+        or _is_closed_todo_item(rel) or _declared_exempt(rel)
 
 def rule_text() -> str:
     # A materialized check runs in whatever repo its source was resolved
@@ -509,14 +582,21 @@ def find_violations() -> list[str]:
                 continue
             if re.search(r"^status:\s+active\s*$", body, re.M):
                 actual += 1
-    findings = []
+    findings = list(_declared_exemptions()[1])
     for rel in tracked_markdown():
         path = ROOT / rel
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        generated = set()
+        for block in GEN_BLOCK_RE.finditer(text):
+            first = text.count("\n", 0, block.start()) + 1
+            last = text.count("\n", 0, block.end()) + 1
+            generated.update(range(first, last + 1))
         for lineno, line in enumerate(text.splitlines(), 1):
+            if lineno in generated:
+                continue
             for m in COUNT_RE.finditer(line):
                 # Skip a match sitting inside an inline code span -- a value,
                 # not prose making a claim about this repo.
