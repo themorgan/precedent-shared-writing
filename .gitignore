@@ -16,3 +16,9 @@ __pycache__/
 # existed: `git check-ignore` said not ignored, so the generated file was
 # offered to the next `git add -A`.
 .precedent/
+
+# Added by Update Vendors
+*.py[cod]
+.DS_Store
+*.swp
+.claude/worktrees/
