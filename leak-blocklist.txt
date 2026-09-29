@@ -1,10 +1,10 @@
 # Private-term blocklist — the leak gate's VOCABULARY layer.
 #
-# This file is already in the right place: precedent-team-writing's own shared practice
+# This file is already in the right place: precedent-shared-writing's own shared practice
 # set. Fill it in here, then point the environment variable at it and turn
 # vocabulary checking on, in every shared project this team works in:
 #
-#     export PRECEDENT_LEAK_BLOCKLIST=/home/user/precedent-team-writing/leak-blocklist.txt
+#     export PRECEDENT_LEAK_BLOCKLIST=/home/user/precedent-shared-writing/leak-blocklist.txt
 #     git config precedent.requireVocabulary true
 #
 # Without the git config line the leak gate fails OPEN (scans only the
