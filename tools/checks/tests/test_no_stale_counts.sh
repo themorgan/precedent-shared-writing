@@ -308,12 +308,12 @@ d = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
 # shaped repo whose own declared sources are EXACTLY two: universal at
 # "." (its own practices/ tree) and repo-local at "local" -- nothing else.
 # Any OTHER source $ROOT already declared -- a CONSUMER's real vendored
-# universal (say, at "process/upstream"), or team sources that resolve
+# universal (say, at "process/upstream"), or shared sources that resolve
 # only via a sibling clone this scratch checkout does not have next to it
 # -- is not additional shape to preserve; it is exactly the state
 # fixture-owns-its-state says a fixture must not inherit. Left in, a
 # second universal source collides on identical slugs (materialized
-# output mirrors its source) and an unreachable team source reports
+# output mirrors its source) and an unreachable shared source reports
 # SKIPPED instead of the clean multi-source count this fixture means to
 # prove -- both found 2026-09-25 running this test materialized into a
 # real consumer repo.
@@ -352,7 +352,7 @@ PY
 
 fixture_ordinary_multi_source_consumer () {
   # An ORDINARY private consumer -- not a practice set, not self-sourcing --
-  # that declares three sources (universal plus two team sets) already
+  # that declares three sources (universal plus two shared sets) already
   # materialized into this one practices/ tree. Reported 2026-09-19 against
   # a private consuming repo: sources_for_tracked_block() tracks
   # ALL THREE here too (it defers a source only for reasons that do not

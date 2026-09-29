@@ -293,7 +293,7 @@ def _resolved_active_count() -> int | None:
     used to claim the second implies the shape above and that an ordinary
     materializing consumer never reaches the merge below -- both false, and
     disproved 2026-09-19 against a real multi-source consumer (universal +
-    2 team sources, already materialized into one practices/ tree):
+    2 shared sources, already materialized into one practices/ tree):
     sources_for_tracked_block() is not only about self-sourcing. Its own
     docstring names two SEPARATE reasons a source is deferred rather than
     tracked -- publishing someone's private text (repo_is_public()), and a

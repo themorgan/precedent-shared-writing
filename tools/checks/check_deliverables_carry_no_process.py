@@ -99,7 +99,7 @@ def _manifest_slugs():
     """Every practice slug this repo has materialized.
 
     Read from the COMMITTED manifest, never from live resolution: a bare CI
-    checkout cannot reach a team source's sibling clone or an individual
+    checkout cannot reach a shared source's sibling clone or an individual
     source's user-level config, and a slug that "did not resolve here" is
     still a slug a reader cannot look up.
     """
