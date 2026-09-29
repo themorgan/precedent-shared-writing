@@ -34,8 +34,6 @@ When naming a git branch in a document, reply, or status update:
   branch-links — link every git branch mentioned to its tree view
 When naming anything that has a destination, in a document or a reply:
   rule-links — link anything mentioned that has a destination, on first use
-When root has accumulated three or more deliverable-content documents:
-  content-subdirs — group deliverable content under a named subdirectory -- a recommendation
 When writing or editing a document in a declared output path -- anything an outside reader will see:
   deliverables-carry-no-process — an output document carries no attribution stamps, practice slugs or convention notes -- the practice layer keeps that record
 When writing or pasting text into any document under a repo's declared output_paths:
