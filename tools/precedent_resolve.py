@@ -89,6 +89,35 @@ DEFAULT_USER_CONFIG = pathlib.Path.home() / '.config' / 'precedent' / 'config.js
 # resolving a config that might be exactly what's missing.
 INDIVIDUAL_BOOTSTRAP_HOOK = '.claude/hooks/precedent-individual-bootstrap.sh'
 
+def _scratch_copy_of(repo_root):
+    """-> the checkout `repo_root` was copied from, when its `origin` is
+    another directory on this disk (a path or a file:// URL), else None.
+
+    NO SELF-REPAIR BESIDE A SCRATCH COPY (2026-09-30). A test or tool that
+    copies a checkout with `git clone <path>` and resolves from the copy --
+    precedent-shared-repo-maintenance's trailer test does, to judge a clone
+    that resolves no working-style set -- had the repairs below clone every
+    declared source beside the copy, in /tmp, in a hosted session. The
+    copy then resolved exactly what the test set out to exclude, and failed
+    on untouched pre-staging. A checkout a person works in, attached or the
+    project itself, has a remote for its origin; a copy of a checkout on
+    this disk does not, and the sources it declares belong to the checkout
+    it was copied from. The directory it sits in is not the test: the
+    repairs' own tests run from temporary fixtures, and a copy made beside
+    the real checkout is still a copy."""
+    try:
+        r = subprocess.run(['git', '-C', str(repo_root), 'remote', 'get-url',
+                            'origin'], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    url = r.stdout.strip() if r.returncode == 0 else ''
+    if url.startswith('file://'):
+        url = url[len('file://'):]
+    if not url or '://' in url or re.match(r'^[\w.-]+@[\w.-]+:', url):
+        return None
+    return url if pathlib.Path(url).expanduser().exists() else None
+
+
 def _self_heal_individual_source(repo_root):
     """practice: session-bootstrap -- "config absent" and "no individual
     set" are not the same fact, and treating them as the same fact is
@@ -121,6 +150,8 @@ def _self_heal_individual_source(repo_root):
     rule went looked-for and not found.)"""
     if os.environ.get('CLAUDE_CODE_REMOTE') != 'true':
         return 'not-remote'
+    if _scratch_copy_of(repo_root):
+        return 'scratch-copy'
     hook = repo_root / INDIVIDUAL_BOOTSTRAP_HOOK
     if not hook.is_file():
         return 'no-hook'
@@ -169,6 +200,8 @@ def _self_heal_universal_source(repo_root):
     tool = repo_root / 'tools' / 'precedent_source_bootstrap.py'
     if not tool.is_file():
         return 'no-tool'
+    if _scratch_copy_of(repo_root):
+        return 'scratch-copy'
     try:
         # -B: this tool runs INSIDE repo_root, and its own _credential_args()
         # imports precedent_source_credentials from ITS directory (repo_root/
@@ -535,6 +568,14 @@ def _diagnose_no_individual(why, heal, user_cfg_path, repo_root):
                             "or clone), so no individual practices are in "
                             "force; set PRECEDENT_INDIVIDUAL_REPO if you have "
                             "one")}
+    if heal == 'scratch-copy':
+        return {'certain': False, 'code': 'scratch-copy',
+                'message': (
+                    f"no individual source resolved in {repo_root}, a copy of "
+                    f"{_scratch_copy_of(repo_root)} on this disk, and none was "
+                    f"fetched beside it: a copy's sources belong to the "
+                    f"checkout it was copied from. Treat this as unknown here, "
+                    f"not as 'none'.")}
     if heal == 'no-hook':
         return {'certain': False, 'code': 'no-bootstrap-hook',
                 'message': (
@@ -563,6 +604,35 @@ def _diagnose_no_individual(why, heal, user_cfg_path, repo_root):
             'message': (f"{user_cfg_path} does not exist, so no individual "
                         f"practices are in force. On a local machine that is "
                         f"a definite answer; declare one there to change it.")}
+
+
+def _main_checkout(repo_root):
+    """-> the main checkout of `repo_root` when it is a LINKED git worktree,
+    else None.
+
+    A relative source path (`../precedent-shared-writing`) names a sibling
+    of the repository as it really lives. The engine checks a commit in a
+    throwaway worktree under the system temp directory -- the merge check,
+    Promote's batch, the push check's base -- and from there no sibling
+    exists: every declared set read as missing, and a practice in force in
+    the repository (a set's revert exemption, 2026-09-29) read as not in
+    force, so the merge check refused a pull request the checkout itself
+    passed. Git records where a worktree's main checkout is; a relative path
+    that does not resolve beside the worktree is resolved beside that."""
+    def rev(arg):
+        r = subprocess.run(['git', '-C', str(repo_root), 'rev-parse', arg],
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ''
+    common, own = rev('--git-common-dir'), rev('--git-dir')
+    if not common or not own:
+        return None
+    common_p = pathlib.Path(common) if pathlib.Path(common).is_absolute() \
+        else repo_root / common
+    own_p = pathlib.Path(own) if pathlib.Path(own).is_absolute() \
+        else repo_root / own
+    if common_p.resolve() == own_p.resolve() or common_p.name != '.git':
+        return None
+    return common_p.resolve().parent
 
 
 def load_config(repo, user_config=None):
@@ -665,8 +735,13 @@ def load_config(repo, user_config=None):
             # practice: durable-fix
             entry_path = pathlib.Path(
                 os.path.expandvars(str(entry['path']))).expanduser()
-            entry_path = (entry_path if entry_path.is_absolute()
+            relative = not entry_path.is_absolute()
+            entry_path = (entry_path if not relative
                           else repo_root / entry_path).resolve()
+            if relative and not entry_path.exists():
+                main = _main_checkout(repo_root)
+                if main is not None and (main / entry['path']).exists():
+                    entry_path = (main / entry['path']).resolve()
             # practice: session-bootstrap -- a universal source declared but
             # not yet on disk (never cloned, because the SessionStart hook
             # that clones it never ran for this session -- see
