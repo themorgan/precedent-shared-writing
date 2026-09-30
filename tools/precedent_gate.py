@@ -154,10 +154,19 @@ PRIVATE_LEVELS = getattr(bv, 'PRIVATE_LEVELS', ('shared', 'team', 'individual'))
 
 
 def resolved_gate_practices(root, gate):
-    """-> (entries, notes, unresolved_level). Every IN-FORCE practice
-    registered to `gate` in any source this repo resolves -- team,
+    """-> (entries, notes, unresolved_level, replaced). Every IN-FORCE
+    practice registered to `gate` in any source this repo resolves -- team,
     individual and repo-local as well as universal -- as (slug, level,
     source_name, path) tuples.
+
+    `replaced` is {slug: the practice that replaced it} for every practice
+    resolution took out of force through another practice's `overrides:`.
+    The caller seeds its list from this repo's own practices/, which still
+    holds the replaced file, so without this the replaced rule was listed
+    as "level unknown -- this source did not resolve" beside the rule that
+    replaced it (2026-09-30: session-title-names-the-difference, overridden
+    by an individual set's session-title-abbreviates-repo, on every reply
+    gate in this repository).
 
     `unresolved_level` is what the CALLER should assume for a practice that
     sits in this repo's own `practices/` and is registered to `gate`, but
@@ -211,12 +220,12 @@ def resolved_gate_practices(root, gate):
         import precedent_resolve as pr
     except ImportError:
         return [], ['precedent_resolve.py is not vendored beside this script, '
-                    'so only this repo\'s own practices/ is below.'], 'universal'
+                    'so only this repo\'s own practices/ is below.'], 'universal', {}
     try:
         sources = pr.load_config(root)
     except Exception as e:                                   # noqa: BLE001
         return [], [f'the declared sources could not be read ({e}), so '
-                    f'only this repo\'s own practices/ is below.'], 'universal'
+                    f'only this repo\'s own practices/ is below.'], 'universal', {}
     # See this function's own docstring: the ONE signal available here for
     # what this repo's own unresolved practices/ files actually are.
     unresolved_level = (
@@ -226,7 +235,7 @@ def resolved_gate_practices(root, gate):
         res = pr.resolve(sources)
     except Exception as e:                                   # noqa: BLE001
         return [], [f'the declared sources could not be resolved ({e}), so '
-                    f'only this repo\'s own practices/ is below.'], unresolved_level
+                    f'only this repo\'s own practices/ is below.'], unresolved_level, {}
 
     for m in res.get('missing', []):
         notes.append(
@@ -244,7 +253,9 @@ def resolved_gate_practices(root, gate):
         if gate in gates:
             entries.append((slug, practice['level'], practice.get('source', ''),
                             pathlib.Path(practice['file'])))
-    return entries, notes, unresolved_level
+    replaced = {d['slug']: d['by'].get('slug', '')
+                for d in res.get('shadowed', []) if d.get('slug')}
+    return entries, notes, unresolved_level, replaced
 
 
 def _branches_module():
@@ -326,6 +337,50 @@ def _refresh_remote_branch(repo, branch):
     except Exception:                                         # noqa: BLE001
         return False
     return r.returncode == 0
+
+
+def _over_target(root, siblings=True):
+    """-> ["<repo>: <file> is N tokens, over its T-token target"] for this
+    checkout and every sibling practice-set clone whose registry declares a
+    `target` the file is over.
+
+    code-cites-practice: session-load-budget
+
+    Printed with the reply gate's requirements so The Boildown says it in
+    every reply until the file is back under (Morgan, 2026-09-29: "at the
+    4000 level, you get warnings, with every session to bring it down",
+    strength: decided). Siblings too, because the file that is over is
+    usually a practice set's, and the session doing the work is rarely
+    rooted there.
+    """
+    try:
+        import session_load_trend as _slt
+    except Exception:                                         # noqa: BLE001
+        return []
+    roots = [pathlib.Path(root)]
+    for parent in ({pathlib.Path(root).parent, pathlib.Path.home()}
+                   if siblings else ()):
+        try:
+            entries = sorted(parent.iterdir())
+        except OSError:
+            continue
+        for d in entries:
+            if d.name.startswith('precedent-') and (d / '.git').exists() \
+                    and d.resolve() not in {r.resolve() for r in roots}:
+                roots.append(d)
+    out = []
+    for repo in roots:
+        name = 'this checkout' if repo == roots[0] else repo.name
+        try:
+            rows = _slt.over_target(repo)
+        except Exception:                                     # noqa: BLE001
+            rows = []
+        for rel, n, target, ceiling in rows:
+            hard = (f', hard ceiling {ceiling:,}' if isinstance(ceiling, int)
+                    else '')
+            out.append(f'{name}: {rel} is {n:,} tokens, over its {target:,}-'
+                       f'token target{hard}')
+    return out
 
 
 def _unlanded_work(root, siblings=True):
@@ -613,6 +668,11 @@ def _print_hard_requirements(root):
         if pat:
             print(f"- [{src}] the reply carries a real markdown heading "
                   f"(`## `) matching /{pat}/i. Bold text is not a heading.")
+        _first = r.get('require_first_item_under_heading') or {}
+        if _first.get('heading') and _first.get('matching'):
+            print(f"- [{src}] the FIRST bullet under the heading matching "
+                  f"/{_first['heading']}/i matches /{_first['matching']}/i"
+                  + (f" -- {_first['why']}" if _first.get('why') else ''))
         one_of = r.get('require_one_of') or []
         every = r.get('require_when_context_grew_tokens')
         if one_of and every:
@@ -774,9 +834,12 @@ def main():
     # `unresolved_level` hardcoded, an unresolved individual or shared source
     # printed its own practices as `(universal)`, which is wrong in a way
     # nothing downstream could catch.
-    entries, source_notes, unresolved_level = resolved_gate_practices(root, gate)
+    entries, source_notes, unresolved_level, replaced = \
+        resolved_gate_practices(root, gate)
+    # A file here that resolution replaced is not in force, and listing it
+    # as "did not resolve" said the opposite of what happened.
     registered = {s: (unresolved_level, '', practices_dir / f'{s}.md')
-                  for s in by_gate.get(gate, [])}
+                  for s in by_gate.get(gate, []) if s not in replaced}
     for slug, level, name, path in entries:
         registered[slug] = (level, name, path)
     slugs = sorted(registered)
@@ -1023,6 +1086,16 @@ def main():
             print(f"- NOT YET LANDED: {_line}. The Boildown MUST say so and "
                   f"recommend merging it -- do not close a turn leaving this "
                   f"unsaid (practice: the-boildown).")
+    if gate == 'reply':
+        try:
+            _over = _over_target(root)
+        except Exception:                                     # noqa: BLE001
+            _over = []
+        for _line in _over:
+            print(f"- SESSION LOAD OVER TARGET: {_line}. The Boildown MUST say "
+                  f"so in one line and recommend a Reduction pass. Never "
+                  f"raise the target or the ceiling without the person's own "
+                  f"words for it (practice: session-load-budget).")
     if '--brief' in flags:
         print(f"\nFull text: `python3 tools/precedent_gate.py {gate}`.")
     return 0

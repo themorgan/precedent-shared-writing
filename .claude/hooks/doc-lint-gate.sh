@@ -47,6 +47,7 @@ printf '%s' "$cmd" \
   || exit 0
 
 project_dir="${CLAUDE_PROJECT_DIR:-.}"
+
 script="$project_dir/tools/doc_lint.py"
 [[ -f "$script" ]] || exit 0
 
