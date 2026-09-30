@@ -10,7 +10,7 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## The practice catalogue
 
-`practices/` holds 20 practice files (1 resident, 19 on-demand). One file per practice.
+`practices/` holds 21 practice files (1 resident, 20 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
@@ -34,6 +34,7 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 | [rule-links](practices/rule-links.md) | on-demand | naming anything that has a destination, in a document or a reply |
 | [sensitive-characterization-scrub](practices/sensitive-characterization-scrub.md) | on-demand | about to commit a document that characterizes a real, identifiable person |
 | [trim-prose](practices/trim-prose.md) | on-demand | a paragraph just got a substantial edit, or the piece is done |
+| [visual-style-guide](practices/visual-style-guide.md) | on-demand | writing down a project's logo, colors, fonts or imagery, or changing its style guide |
 
 ## Withdrawn practices
 
