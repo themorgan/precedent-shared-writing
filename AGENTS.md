@@ -13,7 +13,7 @@ own**, and a repo may declare several shared sets — see
 
 <!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block; `python3 tools/build_views.py --check` exits non-zero on drift. Source: practices/ -- edit the practice file, never this block. -->
 
-## Resident block (~84 of 2000 token budget, 1 of 20 practices)
+## Resident block (~84 of 2000 token budget, 1 of 21 practices)
 
 **language-variety.** **Write English as an American writes it, and Spanish as an Argentine
 writes it** -- spelling, vocabulary and grammar alike, in replies,
