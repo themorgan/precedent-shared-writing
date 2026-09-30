@@ -70,26 +70,22 @@ PRACTICES_DIR = ROOT / "practices"
 # the engine's own repository on 2026-09-28, and none of them is a count.
 COUNT_RE = re.compile(r"(?<![`\w.\-])(\d+)\s+practices\b")
 
-# A generated block (`<!--gen:NAME-->` ... `<!--/gen:NAME-->`) is written by
-# the repo's own generator from the live catalogue on every run, and its own
-# drift check (doc_sync.py upstream) already fails when it falls behind. A
-# count inside one is the "genuinely maintained alongside the thing it
-# counts" case the practice exempts by name. It can also count something
-# this check does not -- every declared source, not only the repo's own --
-# which is how the engine's generated "11 of 165 practices" read as stale
-# against a total of 160 (2026-09-28). Only a block that CLOSES with the
-# same name is skipped, so an example `<!--gen:NAME-->` quoted in prose
-# cannot switch the check off for the rest of the file.
+# A generated block is written by the repo's own generator from the live
+# catalogue on every run, and its own drift check already fails when it
+# falls behind. A count inside one is the "genuinely maintained alongside
+# the thing it counts" case the practice exempts by name. It can also count
+# something this check does not -- every declared source, not only the
+# repo's own -- which is how the engine's generated "11 of 165 practices"
+# read as stale against a total of 160 (2026-09-28), and how the loader
+# block's "1 of 20 practices" header did when this set gained its first
+# resident practice (2026-09-29).
 #
-# The loader block build_views.py writes into AGENTS.md uses the other
-# marker form, `<!-- BEGIN GENERATED: NAME -->` ... `<!-- END GENERATED -->`,
-# and its "Resident block (... 1 of 20 practices)" header counts what is in
-# force across every resolved source. It went unexempted until this set
-# gained its first resident practice (2026-09-29): the header appeared, and
-# case H's fixture, which adds a repo-local practice, read it as stale.
-GEN_BLOCK_RE = re.compile(
-    r"<!--gen:([\w-]+)-->.*?<!--/gen:\1-->"
-    r"|<!-- BEGIN GENERATED: [\w-]+ -->.*?<!-- END GENERATED -->", re.S)
+# Which lines are generated is the engine's answer, not this file's: its
+# tools/generated_blocks.py knows both marker styles the engine writes and
+# needs a block's closing marker, so a marker quoted in prose hides nothing
+# (2026-09-29; the engine's checks-use-generated-blocks holds every repo's
+# checks to it). Where the engine predates that file, the exclusion
+# degrades like the others below: see _generated_lines().
 
 
 
@@ -215,6 +211,29 @@ def _mirrored_prefixes() -> tuple:
         # takes a whole run down over its own exclusion list is worse than
         # one that excludes less than it should.
         return _mirrored_prefixes_from_manifest()
+
+
+def _generated_lines(text: str) -> set:
+    """-> the 1-based numbers of the lines inside a generated block, as the
+    engine's tools/generated_blocks.py answers it.
+
+    Where the engine beside this repo predates that file (a session-start
+    sync can bring this check ahead of the engine it runs on), this is an
+    exclusion that cannot be computed, so it degrades like the others above:
+    no line is excluded, the check still answers, and a note says why a
+    count inside generated text may be reported."""
+    for candidate in (ROOT / "tools", SOURCE_ROOT / "tools"):
+        if str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+    try:
+        import generated_blocks
+    except ImportError:
+        print("note: this repo's engine has no tools/generated_blocks.py yet, "
+              "so counts inside generated blocks are not excluded -- run "
+              "Update Vendors", file=sys.stderr)
+        return set()
+    lines = text.split("\n")
+    return {n for n, hide in enumerate(generated_blocks.mask(lines), 1) if hide}
 
 
 class CannotRun(Exception):
@@ -598,11 +617,7 @@ def find_violations() -> list[str]:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        generated = set()
-        for block in GEN_BLOCK_RE.finditer(text):
-            first = text.count("\n", 0, block.start()) + 1
-            last = text.count("\n", 0, block.end()) + 1
-            generated.update(range(first, last + 1))
+        generated = _generated_lines(text)
         for lineno, line in enumerate(text.splitlines(), 1):
             if lineno in generated:
                 continue
