@@ -13,40 +13,30 @@ own**, and a repo may declare several shared sets — see
 
 <!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block; `python3 tools/build_views.py --check` exits non-zero on drift. Source: practices/ -- edit the practice file, never this block. -->
 
-## Resident block (~84 of 2000 token budget, 1 of 21 practices)
+## Resident block (~62 of 2000 token budget, 1 of 17 practices)
 
-**language-variety.** **Write English as an American writes it, and Spanish as an Argentine
-writes it** -- spelling, vocabulary and grammar alike, in replies,
-documents and commit messages. So *color*, *organize*, *apartment*,
-*the team is*; and *vos tenés*, *mirá*, *ustedes*, *auto*, *celular*.
-**Quoted material, proper names, and a variety the person asks for on a
-given piece keep their own form**; `## Detail` has the specifics.
+**language-variety.** **Write English as an American writes it and Spanish as an Argentine
+writes it** (*color*, *apartment*; *vos tenés*, *celular*) in replies,
+documents and commit messages. **Quoted material, proper names, and a
+variety asked for on a given piece keep their own form**; `## Detail` has
+the specifics.
 
 ## Occasion index
 
 ```
-When a commit fixes, closes, or resolves something a document names in prose as a known, open issue:
-  resolved-issue-note-updates — fixing a known issue a document names: update that document too
 When a standing constraint on one file gets stated a second time:
   doc-recipe — present-tense rules for one file, in doc-recipes/<name>.recipe.md
 When about to commit a document that characterizes a real, identifiable person:
   sensitive-characterization-scrub — soften or ask before committing a blunt description of a real person
 When leaving a placeholder or fill-in-later note mid-draft:
   draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️, bold and all caps
-When linking to a document in prose, a reply, or a table:
-  doc-link-text — link text is the doc's name -- keep the href as the .md file
-When mentioning a repo file in a chat reply, PR description, or commit message:
-  file-mention-links — every file mention in chat or PR/commit text is a live GitHub link
-When naming a branch in a reply, a commit message, a pull request, or a GitHub comment:
-  name-the-branch — name a branch literally (staging, main), never "the base branch" or "the default branch"
-When naming a git branch in a document, reply, or status update:
-  branch-links — link every git branch mentioned to its tree view
-When naming anything that has a destination, in a document or a reply:
-  rule-links — link anything mentioned that has a destination, on first use
+When naming a branch in anything written:
+  name-the-branch — name it literally (staging, main), never a role-word like 'the base branch'
+When naming a file, branch, doc or anything with a destination, in a doc, reply, PR or commit:
+  rule-links — link it on first use; files as GitHub links, branches to tree view; docs by name
 When writing a document an outside reader will see (a declared output path):
+  curly-quotes — straight quotes become curly in outward prose
   deliverables-carry-no-process — no attribution stamps, practice slugs or convention notes in an output document
-When writing or pasting text into any document under a repo's declared output_paths:
-  curly-quotes — a straight " or ' in outward-facing prose becomes a typographic curly quote
 
 (More on-demand practices are not listed here: one whose applies_to names real paths, or which declares a gate, is reached by those channels instead -- `precedent_paths.py FILE` and `precedent_gate.py MOMENT`. A trigger a PERSON SAYS cannot be reached that way and is always listed above. `precedent_show.py --index-omitted` names the omitted ones.)
 ```

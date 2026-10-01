@@ -9,7 +9,8 @@ gates:       []
 index_clause: "link every git branch mentioned to its tree view"
 checked_by:  null
 defines:     []
-status:      active
+status:      deduplicated
+in_force_at: rule-links
 supersedes:  []
 overrides:   null
 added:       2026-08-31
@@ -25,6 +26,8 @@ Any time a reply or document names a git branch -- not only in a files-touched f
 A doc-references-are-links convention covers files at the repo's current tree; it doesn't reach a branch, since a branch is a ref rather than a path at the current tree, so it needs its own explicit rule.
 
 ## Story
+**Merged into [rule-links](rule-links.md), 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that a branch named anywhere is linked to its tree view on the host the repo lives on, a branch in another repo included. This file stays, word for word, as the record; the rule in force is rule-links.
+
 Migrated here from RepoPersonalPreferences by the phase-3 private-set
 migration; the Story is backfilled from that pack's own text, which recorded
 a gap rather than an incident.

@@ -13,18 +13,21 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-29
-approved_by: "Morgan F, 2026-09-29 -- requested directly, with Go update, in the same message; sole approver in approvers.json."
+approved_by: "Morgan F, 2026-09-29 -- requested directly, with Go update, in the same message; sole approver in approvers.json. Rule text shortened, same meaning, on 2026-10-01 in the reduction pass Morgan approved that day: \"Question 3 - all are great, approved\" (strength: decided)."
 strength:    decided
 ---
 ## Rule
-**Write English as an American writes it, and Spanish as an Argentine
-writes it** -- spelling, vocabulary and grammar alike, in replies,
-documents and commit messages. So *color*, *organize*, *apartment*,
-*the team is*; and *vos tenés*, *mirá*, *ustedes*, *auto*, *celular*.
-**Quoted material, proper names, and a variety the person asks for on a
-given piece keep their own form**; `## Detail` has the specifics.
+**Write English as an American writes it and Spanish as an Argentine
+writes it** (*color*, *apartment*; *vos tenés*, *celular*) in replies,
+documents and commit messages. **Quoted material, proper names, and a
+variety asked for on a given piece keep their own form**; `## Detail` has
+the specifics.
 
 ## Detail
+**Spelling, vocabulary and grammar alike**, in both languages. So
+*color*, *organize*, *apartment*, *the team is*; and *vos tenés*, *mirá*,
+*ustedes*, *auto*, *celular*.
+
 **American English.**
 
 - **Spelling:** *-or* not *-our* (color, behavior), *-ize* not *-ise*
@@ -77,6 +80,12 @@ for it in this repository, which is about the craft of writing for a human
 reader. Made resident rather than on-demand because nearly everything a
 session writes is in one of the two languages, so an occasion that fires on
 "writing in English" would fire on every reply.
+
+**Shortened 2026-10-01**, in the reduction pass Morgan approved that day
+("Question 3 - all are great, approved", strength: decided), because a
+resident rule is paid for in every session. The meaning is unchanged: the
+examples the Rule dropped, and its "spelling, vocabulary and grammar
+alike", opened `## Detail` instead.
 
 ## Install
 Nothing to install: the rule is carried by the resident block. No
