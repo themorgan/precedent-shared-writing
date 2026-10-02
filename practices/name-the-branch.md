@@ -6,7 +6,7 @@ severity:    default
 applies_to:  ["**"]
 occasion:    "naming a branch in anything written"
 gates:       []
-index_clause: "name it literally (staging, main), never a role-word like 'the base branch'"
+index_clause: "name it literally (main, or the branch's own name), never a role-word like 'the base branch'"
 checked_by:  null
 defines:     []
 status:      active
