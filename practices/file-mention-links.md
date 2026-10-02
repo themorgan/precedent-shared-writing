@@ -6,11 +6,12 @@ severity:    default
 applies_to:  ["**"]
 occasion:    "mentioning a repo file in a chat reply, PR description, or commit message"
 gates:       ["reply"]
-index_required: true
 index_clause: "every file mention in chat or PR/commit text is a live GitHub link"
+index_required: true
 checked_by:  null
 defines:     []
-status:      active
+status:      deduplicated
+in_force_at: rule-links
 supersedes:  []
 overrides:   null
 added:       2026-08-31
@@ -26,6 +27,8 @@ Which branch to link: an open PR's own head branch while it's still open, the de
 A reader skimming a long reply or PR body has no "first mention" to scroll back to -- they want whichever mention is in front of them to work.
 
 ## Story
+**Merged into [rule-links](rule-links.md), 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that every file mention in chat, PR or commit text is a live absolute GitHub link, which branch to link, the turn-end hook detail, its `reply` gate and its `index_required: true`. This file stays, word for word, as the record; the rule in force is rule-links.
+
 Migrated here from RepoPersonalPreferences by the phase-3 private-set
 migration; the Story is backfilled from that pack's own text, and the
 incident is about a rule that could not survive on good intentions.
