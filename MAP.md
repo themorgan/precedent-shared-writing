@@ -10,40 +10,40 @@ Precedent's own repo map (PRACTICE_ENGINE_PLAN.md, Sequence row 2: "make AGENTS.
 
 ## The practice catalogue
 
-`practices/` holds 21 practice files (1 resident, 20 on-demand). One file per practice.
+`practices/` holds 17 practice files (1 resident, 16 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
-| [branch-links](practices/branch-links.md) | on-demand | naming a git branch in a document, reply, or status update |
 | [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
-| [curly-quotes](practices/curly-quotes.md) | on-demand | writing or pasting text into any document under a repo's declared output_paths |
+| [curly-quotes](practices/curly-quotes.md) | on-demand | writing a document an outside reader will see (a declared output path) |
 | [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing a document an outside reader will see (a declared output path) |
-| [doc-link-text](practices/doc-link-text.md) | on-demand | linking to a document in prose, a reply, or a table |
 | [doc-recipe](practices/doc-recipe.md) | on-demand | a standing constraint on one file gets stated a second time |
 | [draft-marker](practices/draft-marker.md) | on-demand | leaving a placeholder or fill-in-later note mid-draft |
 | [durable-list-anchors](practices/durable-list-anchors.md) | on-demand | a numbered list's entries are durable content likely to be cited by position |
-| [file-mention-links](practices/file-mention-links.md) | on-demand | mentioning a repo file in a chat reply, PR description, or commit message |
 | [language-variety](practices/language-variety.md) | resident | writing anything in English or in Spanish -- a reply, a document, a commit message |
 | [list-item-parity](practices/list-item-parity.md) | on-demand | drafting or revising a list, or a document with list-like sections |
 | [list-restraint](practices/list-restraint.md) | on-demand | about to format connected prose as bullet points |
-| [name-the-branch](practices/name-the-branch.md) | on-demand | naming a branch in a reply, a commit message, a pull request, or a GitHub comment |
+| [name-the-branch](practices/name-the-branch.md) | on-demand | naming a branch in anything written |
 | [no-stale-counts](practices/no-stale-counts.md) | on-demand | writing a sentence that cites an exact, changeable count |
 | [proportional-emphasis](practices/proportional-emphasis.md) | on-demand | reviewing a draft's balance before calling it done |
-| [resolved-issue-note-updates](practices/resolved-issue-note-updates.md) | on-demand | a commit fixes, closes, or resolves something a document names in prose as a known, open issue |
-| [rule-links](practices/rule-links.md) | on-demand | naming anything that has a destination, in a document or a reply |
+| [rule-links](practices/rule-links.md) | on-demand | naming a file, branch, doc or anything with a destination, in a doc, reply, PR or commit |
 | [sensitive-characterization-scrub](practices/sensitive-characterization-scrub.md) | on-demand | about to commit a document that characterizes a real, identifiable person |
 | [trim-prose](practices/trim-prose.md) | on-demand | a paragraph just got a substantial edit, or the piece is done |
 | [visual-style-guide](practices/visual-style-guide.md) | on-demand | writing down a project's logo, colors, fonts or imagery, or changing its style guide |
 
 ## Withdrawn practices
 
-2 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
+6 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
 
 | Practice | Status | Now in force at | Why it was withdrawn |
 |---|---|---|---|
+| [branch-links](practices/branch-links.md) | deduplicated | [rule-links](practices/rule-links.md) | **Merged into rule-links, 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that a branch named anywhere is linked to its tree view on the host the repo lives on, a branch in another repo included. |
 | [content-subdirs](practices/content-subdirs.md) | retired | — (nowhere) | **Retired 2026-09-29** (Morgan: *"Let's eliminate that one also"*, of this rule, beside the retired `content-directory`). |
+| [doc-link-text](practices/doc-link-text.md) | deduplicated | [rule-links](practices/rule-links.md) | **Merged into rule-links, 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that a document's link text is the document's name, with the href kept as the `.md` file, the `# H1` as the name, and the filename kept for a document with no heading. |
+| [file-mention-links](practices/file-mention-links.md) | deduplicated | [rule-links](practices/rule-links.md) | **Merged into rule-links, 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that every file mention in chat, PR or commit text is a live absolute GitHub link, which branch to link, the turn-end hook detail, its `reply` gate and its `index_required: true`. |
 | [push-back](practices/push-back.md) | deduplicated | [push-back](practices/push-back.md) | Migrated here from RepoPersonalPreferences by the phase-3 private-set migration. |
+| [resolved-issue-note-updates](practices/resolved-issue-note-updates.md) | deduplicated | `change-updates-its-docs` — in another source; `python3 tools/precedent_show.py change-updates-its-docs` | **Folded into universal change-updates-its-docs, 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). |
 
 ## The engine
 

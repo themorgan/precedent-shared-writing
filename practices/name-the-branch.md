@@ -4,17 +4,17 @@ title:       Name the branch, never "the base branch"
 tier:        on-demand
 severity:    default
 applies_to:  ["**"]
-occasion:    "naming a branch in a reply, a commit message, a pull request, or a GitHub comment"
+occasion:    "naming a branch in anything written"
 gates:       []
-index_clause: "name a branch literally (staging, main), never \"the base branch\" or \"the default branch\""
+index_clause: "name it literally (staging, main), never a role-word like 'the base branch'"
 checked_by:  null
 defines:     []
 status:      active
+in_force_at: null
 supersedes:  []
 overrides:   null
 added:       "2026-09-23"
 approved_by: "Morgan F, 2026-09-23, moved from the individual set precedent-individual (there: Morgan F, 2026-09-11)"
-in_force_at: null
 strength: decided
 ---
 ## Rule

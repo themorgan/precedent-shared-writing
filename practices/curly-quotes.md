@@ -4,9 +4,9 @@ title:       Outward-facing prose uses curly quotes, never straight ones
 tier:        on-demand
 severity:    default
 applies_to:  ["**"]
-occasion:    "writing or pasting text into any document under a repo's declared output_paths"
+occasion:    "writing a document an outside reader will see (a declared output path)"
 gates:       []
-index_clause: "a straight \" or ' in outward-facing prose becomes a typographic curly quote"
+index_clause: "straight quotes become curly in outward prose"
 checked_by:  tools/checks/check_curly_quotes.py
 defines:     []
 status:      active

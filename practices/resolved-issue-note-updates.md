@@ -9,7 +9,8 @@ gates:       []
 index_clause: "fixing a known issue a document names: update that document too"
 checked_by:  null
 defines:     []
-status:      active
+status:      deduplicated
+in_force_at: change-updates-its-docs
 supersedes:  []
 overrides:   null
 added:       2026-09-02
@@ -23,6 +24,8 @@ When a commit fixes a bug, closes a gap, or resolves a limitation that some docu
 Raised via Precedent's creation pipeline (Stage 1 signal: review-found-defect), promoted at shared level, approved by Morgan F on 2026-09-02.
 
 ## Story
+**Folded into universal [change-updates-its-docs](https://github.com/alex137/BestPractice/blob/staging/practices/change-updates-its-docs.md), 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). A fixed issue that a document still names as open is a document that no longer matches what is true, which is that universal practice's rule, so this copy was a duplicate (no-duplication). **The forward depends on a parallel BestPractice change landing**: it adds this practice's example -- a 'not yet fixed' or 'a real gap' note left standing after the fix -- to change-updates-its-docs. Until that change reaches the universal catalogue a consumer reads, the rule is in force there in its general form, without the example. This file stays, word for word, as the record.
+
 BestPractice's spec/PHASE5_BRIEF.md named a real bug in prose: 'A known bug, found while writing this brief, not yet fixed' (precedent_candidate.py create's same-day recurrence collision). This deep-check session fixed the bug in tools/precedent_candidate.py, but the brief's own 'not yet fixed' sentence would have kept reading that way indefinitely if the session hadn't gone back to it on purpose -- nothing flags a stale not-yet-fixed claim once the code it describes has actually changed. The same shape recurs with any 'known issue' or 'open gap' note written into a spec, README, or backlog document: the note and the code drift apart the moment one of them moves without the other.
 
 **Moved to `precedent-team-writing` on 2026-09-09**, from `precedent-team-maintainers`, in the subject split recorded at BestPractice's own [`split-team-sets-by-subject`](https://github.com/alex137/BestPractice/blob/staging/todo/todo-2026-09-08-split-team-sets-by-subject.md) item, DONE 2026-09-09. The rule is about the craft of writing for a human reader, which is nobody's single team's business: a document project needs it as much as a software repo. While it lived in a set named for the people who happened to write it, neither could reach it without also taking twenty-odd rules about syncs, gates and branch setup. The copy left behind is `status: deduplicated` and points here; nothing was deleted and the rule was never out of force for a moment (`spec/MOVING_PRACTICES.md`, land first, deduplicate second).
