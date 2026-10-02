@@ -31,7 +31,7 @@ When about to commit a document that characterizes a real, identifiable person:
 When leaving a placeholder or fill-in-later note mid-draft:
   draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️, bold and all caps
 When naming a branch in anything written:
-  name-the-branch — name it literally (staging, main), never a role-word like 'the base branch'
+  name-the-branch — name it literally, never a role-word like 'the base branch'
 When naming a file, branch, doc or anything with a destination, in a doc, reply, PR or commit:
   rule-links — link it on first use; files as GitHub links, branches to tree view; docs by name
 When writing a document an outside reader will see (a declared output path):
