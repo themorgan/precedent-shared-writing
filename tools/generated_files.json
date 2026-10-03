@@ -1,0 +1,77 @@
+{
+  "_comment": [
+    "Every file, or part of a file, a tool here writes wholesale: what",
+    "precedent_check.py's generated-files-registered checks and what the",
+    "commit backstop rebuilds when one of its inputs changes",
+    "(tools/precedent_regenerate.py). Never edit those files by hand: change",
+    "their sources and let them be rebuilt. This list is this set's own."
+  ],
+  "files": [
+    {
+      "path": "MAP.md",
+      "generated_by": "tools/build_views.py",
+      "edit_instead": "practices/*.md",
+      "inputs": [
+        "practices/*.md",
+        "tools/*.py",
+        "*.json"
+      ],
+      "regenerate": "python3 tools/build_views.py",
+      "check": [
+        "tools/build_views.py",
+        "--check"
+      ]
+    },
+    {
+      "path": "GLOSSARY.md",
+      "generated_by": "tools/build_views.py",
+      "edit_instead": "practices/*.md",
+      "inputs": [
+        "practices/*.md",
+        "tools/*.py",
+        "*.json"
+      ],
+      "regenerate": "python3 tools/build_views.py",
+      "check": [
+        "tools/build_views.py",
+        "--check"
+      ]
+    },
+    {
+      "path": "AGENTS.md",
+      "part": "<!-- BEGIN GENERATED: precedent-loader -->",
+      "generated_by": "tools/build_views.py",
+      "edit_instead": "practices/*.md",
+      "inputs": [
+        "practices/*.md",
+        "tools/*.py",
+        "*.json"
+      ],
+      "regenerate": "python3 tools/build_views.py",
+      "check": [
+        "tools/build_views.py",
+        "--check"
+      ]
+    },
+    {
+      "path": "todo/CLOSED.md",
+      "generated_by": "tools/build_todo_index.py",
+      "edit_instead": "todo/todo-*.md",
+      "regenerate": "python3 tools/build_todo_index.py",
+      "check": [
+        "tools/build_todo_index.py",
+        "--check"
+      ]
+    },
+    {
+      "path": "todo/TODO.md",
+      "generated_by": "tools/build_todo_index.py",
+      "edit_instead": "todo/todo-*.md",
+      "regenerate": "python3 tools/build_todo_index.py",
+      "check": [
+        "tools/build_todo_index.py",
+        "--check"
+      ]
+    }
+  ]
+}
