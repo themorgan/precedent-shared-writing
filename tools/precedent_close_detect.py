@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""precedent_close_detect.py — the one moment a session offers a practice.
+"""Stage 1's trigger — at the close of a session that merged and is ready to archive, offers at most one practice candidate found in that session's own material
+
+precedent_close_detect.py — the one moment a session offers a practice.
 
 WHAT THIS IS FOR. PRACTICE_ENGINE_PLAN.md puts the automation "at the two
 ends: the system notices, and the system enforces." Enforcement got built
@@ -273,7 +275,11 @@ def signals(records, repo):
                           f'the person said: "{sent[:200]}" [{pattern}]'))
     since = session_started(records)
     if since:
-        for sha, subject in pd.revert_hits(repo, since_date=since):
+        # Only this session's own commits: its trailer, on its own line of
+        # history. A revert merged in from pre-staging is another session's.
+        for sha, subject in pd.revert_hits(repo, since_date=since,
+                                           session_id=pd.this_session_id() or None,
+                                           first_parent=True):
             found.append(('reverted-or-corrected',
                           f'{sha} {subject} -- work this session undid'))
     # One line per distinct signal sentence; the same phrase said twice is one
