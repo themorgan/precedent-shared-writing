@@ -48,6 +48,11 @@
 #   6. An identity already configured locally, as long as it is not the
 #      container's own bot identity -- the one thing that is never a human.
 #
+# Rung 5 with the account's numeric id in hand is AUTHENTICATED rather than
+# guessed: the id names one person and the session proves it holds the
+# account. That earns the global identity and the global bot-author backstop
+# (see `authenticated` below), never the exact-author refusal.
+#
 # CLOSING THE LOOP ON A GUESS. Rungs 4-6 are inferences, not declarations --
 # nobody chose them, this hook worked them out. When a commit is about to run
 # on one, this hook says so and invites the fix (below), but it cannot hear a
@@ -131,8 +136,18 @@ name="" email="" zone="" source=""
 # Whether the identity came from something a PERSON DECLARED (an explicit
 # override, or an identity.json) rather than from something inferred about
 # the environment (the session account, the authenticated GitHub account, an
-# existing git config). Only a declaration is enforced -- see the header.
+# existing git config). Only a declaration is enforced as the exact author --
+# see the header.
 declared=0
+# Whether the identity came from the GitHub account this session is
+# AUTHENTICATED as, with the account's numeric id in hand (mechanism 5). Not a
+# declaration, and not a guess either: the id is unique to one person and
+# never changes, and the session proves it owns the account on every call.
+# It earns the two GLOBAL steps below -- the identity written globally and the
+# global backstop that refuses a bot-authored commit -- and nothing more: the
+# exact-author refusal stays declaration-only (Alex, 2026-09-30: "Or at least
+# have a unique identifier for me").
+authenticated=0
 
 _is_bot() {
   case "${1:-}" in
@@ -248,7 +263,10 @@ if [ -z "$email" ] && command -v curl >/dev/null 2>&1 && command -v python3 >/de
   # knows who is asking.
   gh_auth_header=()
   [ -n "$gh_token" ] && gh_auth_header=(-H "Authorization: Bearer $gh_token")
-  gh="$(curl -s --max-time 10 "${gh_auth_header[@]}" https://api.github.com/user 2>/dev/null | python3 -c '
+  # PRECEDENT_GITHUB_USER_URL points the lookup elsewhere -- a test fixture
+  # (curl reads file:// URLs), so a harness can drive both answers without
+  # the network deciding which one it gets.
+  gh="$(curl -s --max-time 10 "${gh_auth_header[@]}" "${PRECEDENT_GITHUB_USER_URL:-https://api.github.com/user}" 2>/dev/null | python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -259,11 +277,24 @@ if not login:
     raise SystemExit(0)
 print(d.get("name") or login)
 print(d.get("email") or f"{d.get(chr(105)+chr(100), 0)}+{login}@users.noreply.github.com")
+uid = d.get(chr(105)+chr(100))
+print(uid if isinstance(uid, int) and uid > 0 else "")
 ' 2>/dev/null || true)"
   if [ -n "$gh" ]; then
     name="$(printf '%s\n' "$gh" | sed -n '1p')"
     email="$(printf '%s\n' "$gh" | sed -n '2p')"
+    gh_id="$(printf '%s\n' "$gh" | sed -n '3p')"
     source="the GitHub account this session is authenticated as"
+    if [ -n "$gh_id" ] && ! _is_bot "$email" "$name"; then
+      authenticated=1
+      source="the GitHub account this session is authenticated as (id $gh_id)"
+    fi
+    # SAID, because nothing else will say it (2026-09-30, agreed with a
+    # consumer session): this rung is reached only when no identity.json is
+    # on disk, and that is exactly when the commit-author check stands down
+    # -- so an account that hides its email would commit as a noreply
+    # address, silently. One line, never a block.
+    [ -n "$email" ] && echo "NOTE: commit-identity: identity from $source -- $name <$email> -- not from identity.json: no individual set is on disk here, so nothing checks commits against a declared author this session." >&2
   fi
 fi
 
@@ -474,7 +505,7 @@ if [ -n "$email" ]; then
     [ -n "$name" ] && git -C "$ROOT" config --local user.name "$name" 2>/dev/null
     git -C "$ROOT" config --local user.email "$email" 2>/dev/null
     echo "NOTE: commit-identity: commits from this checkout will be authored as '${name:-$email}' <$email>, from $source." >&2
-    if [ "$declared" -eq 0 ]; then
+    if [ "$declared" -eq 0 ] && [ "$authenticated" -eq 0 ]; then
       echo "NOTE: commit-identity: that identity was inferred, not declared -- tell Claude your name (and email, if you want one other than the above) and it becomes permanent, written into your individual source's identity.json, the same way declaring a timezone already is." >&2
     fi
   fi
@@ -500,17 +531,22 @@ fi
 # difference between fixing N checkouts and fixing the default they all fall
 # back to.
 #
-# ONLY A DECLARED IDENTITY IS WRITTEN GLOBALLY. An identity this hook merely
-# INFERRED -- from the authenticated GitHub account, say -- is a guess, and a
-# guess written into global config would follow the user into every unrelated
-# repository on the machine. A declaration (an identity.json, or an explicit
-# PRECEDENT_COMMIT_* override) is somebody's stated answer to "who am I", and
-# is safe to make the default.
+# ONLY A DECLARED OR AUTHENTICATED IDENTITY IS WRITTEN GLOBALLY. An identity
+# this hook merely INFERRED -- from a leftover git config, or a session
+# account address -- is a guess, and a guess written into global config would
+# follow the user into every unrelated repository on the machine. A
+# declaration (an identity.json, or an explicit PRECEDENT_COMMIT_* override)
+# is somebody's stated answer to "who am I", and is safe to make the default.
+# So is the GitHub account the session is authenticated as, when the lookup
+# returns its numeric id: that is one person, proven on the call itself.
+# Until 2026-09-30 it counted as a guess, and a repository attached
+# mid-session inherited the bot account on a session that knew exactly who
+# was running it -- caught by hand before a commit, not by anything here.
 #
 # The bot identity is never treated as a thing worth preserving: it is what
 # is being displaced.
 _set_global_identity() {
-  [ "$declared" -eq 1 ] || return 0
+  [ "$declared" -eq 1 ] || [ "$authenticated" -eq 1 ] || return 0
   [ -n "$email" ] || return 0
   local g_name g_email g_gpgsign
   g_name="$(git config --global --get user.name 2>/dev/null || true)"
@@ -649,7 +685,20 @@ def decide(msg):
                 f'ci-cadence: added [skip ci] -- {head} is not {base}, and '
                 f'{where} sets github_ci_on_branches to false. To run CI on '
                 f'this commit: PRECEDENT_CI_NOW=1 git commit ...')
-    has, v = setting(cfg, 'every_hours')
+    # The repository's own github_ci_main_test has the final say on its
+    # primary branch (spec/CI_CADENCE_PLAN.md, "The repository decides"):
+    # "always" means every push there is tested, so nothing is tagged;
+    # "never" and a value that is none of the four leave nothing to skip; a
+    # number is the hours, whatever the person's own value says.
+    mode = cfg.get('github_ci_main_test')
+    if mode in ('always', 'never'):
+        return None
+    if mode is not None and mode != 'individual':
+        if isinstance(mode, bool) or not isinstance(mode, (int, float)) or mode < 0:
+            return None
+        has, v = True, mode
+    else:
+        has, v = setting(cfg, 'every_hours')
     if has:
         hours, where = hours_of(v), "this repo's precedent.json"
     else:
@@ -801,6 +850,22 @@ case "\$0" in
   *pre-commit)
     _fix="$person_fixer"
     if [ -n "\$_fix" ] && [ -x "\$_fix" ]; then "\$_fix" || true; fi
+    ;;
+esac
+
+# The engine's own commit-time fixer (spec/GENERATED_FILES_PLAN.md step 3):
+# it rebuilds the generated files whose inputs this commit touches, with the
+# repository's own copy of the engine, and stages them, so a generated file
+# never goes out stale and nobody has to remember. It never refuses a commit.
+# After the person's fixer: a header that fixer stamps on a source (MAP.source.md,
+# say) must be in place before the view is rebuilt from it, or the view goes out
+# stale (found 2026-10-03 rehearsing a consumer).
+case "\$0" in
+  *pre-commit)
+    _top="\$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    for _rg in "\$_top/tools/precedent_regenerate.py" "\$_top/process/upstream/tools/precedent_regenerate.py"; do
+      if [ -n "\$_top" ] && [ -f "\$_rg" ]; then python3 "\$_rg" --staged || true; break; fi
+    done
     ;;
 esac
 
@@ -973,7 +1038,7 @@ fi
 # somebody's deliberate configuration, and stealing it is exactly the silent
 # override this block exists to avoid.
 _install_global_backstop() {
-  [ "$declared" -eq 1 ] || return 0
+  [ "$declared" -eq 1 ] || [ "$authenticated" -eq 1 ] || return 0
   local dir existing
   dir="${PRECEDENT_GLOBAL_HOOKS:-$HOME/.config/precedent/git-hooks}"
   existing="$(git config --global --get core.hooksPath 2>/dev/null || true)"
@@ -1023,6 +1088,22 @@ case "\$0" in
   *pre-commit)
     _fix="$person_fixer"
     if [ -n "\$_fix" ] && [ -x "\$_fix" ]; then "\$_fix" || true; fi
+    ;;
+esac
+
+# The engine's own commit-time fixer (spec/GENERATED_FILES_PLAN.md step 3):
+# it rebuilds the generated files whose inputs this commit touches, with the
+# repository's own copy of the engine, and stages them, so a generated file
+# never goes out stale and nobody has to remember. It never refuses a commit.
+# After the person's fixer: a header that fixer stamps on a source (MAP.source.md,
+# say) must be in place before the view is rebuilt from it, or the view goes out
+# stale (found 2026-10-03 rehearsing a consumer).
+case "\$0" in
+  *pre-commit)
+    _top="\$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    for _rg in "\$_top/tools/precedent_regenerate.py" "\$_top/process/upstream/tools/precedent_regenerate.py"; do
+      if [ -n "\$_top" ] && [ -f "\$_rg" ]; then python3 "\$_rg" --staged || true; break; fi
+    done
     ;;
 esac
 

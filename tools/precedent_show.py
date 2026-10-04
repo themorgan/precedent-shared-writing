@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""precedent_show.py — the one code path every loading channel calls
+"""Loads a practice's Rule/Detail/Why/Story/Install — the one code path that reads a practice file
+
+precedent_show.py — the one code path every loading channel calls
 (PRACTICE_ENGINE_PLAN.md, "Loading a Practice Means Loading Its Rule, Not
 Its File"). An agent never reads a practices/*.md file directly: it calls
 this, and only this command's output enters context. That is what makes the
@@ -59,7 +61,7 @@ import json, pathlib, re, sys
 # ROOT from `__file__` breaks the moment this script is relocated or
 # vendored somewhere other than <repo>/tools/whatever.py.
 _ENGINE_DIR = pathlib.Path(__file__).resolve().parent
-# practice: fix-the-original -- ROOT is the repo whose CONTENT this reads, and
+# practice: upstream-fix -- ROOT is the repo whose CONTENT this reads, and
 # `_ENGINE_DIR.parent` is the wrong answer for exactly one layout: an engine
 # copy vendored inside a consuming repo at process/upstream/tools/. There ROOT
 # lands on the VENDORED tree, whose practices/ is the universal catalogue

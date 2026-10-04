@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""precedent_gate.py — the GATE-TRIGGERED loading channel.
+"""The GATE-TRIGGERED loading channel — Rules for a named moment (merge, review, push, reply)
+
+precedent_gate.py — the GATE-TRIGGERED loading channel.
 
 PRACTICE_ENGINE_PLAN.md, "How an Agent Knows Which Practices to Load", names
 four channels. This is the last one to be built:
@@ -72,7 +74,7 @@ import json, os, pathlib, subprocess, sys
 # parent directory but overridable with --repo in main() -- see
 # precedent_show.py for the fuller rationale.
 _ENGINE_DIR = pathlib.Path(__file__).resolve().parent
-# practice: fix-the-original -- ROOT is the repo whose CONTENT this reads, and
+# practice: upstream-fix -- ROOT is the repo whose CONTENT this reads, and
 # `_ENGINE_DIR.parent` is the wrong answer for exactly one layout: an engine
 # copy vendored inside a consuming repo at process/upstream/tools/. There ROOT
 # lands on the VENDORED tree, whose practices/ is the universal catalogue
@@ -297,10 +299,8 @@ def _this_session_id():
     harness does not say. The harness hands the id over as cse_<id>; its
     public form, the one a commit's session trailer carries, is session_<id>
     (practice: session-trailer)."""
-    raw = os.environ.get('CLAUDE_CODE_REMOTE_SESSION_ID', '').strip()
-    if not raw:
-        return ''
-    return 'session_' + (raw[4:] if raw.startswith('cse_') else raw)
+    import precedent_detect
+    return precedent_detect.this_session_id()
 
 
 def _range_is_this_sessions(repo, rng, own, _git):
@@ -378,9 +378,81 @@ def _over_target(root, siblings=True):
         for rel, n, target, ceiling in rows:
             hard = (f', hard ceiling {ceiling:,}' if isinstance(ceiling, int)
                     else '')
-            out.append(f'{name}: {rel} is {n:,} tokens, over its {target:,}-'
-                       f'token target{hard}')
+            line = (f'{name}: {rel} is {n:,} tokens, over its {target:,}-'
+                    f'token target{hard}')
+            # The session-start file is built from every source on disk, so
+            # a reduction in any of them counts; a tracked file, only its own.
+            looked = roots if rel == '.precedent/SESSION_PRACTICES.md' else [repo]
+            plain = _ladder(root) is False
+            landed = [r for r in (_landed_reduction(x, plain=plain)
+                                  for x in looked) if r]
+            if landed:
+                line += ('; ' + _landed_reduction_mark(root) + ' '
+                         + '; '.join(landed))
+            out.append(line)
     return out
+
+
+# The over-target line's mark when a reduction already waits on a Promote.
+# A person off the ladder reads the same fact without the ladder's word
+# (spec/LADDER_OPT_IN_PLAN.md D4); the reply gate matches either.
+LANDED_REDUCTION_MARK = 'a reduction has landed and takes effect after a Promote:'
+LANDED_REDUCTION_MARK_PLAIN = 'a reduction has landed and takes effect once it reaches main:'
+
+
+def _ladder(root):
+    """precedent_ladder.ladder_in_force, or None without the helper."""
+    try:
+        import precedent_ladder
+        return precedent_ladder.ladder_in_force(root)
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def _landed_reduction_mark(root):
+    return (LANDED_REDUCTION_MARK_PLAIN if _ladder(root) is False
+            else LANDED_REDUCTION_MARK)
+
+
+def _landed_reduction(repo, plain=False):
+    """-> "<repo>: AGENTS.md ~A on main, ~B on <landing>" when the repo's
+    AGENTS.md is smaller on its landing branch than on main, else None.
+    `plain` (a person off the ladder) says the same fact without naming the
+    tier branch (spec/LADDER_OPT_IN_PLAN.md D4).
+
+    code-cites-practice: session-load-budget
+
+    A practice set's clone is checked out at main, and the session-start
+    file is built from those clones, so a reduction pass that has landed on
+    pre-staging changes nothing measured until a Promote carries it to main.
+    Until then the reply gate asked for another Reduction pass on every
+    reply (2026-10-01, from a reduction-pass session). Each set's AGENTS.md
+    carries its generated resident block and occasion index, the parts a
+    reduction pass cuts, so a smaller one on the landing branch is the
+    sign. Two `git show`s per repo; nothing is fetched."""
+    try:
+        import session_load_trend as _slt
+    except Exception:                                         # noqa: BLE001
+        return None
+    repo = pathlib.Path(repo)
+
+    def show(ref):
+        p = subprocess.run(['git', '-C', str(repo), 'show', f'{ref}:AGENTS.md'],
+                           capture_output=True, text=True)
+        return p.stdout if p.returncode == 0 else None
+    main = show('origin/main')
+    if main is None:
+        return None
+    for landing in ('pre-staging', 'staging'):
+        text = show(f'origin/{landing}')
+        if text is None:
+            continue
+        a, b = _slt.approx_tokens(main), _slt.approx_tokens(text)
+        if b < a:
+            where = 'on a branch not yet in main' if plain else f'on {landing}'
+            return f'{repo.name}: AGENTS.md ~{a:,} tokens on main, ~{b:,} {where}'
+        return None
+    return None
 
 
 def _unlanded_work(root, siblings=True):
@@ -481,6 +553,11 @@ def _unlanded_work(root, siblings=True):
                     repo, 'rev-parse', '--verify', '-q',
                     f'refs/remotes/origin/{pb.PRE_STAGING}'):
                 base = landing
+            elif landing == pb.MAIN and _ladder(repo) is False:
+                # Off the ladder there are no tiers: work has landed when it
+                # is on main, whatever branch the repository's own
+                # contributors work on (spec/LADDER_OPT_IN_PLAN.md D3).
+                base = pb.MAIN
             pending = _unpromoted(repo, staging, _git) \
                 if landing == pb.PRE_STAGING else None
             if pending and not _range_is_this_sessions(
@@ -1070,7 +1147,7 @@ def main():
                 print(f"- {_line}. Do NOT recommend, suggest or mention a "
                       f"Promote for it in this reply -- not in The Boildown, "
                       f"not as a plain line. At most say that one is already "
-                      f"running (practice: promote; Morgan, 2026-09-27).")
+                      f"running (Morgan, 2026-09-27).")
                 continue
             if 'a Promote can move them' in _line:
                 # Not a hard requirement and not a call to action: one plain
@@ -1092,6 +1169,14 @@ def main():
         except Exception:                                     # noqa: BLE001
             _over = []
         for _line in _over:
+            if LANDED_REDUCTION_MARK in _line or LANDED_REDUCTION_MARK_PLAIN in _line:
+                when = ('after a Promote' if LANDED_REDUCTION_MARK in _line
+                        else 'once it reaches main')
+                print(f"- SESSION LOAD OVER TARGET: {_line}. The Boildown says "
+                      f"so in one line: a reduction is already on its way and "
+                      f"takes effect {when}. Do NOT recommend another "
+                      f"Reduction pass for it (practice: session-load-budget).")
+                continue
             print(f"- SESSION LOAD OVER TARGET: {_line}. The Boildown MUST say "
                   f"so in one line and recommend a Reduction pass. Never "
                   f"raise the target or the ceiling without the person's own "

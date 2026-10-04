@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""very_deep_check.py -- the very deep check (practice: very-deep-check).
+"""The very deep check — on-demand whole-repo coherence review, distinct from full-practice-audit
+
+very_deep_check.py -- the very deep check (practice: very-deep-check).
 
 Enumerates this checkout's own scope -- its top-level documents plus every
 active source's `practices/*.md` tree, resolved via
@@ -324,7 +326,7 @@ def checklist(practice_file=None):
 # Keyed on the subcommand rather than fixed up at each call site, because
 # the call sites are the thing that changes: the sweep grew three new
 # fetches in a fortnight, and a fix applied per-caller is a fix that covers
-# whatever existed the day it was written (practice: durable-fix).
+# whatever existed the day it was written (practice: upstream-fix).
 _NETWORK_GIT = frozenset({'fetch', 'ls-remote', 'pull', 'push', 'clone'})
 _ORIGIN_URL = {}
 
@@ -1383,9 +1385,9 @@ def _workflow_liveness_scan(repo_dir):
     ci_workflow_files tracks has no such list to be definitive against --
     CI_WORKFLOW_TEMPLATES names exactly one file per kind, so almost any
     repo with more than that single workflow file will have entries here BY
-    DESIGN, most of them completely legitimate (a practice set's own
-    commit-identity.yml and engine-refresh.yml, or a repo's own
-    hand-authored check unrelated to Precedent entirely). Reusing
+    DESIGN, most of them completely legitimate (a workflow the person
+    approved in their own words, or a repo's own hand-authored check
+    unrelated to Precedent entirely). Reusing
     _orphan_scan's confident wording here would be the exact mistake this
     function exists to prevent repeating -- see the incident below.
 
@@ -1787,9 +1789,9 @@ def _scratch_tree(src, dest, engine_src):
 def _fix_sweep(repo_root, targets, since=None, timeout=300):
     """-> (since, slugs, rows, note, caveat). Every detector added since the
     last recorded run, run against every repo in force.
-    (practice: very-deep-check, pass 2 item 13 -- fix-the-original\'s half)
+    (practice: very-deep-check, pass 2 item 13 -- upstream-fix\'s half)
 
-    THE GAP THIS CLOSES. fix-the-original requires fixing the origin and then
+    THE GAP THIS CLOSES. upstream-fix requires fixing the origin and then
     every copy. Nothing checked that the sweep happened. The hardcoded-identity
     check was written the day the trap was reported, HERE, and the repo that
     actually had the problem was a consumer nobody re-scanned -- a check built
@@ -2216,8 +2218,9 @@ def _config_key_reads(repo_dir, others=()):
 
     Each row is (file, key, scripts here, repos in force whose scripts
     mention it, practices that name it). The last is the READER THAT IS A
-    SESSION (2026-09-28): `writeup_dir` is read by whoever follows
-    practices/write-it-up.md, not by any script, and was reported as read
+    SESSION (2026-09-28): `writeup_dir` is read by whoever follows the
+    write-it-up practice (in the ladder set since 2026-10-02), not by any
+    script, and was reported as read
     by nothing on every run until practice files joined the search."""
     repo_dir = pathlib.Path(repo_dir)
     practice_texts = _practice_texts(
@@ -3065,6 +3068,25 @@ def _declared_ceilings(root):
     return out
 
 
+def _declared_targets(root):
+    """-> {surface path: target} from THIS repo's own budget registry, or {}.
+
+    A target is where a surface is meant to live, below its ceiling
+    (session_load_trend.over_target reads the same field). Read per repo for
+    the reason _declared_ceilings is. practice: very-deep-check -- Morgan,
+    2026-10-01: a surface over its target gets a reduction pass in every very
+    deep check, not only one over its ceiling.
+    """
+    f = pathlib.Path(root) / 'tools' / 'session_load_budgets.json'
+    try:
+        reg = json.loads(f.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    return {rel: entry['target']
+            for rel, entry in (reg.get('surfaces') or {}).items()
+            if isinstance(entry, dict) and isinstance(entry.get('target'), int)}
+
+
 def _split_projection(section):
     """-> a costed line for the SPLIT move, or '' when the section has no
     bulleted entries to split.
@@ -3257,6 +3279,29 @@ def _session_load(repo_dir):
             f'      The overage may be spread thin, with no single section '
             f'large enough to\n      appear above; that is the case this '
             f'finding exists for.')
+
+    # THE FILE AGAINST ITS TARGET, the lower number. Over it is not a broken
+    # budget, so it never fails anything; it is the cue for the reduction
+    # pass, practice-by-practice review included (practice: reduction-pass).
+    for rel, target in sorted(_declared_targets(root).items()):
+        n = file_totals.get(rel)
+        if n is None:
+            f = root / rel
+            if not f.is_file():
+                continue
+            n = bv._approx_tokens(f.read_text(encoding='utf-8',
+                                              errors='replace'))
+        if n <= target:
+            continue
+        over.append(
+            f'OVER TARGET {rel}\n'
+            f'      {n:,} tokens, every session, against the {target:,} target '
+            f'this repo declares\n      in tools/session_load_budgets.json -- '
+            f'over by {n - target:,}. Run a reduction\n      pass '
+            f'(reduction-pass), including its practice-by-practice review of '
+            f'the\n      occasion index and resident block, and report the '
+            f'proposals. A change\n      that takes a rule out of a session '
+            f'is the person\'s call.')
 
     # A live entry that says its own trap is settled is the strongest
     # mechanical signal available here, and it is the entry's own words.
@@ -5491,12 +5536,21 @@ def tier_pairs(repo_dir, target=None):
                 and _on_origin(lower) and _on_origin(upper):
             lst.append((lower, upper))
 
-    # The tiered chain first, in the order a Promote walks it.
-    _add(drift, pre, staging)
-    _add(drift, pre, main)
-    _add(drift, staging, main)
-    _add(endgame, pre, staging)
-    _add(endgame, staging, main)
+    # The tiered chain first, in the order a Promote walks it -- only for a
+    # person on the ladder: anyone else has no tiers, and a pass naming
+    # pre-staging and staging would be the ladder's words in their audit
+    # (spec/LADDER_OPT_IN_PLAN.md D4).
+    try:
+        import precedent_ladder as _pl
+        _tiers = _pl.ladder_in_force(repo_dir) is not False
+    except Exception:                                            # noqa: BLE001
+        _tiers = True
+    if _tiers:
+        _add(drift, pre, staging)
+        _add(drift, pre, main)
+        _add(drift, staging, main)
+        _add(endgame, pre, staging)
+        _add(endgame, staging, main)
     # The pair every earlier run asked about, when the declared base is not
     # one of the tiers above (a repo pinned to some other integration branch).
     _add(drift, declared, default)
@@ -5946,7 +6000,7 @@ def _tracked_text_files(repo_dir):
         # literal 'process/upstream/' that used to sit here is INSTALL.md
         # §1's layout; a §0 repo's vendored catalogue sits wherever its
         # precedent.json points, so every one of those files was being read
-        # as the repo's own text. (practice: durable-fix)
+        # as the repo's own text. (practice: upstream-fix)
         if rel.startswith(pr.mirrored_prefixes(repo_dir) + ('.git/',)):
             continue      # mirrored: another repo's tree, not this one's text
         p = pathlib.Path(repo_dir) / rel
@@ -6460,9 +6514,13 @@ def _repos_in_force(repo_root, sources=(), missing=(), base_url=None):
     for s in sources or ():
         _add(f"{s['level']} source {s['name']!r}", _origin_url(s['path']),
              s['path'])
-    base = (base_url if base_url is not None
-            else os.environ.get('PRECEDENT_SOURCE_BASE_URL', ''))
-    base = (base or '').strip().rstrip('/')
+    if base_url is None:
+        try:
+            from precedent_source_credentials import source_base_url
+            base_url = source_base_url(lookup=False)[0]
+        except Exception:                                   # noqa: BLE001
+            base_url = os.environ.get('PRECEDENT_SOURCE_BASE_URL', '')
+    base = (base_url or '').strip().rstrip('/')
     for m in missing or ():
         url = _origin_url(m['path']) if m.get('path') else ''
         if not url and base and m.get('name'):
@@ -6482,7 +6540,7 @@ def _repos_in_force(repo_root, sources=(), missing=(), base_url=None):
 # repo that actually vendors the engine.
 #
 # So the definition went DOWN into the small file that travels, and the big
-# on-request audit imports it (practice: fix-the-original). Keeping a copy
+# on-request audit imports it (practice: upstream-fix). Keeping a copy
 # here is how two probes drift apart; `access_audit` below is unchanged and
 # still owns the TABLE, which is this tool's own presentation concern.
 from precedent_access_check import can_land_here  # noqa: E402
@@ -9824,16 +9882,23 @@ def _main(box):
                           f"not detailed (--json for the full list)")
                 if drift['target'] == 'pre-staging':
                     # A tier below its own upper tiers: everything above is
-                    # meant to come down, and a Promote's own first step
-                    # copies it (precedent_branches.py, DRIFT FROM ABOVE).
+                    # meant to come down. Staging's is copied by the sync;
+                    # main's only inside a Promote into staging, composed and
+                    # fully checked with the rest (precedent_branches.py,
+                    # DRIFT FROM ABOVE and _promote_unlocked).
+                    take = ('`python3 tools/precedent_branches.py --promote '
+                            '--to staging`, which composes it with\n  staging '
+                            'and pre-staging and checks it'
+                            if drift['base'] == 'main' else
+                            '`python3 tools/precedent_branches.py '
+                            '--sync-pre-staging --check`\n  (it runs the '
+                            'checks staging\'s work still lacks first)')
                     print(f"\n  TIER DRIFT, not a choice: everything on "
                           f"origin/{drift['base']} belongs on pre-staging, "
-                          f"and the next\n  Promote copies it down first. To "
-                          f"take it now: `python3 tools/precedent_branches.py "
-                          f"--sync-pre-staging`\n  (`--check` to see without "
-                          f"writing). A row listed here that nobody wants is "
-                          f"a revert\n  owed on origin/{drift['base']}, not "
-                          f"a row to skip.\n")
+                          f"and the next\n  Promote brings it in. To take it "
+                          f"now: {take}. A row listed here that nobody\n  "
+                          f"wants is a revert owed on origin/{drift['base']}, "
+                          f"not a row to skip.\n")
                 else:
                     print(f"\n  ASK, DO NOT IMPLEMENT. None of this is applied "
                           f"automatically, by this tool or by\n  the session reading "

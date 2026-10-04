@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Say, at session start, which repos in force this session can land work in.
+"""Probes, at session start, which repos in force this session can actually push to -- so work destined for one it cannot reach is discovered before it is done, not after
+
+Say, at session start, which repos in force this session can land work in.
 
 Run bare. Prints one line per repo and exits 0 always.
 
@@ -28,7 +30,7 @@ CONSUMER_ENGINE_FILES, so it is not vendored into a single adopting repo, and
 a session-start step importing it would have worked here and silently WARNed
 everywhere it actually matters. Copying it instead is how two probes drift
 apart. So the definition moved DOWN into the small file that travels, and the
-big on-request audit imports it (practice: fix-the-original -- the origin
+big on-request audit imports it (practice: upstream-fix -- the origin
 first, then every copy, and this file is now the origin).
 
 WHAT IT DOES NOT DO. It never gates: a session that cannot start is worse than
@@ -39,7 +41,7 @@ distinct from `handoff` all the way to the printed line: a network blip
 reported as "you have no access here" sends somebody to spawn a session they
 did not need (practice: fail-gracefully).
 
-practice: prompt-please, durable-fix
+practice: prompt-please, upstream-fix
 """
 import os
 import pathlib

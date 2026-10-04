@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""One formatter for the quantity kind "a moment in time" (practice: one-formatter-per-quantity).
+"""The ONE emitter for every date and time this repo writes down — resolves whose zone, always carries the offset; run it bare to see which rung answered
+
+One formatter for the quantity kind "a moment in time" (practice: one-formatter-per-quantity).
 
 WHAT THIS IS FOR. Two records say "Morgan 19:00" and "John 18:00" and
 nobody can order them, because neither says which zone it is. That is not
@@ -21,7 +23,7 @@ and naive). Nothing said which of the three any given stamp was, so a
 reader comparing two records from different tools could not order them.
 The same root cause had by then produced a run of separate commit-offset
 incidents; the durable fix is one module, not another careful session
-(practice: durable-fix).
+(practice: upstream-fix).
 
 THE ZONE LADDER, and why it ends where it does. Same order as
 `.claude/hooks/commit-identity.sh` resolves a committer's zone, and for
