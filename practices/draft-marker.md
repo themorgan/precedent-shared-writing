@@ -18,6 +18,8 @@ approved_by: "Morgan F, migrated from RepoPersonalPreferences by the private-set
 ## Rule
 A temporary note left mid-draft -- a placeholder to fill in later, a reminder to the future editor, an "insert X here" -- is only safe to leave in a document if whoever next looks at it actually notices it. Wrap it in a marker built to fail a skim on purpose: `**➡️ TEXT OF THE NOTE ⬅️**` -- bold, all caps, a directional arrow hugging the outer edge of the first and last word.
 
+**The format is reserved for notes that must be gone before the document is shared**: its check fails any committed one, and that blocks the work from moving up. A note meant to stay -- a standing callout, a marker readers are supposed to see -- takes a look of its own, never this one.
+
 ## Detail
 Before showing or sharing any document, scan it for the marker specifically -- a text search for the arrow character confirms none remain, cheaper than rereading the whole document.
 
@@ -45,6 +47,8 @@ The scan-before-sharing half exists for the same reason: a marker only helps
 if something actually looks for it. Grepping for the arrow is cheaper than
 rereading the document, and it answers the one question that matters before
 sharing.
+
+**Reserved, 2026-10-03.** A session borrowed the arrow look for a marker meant to stay in a document for good. The check could not tell the two apart, so it stopped the work at promotion, and the only fix was to rework the marker. The Rule now says outright that the look belongs to notes that must go, because the check acts on that and nothing else.
 
 **Moved to `precedent-team-writing` on 2026-09-09**, from `precedent-team-maintainers`, in the subject split recorded at BestPractice's own [`split-team-sets-by-subject`](https://github.com/alex137/BestPractice/blob/staging/todo/todo-2026-09-08-split-team-sets-by-subject.md) item, DONE 2026-09-09. The rule is about the craft of writing for a human reader, which is nobody's single team's business: a document project needs it as much as a software repo. While it lived in a set named for the people who happened to write it, neither could reach it without also taking twenty-odd rules about syncs, gates and branch setup. The copy left behind is `status: deduplicated` and points here; nothing was deleted and the rule was never out of force for a moment (`spec/MOVING_PRACTICES.md`, land first, deduplicate second).
 
