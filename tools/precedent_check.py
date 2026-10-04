@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""precedent_check.py — the ENFORCED loading channel, made real (phase 4).
+"""The ENFORCED loading channel — runs every practice's `checked_by` script
+
+precedent_check.py — the ENFORCED loading channel, made real (phase 4).
 
 PRACTICE_ENGINE_PLAN.md, "How an Agent Knows Which Practices to Load", names
 four channels. Three were built in phase 2 and 3; this is the fourth:
@@ -274,11 +276,17 @@ class Finding:
     """`where` is what prints; the file a finding is about is `path` when a
     check passes one, else `where` up to its first colon (the "file:line"
     most checks write). The runner reads it to drop findings on files this
-    repo received, and --changed-files-only to keep findings on the change."""
+    repo received, and --changed-files-only to keep findings on the change.
 
-    def __init__(self, where, detail, path=None):
+    `cause` is the path whose change produced the finding, when that is not
+    the file it sits in: a stranded mention sits in a file the change never
+    touches, and is still that change's doing. --changed-files-only keeps a
+    finding whose cause this change deleted or renamed."""
+
+    def __init__(self, where, detail, path=None, cause=None):
         self.where, self.detail = where, detail
         self.path = path
+        self.cause = cause
 
     def file(self):
         if self.path is not None:
@@ -393,7 +401,7 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
     `dogfooded-hooks-match-template` exists for precisely that, was not in
     that commit's rotation slice, and stayed silent. It surfaced only
     because a session ran it by name on a hunch -- which is not a mechanism
-    (practice: durable-fix). One commit later and the drifted template
+    (practice: upstream-fix). One commit later and the drifted template
     would have shipped.
 
     An over-broad glob costs a little runtime; a missing one leaves the
@@ -1098,6 +1106,130 @@ def _retired_branch_name_ships(ctx):
 
 
 
+# ---- the ladder stays opt-in (spec/LADDER_OPT_IN_PLAN.md D7) ---------------
+def _individual_set_brings_the_ladder(_pr):
+    """-> why this check stands aside, when ROOT is an individual set whose
+    person brings a set that provides the ladder; '' otherwise.
+
+    An individual set is read by one person only. When that person brings
+    the ladder, its words in their own set are theirs, the same as in the
+    set that provides it -- and refusing them refused that person's own next
+    Update Vendors (found rehearsing a Produce, 2026-10-03). A brought set
+    that is not cloned beside the individual set cannot say what it
+    provides, so it does not count: the check still runs."""
+    try:
+        man = json.loads((ROOT / 'precedent-source.json').read_text(
+            encoding='utf-8'))
+    except (OSError, ValueError):
+        return ''
+    if not isinstance(man, dict) or _pr.normalize_level(
+            man.get('level')) != 'individual':
+        return ''
+    for b in _pr.brought_sources(ROOT, warn=False):
+        if _pr.LADDER_CAPABILITY in _pr.source_provides(b['path']):
+            return (f"this is one person's individual set and it brings "
+                    f"{b['name']}, which provides the ladder, so its words "
+                    f"are that person's own")
+    return ''
+
+
+@check('ladder-words-stay-in-the-ladder-set', 'tree',
+       'a practice set that does not provide the five-stage ladder carries '
+       'none of its words -- step labels, numbered Promotes, its commands '
+       'written as commands, the tier branch names, links to the practices '
+       'that moved into the ladder set -- in a practice, a template, a '
+       'person-facing document, the reply rules or the word list '
+       '(tools/ladder_words.py, the one matcher)',
+       'records: todo/, record/, spec/, gotcha and practice Stories, ledgers, '
+       'git history, and the dated approved_by and *_why fields -- they say '
+       'what happened in the words of the day. Ordinary English: "consider", '
+       '"act", lowercase "promote" and "booked" never match. Engine OUTPUT is '
+       'held by verify_harness instead, which runs the tools off the ladder. '
+       "An individual set whose person brings the ladder: one person reads "
+       'it, and the words are theirs.',
+       practice_backed=False, binds_publishers=True,
+       selects_on=('practices/*.md', 'local/practices/*.md',
+                   'templates/**/*.md', 'documentation/*.md', '*.md',
+                   'reply_check.json', 'tools/our_language.json',
+                   'tools/ladder_words.py'))
+def _ladder_words_stay_in_the_ladder_set(ctx):
+    """A person off the ladder reads the universal set and the shared sets
+    their repositories declare. Every ladder word in those is a word they
+    meet for a method they never chose -- which is the whole problem the
+    opt-in fixed (2026-10-02: 638 hits in this repository before the move,
+    0 after). Only a set that provides the ladder may say them."""
+    if not (ROOT / 'precedent-source.json').is_file():
+        raise NotApplicable('not a practice set: a repository that consumes '
+                            'practices writes its own documents in its own '
+                            'words')
+    try:
+        import precedent_resolve as _pr
+        if _pr.LADDER_CAPABILITY in _pr.source_provides(ROOT):
+            raise NotApplicable('this set provides the ladder, so its words '
+                                'are its own')
+        brought = _individual_set_brings_the_ladder(_pr)
+        if brought:
+            raise NotApplicable(brought)
+    except ImportError:
+        pass
+    try:
+        import ladder_words
+    except ImportError:
+        raise NotApplicable('tools/ladder_words.py did not import')
+    out = []
+    for path in ladder_words.scoped_files(ROOT):
+        rel = str(path.relative_to(ROOT))
+        if _foreign_practice(rel):
+            continue
+        for n, kind, text in ladder_words.file_hits(path):
+            out.append(Finding(
+                f'{rel}:{n}', f'{kind}, {text!r}: a person off the ladder '
+                f'reads this. Say it plainly, or move the rule into the set '
+                f'that provides the ladder'))
+    return out
+
+
+@check('ladder-set-is-brought-not-declared', 'tree',
+       "no repository's precedent.json declares a set that provides the "
+       'five-stage ladder: a declared set is in force for everyone who works '
+       'there, and the ladder is something each person brings for themselves',
+       'a declared set whose clone is not on this machine -- what it provides '
+       'cannot be read, so it is passed over. It does not look at what a '
+       'person brings: that is theirs to choose.',
+       practice_backed=False,
+       selects_on=('precedent.json',))
+def _ladder_set_is_brought_not_declared(ctx):
+    """The opt-in works person by person: two people in one repository, one
+    bringing the ladder set from their own individual set and one not, each
+    get their own. A repository that declares the set takes that choice
+    away from everybody at once, and nothing else would say so."""
+    try:
+        import precedent_resolve as _pr
+    except ImportError:
+        raise NotApplicable('precedent_resolve.py did not import')
+    try:
+        cfg = json.loads((ROOT / 'precedent.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for entry in (cfg.get('sources') if isinstance(cfg, dict) else None) or []:
+        if not isinstance(entry, dict) or not entry.get('path'):
+            continue
+        if _pr.normalize_level(entry.get('level')) in ('repo-local',
+                                                        'individual'):
+            continue
+        path = _pr._declared_path(ROOT.resolve(), entry['path'])
+        if _pr.LADDER_CAPABILITY in _pr.source_provides(path):
+            out.append(Finding(
+                'precedent.json',
+                f"declares {entry.get('name') or path.name}, which provides "
+                f'the five-stage ladder, so everyone who works here gets it. '
+                f'Take it out of this file; each person who wants it lists it '
+                f'under "brings" in their own individual set\'s '
+                f'precedent-source.json'))
+    return out
+
+
 # ---- frontmatter-field-order ----------------------------------------------
 # spec/PRACTICE_FORMAT.md sets one order for a practice's frontmatter fields;
 # frontmatter_yaml.FIELD_ORDER is that order written down once, in code.
@@ -1379,6 +1511,62 @@ def _sibling_not_in_force(pdir, base):
                 f'in prose what it used to cover')
     return (f'{head}, and it carries no `in_force_at:`, so nothing records '
             f'where that rule went -- settle that before linking it')
+
+
+_MD_LINK_TARGET = re.compile(r'\]\(([^)\s#]+)(?:#[^)\s]*)?\)')
+
+
+@check('shipped-links-travel', 'tree',
+       'no file this repo ships in its catalogue copy links relatively to a '
+       'file the copy leaves out (tools/checkin.py\'s VENDORING_RULES): '
+       'such a link is broken in every consumer, under process/upstream/, '
+       'where the consumer may not fix it. A doc of ours a consumer\'s reader '
+       'needs is linked on GitHub instead',
+       'a link that is not Markdown link syntax (a bare path in backticks, '
+       'an HTML anchor), and a relative link that climbs out of the repo; '
+       'practice files are judged more closely by practice-links-travel. '
+       'Only the repo that ships a catalogue copy is judged',
+       practice_backed=False, selects_on=('*.md', '*/*.md', 'tools/checkin.py'))
+def _shipped_links_travel(ctx):
+    # WHY (2026-10-01, from a consumer's update): seven links to
+    # templates/harness/LEDGER.md, a file the copy leaves out, were broken
+    # in every consumer, and the full set was 195 links in 65 files.
+    if (ROOT / 'tools' / 'ENGINE_MANIFEST.json').is_file():
+        raise NotApplicable('a vendored engine: this repo receives the '
+                            'catalogue copy, it does not ship one')
+    try:
+        import checkin
+    except Exception as e:                                    # noqa: BLE001
+        raise NotApplicable(f'tools/checkin.py did not import: {e}')
+    if not hasattr(checkin, 'vendoring_rule'):
+        raise NotApplicable('this checkin.py predates VENDORING_RULES')
+    import posixpath
+    out = []
+    for rel in _git('ls-files', '*.md').stdout.split():
+        rule = checkin.vendoring_rule(rel)
+        if not (rule and rule[1]):
+            continue
+        try:
+            text = (ROOT / rel).read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            for m in _MD_LINK_TARGET.finditer(line):
+                t = m.group(1)
+                if re.match(r'^[a-z]+:', t) or t.startswith('/'):
+                    continue
+                tgt = posixpath.normpath(posixpath.join(posixpath.dirname(rel), t))
+                if tgt.startswith('..'):
+                    continue
+                stays = (checkin.vendoring_rule(tgt)
+                         or checkin.vendoring_rule(tgt.rstrip('/') + '/'))
+                if stays and stays[1] is False:
+                    out.append(Finding(
+                        f'{rel}:{i}', f'links to {tgt}, which the catalogue '
+                        f'copy leaves out, so the link is broken in every '
+                        f'consumer -- link it on GitHub instead '
+                        f'(https://github.com/alex137/BestPractice/blob/staging/{tgt})'))
+    return out
 
 
 @check('practice-links-travel', 'tree',
@@ -1934,7 +2122,7 @@ def _technical_describes_people(ctx):
     # precedent.json's `universal` source points. In a §0 consumer the only
     # path this check ever flagged was Precedent's own
     # technical-describes-people.md, inside a mirror the consumer may not
-    # edit and cannot rename. Ask the engine (practice: durable-fix).
+    # edit and cannot rename. Ask the engine (practice: upstream-fix).
     skip = ('practices/', 'record/') + _mirrored(ROOT)
     # The WHOLE tree, not ctx.changed. This is a tree-scope check, and
     # --full-sweep builds no whole-tree ctx (only --all does), so on a clean
@@ -2152,6 +2340,19 @@ def _vendoring_decided(ctx):
             if rel and checkin.vendoring_rule(rel) is None]
 
 
+def _vendored_trees():
+    """-> the path prefixes that hold copies of another repository's files
+    (precedent_regenerate.VENDORED_TREES, its one definition)."""
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import precedent_regenerate
+        return tuple(precedent_regenerate.VENDORED_TREES)
+    except Exception:
+        return ()
+    finally:
+        sys.path.pop(0)
+
+
 @check('generated-files-registered', 'tree',
        'every file a tool here writes wholesale is listed in '
        'tools/generated_files.json, carries its label naming that tool, points '
@@ -2227,6 +2428,10 @@ def _generated_files_registered(ctx):
             continue
         if 'evals' in pathlib.PurePosixPath(rel).parts[:-1]:
             continue
+        # A copy of another repository's generated file is that
+        # repository's to list (precedent_regenerate.VENDORED_TREES).
+        if rel.startswith(_vendored_trees()):
+            continue
         try:
             text = (ROOT / rel).read_text(encoding='utf-8', errors='ignore')
         except OSError:
@@ -2238,6 +2443,59 @@ def _generated_files_registered(ctx):
                                     f'with the command that checks it is '
                                     f'current'))
     return out
+
+
+def _lives_on_in_own_engine(old):
+    """-> True when `old` is a mirrored tree's tools/<file> and the same
+    file lives on in this repo's own tools/.
+
+    The catalogue copy leaves tools/ out once a consumer's own engine carries
+    it (checkin._copy_carries_tools), so an Update Vendors that crosses that
+    change deletes process/upstream/tools/*. Nothing went missing: the file
+    is at tools/<same name>. The hooks and tools/bootstrap.sh name the
+    mirrored path as a guarded fallback, for an install whose own tools/
+    lacks the engine, and asking a consumer to repoint that fallback asked it
+    to edit template text (2026-09-30, a real consumer). A mirrored tools/
+    file with no copy in tools/ is still a disappearance, and still found."""
+    try:
+        import precedent_resolve as pr
+        prefixes = pr.mirrored_prefixes(ROOT) or ()
+    except Exception:                                     # noqa: BLE001
+        prefixes = ()
+    for p in set(prefixes) | {'process/upstream/'}:
+        p = p if p.endswith('/') else p + '/'
+        if old.startswith(p + 'tools/'):
+            return (ROOT / 'tools' / old[len(p) + len('tools/'):]).is_file()
+    return False
+
+
+def is_guarded_fallback(rel, line, old):
+    """True when `line` names the mirrored `old` (`<mirror>/tools/X`) only
+    as the fallback beside this repo's own tools/X: a `[ -f` (or `-e`, `-x`)
+    test, or a line that names tools/X too. Everything else that names it
+    -- an instruction in AGENTS.md, an allowlist entry in
+    .claude/settings.json -- is a command that now fails "No such file"
+    (2026-10-01, from a consumer's Update Vendors: three AGENTS.md lines
+    and a settings.json entry, found only by running one)."""
+    # Not every line of a shell file: an unguarded `python3
+    # process/upstream/tools/checkin.py` in a consumer's tools/bootstrap.sh
+    # is a step that stops running, and treating the whole file as fallback
+    # hid exactly that (2026-10-01, from a consumer's Update Vendors).
+    if re.search(r'\[\s+-[efx]\s|\btest\s+-[efx]\s|\bif\s+\[', line):
+        return True
+    own = 'tools/' + old.split('/tools/', 1)[-1]
+    rest = line.replace(old, ' ')
+    # tools/X counts at the start of a path, or after the repo root spelled
+    # as a shell variable -- "$ROOT/tools/X", "${CLAUDE_PROJECT_DIR:-.}/tools/X".
+    # Refusing every "/" before it refused the guarded loops BestPractice's
+    # own hooks shipped, in every consumer, on each update (2026-10-01).
+    for m in re.finditer(re.escape(own) + r'(?![\w-])', rest):
+        before = rest[:m.start()]
+        if not before or not re.search(r'[\w./-]$', before):
+            return True
+        if before.endswith('/') and re.search(r'(\$[A-Za-z_]\w*|\})/$', before):
+            return True
+    return False
 
 
 def _withheld_from_manifest():
@@ -2336,24 +2594,28 @@ def _generated_artifact_provenance(ctx):
         raise NotApplicable('tools/build_views.py is absent, so nothing here '
                             'declares which artifacts are generated')
     # Which of the two this repo actually GENERATES, read off the files
-    # themselves. build_views.py can write all three views, but a
-    # consuming repo runs it as `--agents-only` on purpose: MAP.md and
-    # GLOSSARY.md "assume THIS repo's layout" (build_views.py's own
-    # docstring, and INSTALL.md section 0's caveat, which says so in
-    # as many words), so a consumer hand-authors them from
-    # templates/MAP.md.template. Before this distinction, that documented,
-    # intended state was a VIOLATION in every consuming repo -- both files
-    # reported "carries no stamp" and then `build_views.py --check`
-    # reported them as drifted, for a repo that never generated them and
-    # never should. A file with no stamp is not a stale generated file;
-    # it is a hand-authored one, and orientation-map already requires
-    # MAP.md to exist and say something.
+    # themselves. Until 2026-10-03 a repository using Precedent hand-wrote
+    # MAP.md and GLOSSARY.md, and a file with no stamp was skipped here as
+    # that intended design. It no longer is: both are generated in every
+    # repository and never hand-edited (spec/GENERATED_FILES_PLAN.md;
+    # Morgan, 2026-10-03, strength: decided), a repository's own text living
+    # in MAP.source.md / GLOSSARY.source.md. A hand-written view with no
+    # source file is named, with the command that migrates it word for word.
     generated_here = []
     for name in GENERATED_VIEWS:
         p = ROOT / name
         head = p.read_text(encoding='utf-8', errors='ignore')[:1200] \
             if p.exists() else ''
         if 'build_views.py' not in head:
+            source = ROOT / name.replace('.md', '.source.md')
+            if p.exists() and not source.exists() and \
+                    _tool_path('tools/precedent_migrate_views.py') is not None:
+                out.append(Finding(name, 'is written by hand, and MAP.md and '
+                                         'GLOSSARY.md are generated in every '
+                                         'repository -- move it into '
+                                         f'{source.name} word for word with '
+                                         'python3 tools/precedent_migrate_views.py '
+                                         '--repo . (Update Vendors runs it)'))
             continue
         generated_here.append(name)
         if not re.search(r'do not (hand-)?edit|never hand-edit|generated',
@@ -2380,10 +2642,20 @@ def _generated_artifact_provenance(ctx):
         argv.append('--agents-only')
     r = subprocess.run(argv, cwd=str(ROOT), capture_output=True, text=True)
     if r.returncode != 0:
-        out.append(Finding('', 'a generated view is stale or hand-edited: '
-                               + (r.stdout + r.stderr).strip().splitlines()[-1]
-                               if (r.stdout + r.stderr).strip() else
-                               'build_views.py --check failed'))
+        # The line that says WHAT drifted. build_views.py prints notices
+        # after it (a set deferred, a practice not in force), and quoting the
+        # last line instead sent a session after missing sources, when a
+        # source had only changed since the last sync (2026-10-03).
+        lines = (r.stdout + r.stderr).strip().splitlines()
+        said = next((l for l in lines if '--check FAIL' in l or 'drifted' in l),
+                    lines[-1] if lines else 'build_views.py --check failed')
+        fix = ('most often a practice source this repository declares changed '
+               'since its last sync; fix: python3 tools/precedent_sync_views.py '
+               '--repo . , review the diff, commit'
+               if _tool_path('tools/precedent_sync_views.py') is not None else
+               'fix: python3 tools/build_views.py, review the diff, commit')
+        out.append(Finding('', f'a generated view is stale or hand-edited: {said} '
+                               f'-- {fix}'))
     return out
 
 
@@ -2480,9 +2752,11 @@ def _practice_change_propagates(ctx):
             f'("renamed", "retired", or name `{succ or "the successor"}` '
             f'beside it) and it stops being read as a live citation'))
 
+    base = _published_default_branch()
+    out.extend(_withdrawn_here_cited_elsewhere(ppr, base, successors, wmap))
+
     # Deleting a practice file erases the one record that lets this check,
     # and every reader, tell a withdrawn name from an unrelated word.
-    base = _published_default_branch()
     if base is not None:
         dirs = _repo_local_practice_dirs()
         # practices/ is this repository's own only where nothing
@@ -2506,6 +2780,13 @@ def _practice_change_propagates(ctx):
                 old = parts[1]
                 if _manifest_entry(old) is not None:
                     continue                    # materialized output, not ours
+                if parts[0] == 'D' and old in _decommissioned_paths():
+                    # A deletion somebody recorded on purpose: the
+                    # decommissioning registry says what went and why
+                    # (precedent_decommission.py, or precedent_move.py
+                    # --withdraw-from-universal, which deletes a rule meant
+                    # only for the people who bring another set, 2026-10-02).
+                    continue
                 if parts[0].startswith('R') and len(parts) > 2 and \
                         pathlib.Path(parts[1]).name == pathlib.Path(parts[2]).name:
                     continue                    # same slug, moved directory
@@ -2516,6 +2797,67 @@ def _practice_change_propagates(ctx):
                          f'retired) and `in_force_at:` to where the rule went, '
                          f'so every citation of `{pathlib.Path(old).stem}` in every '
                          f'source can still be found and repointed'))
+    return out
+
+
+def _withdrawn_here_cited_elsewhere(ppr, base, successors, wmap):
+    """-> [Unverified] for each live pointer, in another source this repo
+    declares and has on disk, to a practice THIS branch withdrew, deleted or
+    renamed. Reported, never edited, and never failing this run: those are
+    other repositories, changed by their own commits.
+
+    2026-10-01: a change here deduplicated second-pass-capture into
+    capture-gate and passed every check, while the repo-maintenance set's
+    todo-gate.md still linked the old slug. That set's own push check then
+    failed on a line it had not changed, found only because a later session
+    pushed there. rename-updates-links asks for every citation to move in
+    the same change; this is how the change gets to see the ones outside
+    its own repository."""
+    if base is None:
+        return []
+    try:
+        changed = ppr.changed_slugs(ROOT, base)
+    except Exception:                               # practice: fail-gracefully
+        return []
+    gone = {slug for slug, what in changed.items()
+            if not what.startswith('Rule reworded')}
+    # A consumer's practices/ is a sync's output: a rule the base's
+    # committed MANIFEST.json recorded left because its source moved it, not
+    # because this branch deleted anything (2026-10-03, a consumer rehearsal:
+    # every rule the ladder took out of universal was reported here as
+    # "deleted by this branch", though it lives on in the ladder set).
+    r = _git('show', f'{base}:MANIFEST.json')
+    if r is not None and r.returncode == 0:
+        try:
+            synced = {e.get('slug') for e in
+                      (json.loads(r.stdout).get('practices') or [])
+                      if isinstance(e, dict)}
+        except ValueError:
+            synced = set()
+        gone -= synced
+    if not gone:
+        return []
+    out = []
+    for name, root in ppr.source_roots(ROOT)[1:]:
+        try:
+            rows = ppr.scan_root(root, gone, successors,
+                                 skip=ppr.received_paths(root))
+        except Exception:                           # practice: fail-gracefully
+            continue
+        for row in rows:
+            if not ppr.must_fix(row):
+                continue
+            rel, ln, slug, _form, _kind, _section, _line = row
+            succ = successors.get(slug)
+            what = changed[slug]
+            what = 'made ' + what[4:] if what.startswith('now ') else what
+            out.append(Unverified(
+                f'{name}:{rel}:{ln}',
+                f'FOLLOW-UP in {name}, another repository: it still points at '
+                f'`{slug}`, which this branch {what} -- '
+                + (f'repoint it to `{succ}` ' if succ else 'repoint or remove it ')
+                + f'in a change to {name} itself, or its own check refuses '
+                f'the line on its next push'))
     return out
 
 
@@ -2987,6 +3329,7 @@ def _practice_is_reachable(ctx):
     # present, the session-start hook invokes it, and the repo is public, so
     # the tool carries exactly these levels.
     session_channel_levels = ()
+    wired = False
     try:
         import build_views as _bv
         hook = ROOT / '.claude' / 'hooks' / 'session-start.sh'
@@ -3018,7 +3361,10 @@ def _practice_is_reachable(ctx):
             continue
         if slug in named:
             continue                       # resident block or occasion index
-        if s['level'] in session_channel_levels:
+        if s['level'] in session_channel_levels or (wired and s.get('brought')):
+            # A set the person brings is never in a tracked view, public
+            # repository or private (build_views.sources_for_tracked_block),
+            # so wherever the channel is wired it reaches them through it.
             via_session.append(slug)       # .precedent/SESSION_PRACTICES.md
             continue
         if (fm.get('gates') or '[]').strip('" ') not in ('[]', ''):
@@ -3831,6 +4177,7 @@ DOGFOODED_HOOKS_MATCH_TEMPLATE = (
     'precedent-paths.sh',
     'push-check-gate.sh',
     'seeded-prompt-gate.sh',
+    'wait-loop-gate.sh',
 )
 
 
@@ -4724,7 +5071,7 @@ def _workflow_yaml_github_can_parse(ctx):
                             'neither runs nor ships a workflow file')
     # THE FALLBACK IS NOT A CONVENIENCE, IT IS THE POINT. CI does not
     # install PyYAML, and the first version of this check skipped there and
-    # failed its own planted case on its first run (practice: durable-fix).
+    # failed its own planted case on its first run (practice: upstream-fix).
     # So: the token stream where PyYAML exists, and where it does not, a
     # STRUCTURAL match that only accepts `<<:` where YAML would read it as a
     # key. `cat <<EOF` in a run step matches neither.
@@ -5723,6 +6070,130 @@ _APPROVAL_DATE = re.compile(r'\b20\d\d-\d\d-\d\d\b')
 _APPROVAL_QUOTE = re.compile(r'"[^"]{3,}"|“[^”]{3,}”')
 
 
+# What a workflow can be made to run more of: a new event, a branch or type
+# or path it now fires on, a schedule, a job (EXPAND, a new one is growth);
+# and the filters that keep it from firing (NARROW, losing one is growth).
+_WF_LIST_KEYS = ('branches', 'types', 'paths', 'tags')
+_WF_NARROW_KEYS = ('branches-ignore', 'paths-ignore', 'tags-ignore')
+
+
+def _workflow_reach(text):
+    """-> (expand, narrow): two sets of atoms describing what a workflow (or
+    a workflow template) runs and when, read from its text without a YAML
+    library (the engine needs none). Indentation decides the nesting, the
+    way every workflow this repo ships is written."""
+    expand, narrow = set(), set()
+    lines = [l.split(' #', 1)[0].rstrip() for l in text.splitlines()
+             if l.strip() and not l.lstrip().startswith('#')]
+    section, event, key = None, None, None
+    for line in lines:
+        ind = len(line) - len(line.lstrip(' '))
+        body = line.strip()
+        if ind == 0:
+            section, event, key = None, None, None
+            m = re.match(r'["\']?(on|jobs)["\']?:\s*(.*)$', body)
+            if m:
+                section = m.group(1)
+                inline = m.group(2).strip()
+                if section == 'on' and inline:
+                    for ev in re.findall(r'[\w-]+', inline):
+                        expand.add(f'event:{ev}')
+            continue
+        if section == 'jobs' and ind == 2 and body.endswith(':'):
+            expand.add(f'job:{body[:-1].strip()}')
+        elif section == 'on' and ind == 2:
+            m = re.match(r'([\w-]+):\s*(.*)$', body)
+            if m:
+                event, key = m.group(1), None
+                expand.add(f'event:{event}')
+        elif section == 'on' and event and ind == 4:
+            m = re.match(r'([\w-]+):\s*(.*)$', body)
+            key = m.group(1) if m else None
+            if key in _WF_LIST_KEYS:
+                narrow.add(f'{event}:has-{key}')
+            items = re.findall(r'[^\[\],\s"\']+', m.group(2)) if m and m.group(2) else []
+            for it in items:
+                if key in _WF_LIST_KEYS:
+                    expand.add(f'{event}:{key}:{it}')
+                elif key in _WF_NARROW_KEYS:
+                    narrow.add(f'{event}:{key}:{it}')
+        elif section == 'on' and event and ind >= 6 and key:
+            it = body.lstrip('- ').strip().strip('"\'')
+            if body.startswith('- cron:') or 'cron:' in body:
+                expand.add(f'cron:{body.split("cron:", 1)[1].strip()}')
+            elif key in _WF_LIST_KEYS and body.startswith('-'):
+                expand.add(f'{event}:{key}:{it}')
+            elif key in _WF_NARROW_KEYS and body.startswith('-'):
+                narrow.add(f'{event}:{key}:{it}')
+    return expand, narrow
+
+
+def _workflow_growth(before, after):
+    """-> what `after` runs that `before` did not: new expand atoms, and
+    narrowing filters `before` had that `after` dropped for an event it
+    still has. None for `before` means a new file, all of it growth."""
+    exp_a, nar_a = _workflow_reach(after)
+    if before is None:
+        return sorted(exp_a)
+    exp_b, nar_b = _workflow_reach(before)
+    events = {a.split(':', 1)[1] for a in exp_a if a.startswith('event:')}
+    lost = {n for n in nar_b - nar_a if n.split(':', 1)[0] in events}
+    return sorted((exp_a - exp_b) | {f'no longer {n}' for n in lost})
+
+
+# Where a workflow lives, or the template a workflow is written from.
+_WORKFLOW_PATHS = re.compile(r'^(?:\.github/workflows/[^/]+\.ya?ml|'
+                             r'templates/(?:.+/)?[^/]+\.ya?ml(?:\.template)?)$')
+
+
+def _workflow_growth_findings(ctx, approved):
+    """Findings for each workflow or workflow template this change makes
+    run more -- a new event, branch, type, path, schedule or job, or a
+    narrowing filter dropped -- that carries no approval of its current
+    content in github_ci_approved. A fix that adds no CI work is not one
+    (practice: ci-workflow-approved, 2026-09-30)."""
+    import hashlib
+    if ctx.range:
+        base = ctx.range.split('...')[0].split('..')[0]
+    else:
+        base = _published_default_branch()
+    if not base:
+        return []
+    mb = _git('merge-base', base, 'HEAD')
+    if mb.returncode != 0:
+        return []
+    mb = mb.stdout.strip()
+    r = _git('diff', '--name-only', '--diff-filter=AM', mb)
+    # The engine's own copy of a shipped workflow, untouched since the
+    # manifest recorded it, is upstream's to grow: its template was judged
+    # where it was written. So is any file this repo received.
+    tracked = (_engine_manifest() or {}).get('ci_workflows_sha256') or {}
+    out = []
+    for rel in sorted(set(r.stdout.split()) if r.returncode == 0 else ()):
+        if not _WORKFLOW_PATHS.match(rel) or not (ctx.root / rel).is_file():
+            continue
+        if _received_owner(rel) is not None:
+            continue
+        if tracked.get(rel) == hashlib.sha256((ctx.root / rel).read_bytes()).hexdigest():
+            continue
+        after = (ctx.root / rel).read_text(encoding='utf-8', errors='replace')
+        old = _git('show', f'{mb}:{rel}')
+        grew = _workflow_growth(old.stdout if old.returncode == 0 else None, after)
+        if not grew:
+            continue
+        entry = approved.get(rel)
+        sha = hashlib.sha256((ctx.root / rel).read_bytes()).hexdigest()
+        if isinstance(entry, dict) and _approval_problem(entry) is None \
+                and entry.get('sha256') == sha:
+            continue
+        out.append(Finding(rel, f'this change makes it run more ({", ".join(grew[:6])}'
+                                f'{", ..." if len(grew) > 6 else ""}) without the '
+                                f'person\'s approval of this content in precedent.json\'s '
+                                f'{GITHUB_CI_APPROVED_KEY}: say when it will run and what '
+                                f'it costs, and record their own words, pinned by sha256'))
+    return out
+
+
 def _approval_problem(entry):
     """-> None when `entry` is a usable approval, else what is wrong with it.
     Usable means a sha256, and an approved_by carrying a date and the
@@ -5849,21 +6320,17 @@ def workflow_triggers_text(text):
        "An engine-tracked file re-baselined with `record-ci` reads as "
        "untouched. A workflow file added through the GitHub API or web "
        "editor never passes through a session's push gate, so only this "
-       "check running in CI, or the next local run, sees it. Never "
-       "applies in BestPractice itself, which has no manifest.",
-       binds_when=('.github/workflows',))
+       "check running in CI, or the next local run, sees it. In "
+       "BestPractice itself, which has no manifest, it judges only growth: "
+       "a change that makes a workflow or a workflow template run more (a "
+       "new event, branch, type, path, schedule or job, or a narrowing "
+       "filter dropped). That reading is of the file's text, indentation "
+       "and all, the way every workflow here is written; a matrix that "
+       "widens, or a job made longer, is not counted.",
+       binds_when=('.github/workflows', 'templates/github-actions'))
 def _ci_workflow_approved(ctx):
     import hashlib
 
-    manifest = _engine_manifest()
-    if not manifest:
-        raise NotApplicable('no tools/ENGINE_MANIFEST.json -- this repo has '
-                            'never vendored the engine, or is the engine\'s '
-                            'own origin')
-    wf_dir = ctx.root / '.github' / 'workflows'
-    if not wf_dir.is_dir():
-        return []
-    tracked = manifest.get('ci_workflows_sha256') or {}
     try:
         cfg = json.loads((ctx.root / 'precedent.json').read_text(
             encoding='utf-8'))
@@ -5872,6 +6339,17 @@ def _ci_workflow_approved(ctx):
         approved = {}
     if not isinstance(approved, dict):
         approved = {}
+    # Every repo, this one included: a change that makes a workflow or a
+    # workflow template run more needs the person's words. A manifest pins
+    # a consumer's files below; nothing pinned this repo's own templates.
+    growth = _workflow_growth_findings(ctx, approved)
+    manifest = _engine_manifest()
+    if not manifest:
+        return growth
+    wf_dir = ctx.root / '.github' / 'workflows'
+    if not wf_dir.is_dir():
+        return growth
+    tracked = manifest.get('ci_workflows_sha256') or {}
 
     # In a consumer the refresh settles every workflow itself, so the
     # finding sends the session there instead of to the person
@@ -5884,7 +6362,7 @@ def _ci_workflow_approved(ctx):
     except Exception:                          # practice: fail-gracefully
         converges, shipped = False, set()
 
-    findings = []
+    findings = list(growth)
     for path in sorted(wf_dir.iterdir()):
         if not (path.is_file() and path.suffix in ('.yml', '.yaml')):
             continue
@@ -6198,7 +6676,8 @@ def _shipped_template_carries_its_script(ctx):
         # COMMAND POSITION, NOT MERE MENTION -- and this precision was not
         # designed in, it was forced. The first version of this check
         # matched any `tools/NAME.py` in a non-comment line and fired on its
-        # own first run against precedent-check.yml.template, which names
+        # own first run against the practice-set workflow template (retired
+        # 2026-10-01), which named
         # `'python3 tools/precedent_sync_views.py --repo . --check'` INSIDE
         # an echo, as advice to a human reading a failure message. Nothing
         # executes it; that template is correct.
@@ -6511,6 +6990,33 @@ def _headline_capitalization(ctx):
         for line, before, after in title_case.process(ROOT / f, write=False):
             out.append(Finding(f'{f}:{line}',
                                f'not headline case: {before!r} -> {after!r}'))
+    return out
+
+
+@check('whats-new', 'change',
+       'a changed What\'s New log has every entry in the shape: a heading '
+       '"<Weekday> <date>: <slug>" whose weekday is the date\'s own, the '
+       'fixed opening line word for word, every bullet opening with a bold '
+       'key phrase, '
+       'and no approver named',
+       'whether the bullets are the day\'s most noteworthy changes, whether '
+       'a figure is real, whether every missing day was written and the '
+       'quiet ones said in the reply -- judgment, the session\'s; and a log '
+       'nobody changed, so an old entry is only flagged once a session '
+       'touches the log, which is when the practice has it rewritten.')
+def _whats_new(ctx):
+    sys.path.insert(0, str(ROOT / 'tools'))
+    try:
+        import precedent_whats_new as pwn
+    except Exception as e:
+        raise NotApplicable(f'tools/precedent_whats_new.py did not import: {e}')
+    rel = pwn.feed_path(ROOT)
+    if rel not in ctx.changed or not (ROOT / rel).is_file():
+        raise NotApplicable(f'{rel} is not changed here')
+    text = (ROOT / rel).read_text(encoding='utf-8')
+    out = [Finding(f'{rel}:{n}', problem) for n, problem in pwn.shape_problems(text)]
+    out += [Finding(f'{rel}:{n}', f'names an approval: {line.strip()[:100]}')
+            for n, line in pwn.approval_lines(text)]
     return out
 
 
@@ -7121,7 +7627,10 @@ PINNED_PERMALINK_RE = re.compile(
        'each of which is overwritten by its own next sync. It also says '
        'nothing about a file the decommissioning registry exempts -- the record OF a deletion naming what went is not a reference left behind '
        'by one -- or about a path inside a permalink pinned to a 40-hex '
-       'commit, which cites the file as it was and cannot go stale.')
+       'commit, which cites the file as it was and cannot go stale. Nor '
+       'about history, which names a path as it was: a generated view (its '
+       'source is read), a closed todo item, a `## Story` section, or a '
+       'record file precedent.json declares in `record_paths`.')
 def _rename_updates_links(ctx):
     base = _published_default_branch()
     if base is None:
@@ -7165,6 +7674,7 @@ def _rename_updates_links(ctx):
         withheld = _withheld
 
     _retired_exempt = _decommissioning_record_exemptions()
+    _records = _declared_record_paths()
 
     old_paths = []
     for line in r.stdout.splitlines():
@@ -7192,12 +7702,13 @@ def _rename_updates_links(ctx):
                 continue
             if old in withheld:
                 continue      # withheld, not deleted -- see the note above
+            moved = _lives_on_in_own_engine(old)
             # A file the consuming repo RECEIVED cannot be repointed there:
             # a mirrored tree, the vendored engine and another source's
             # materialized files are copied wholesale, and an edit is
             # overwritten by the next refresh. run() drops those findings
             # for every check; asking the same one answer here as well only
-            # saves reading the files (practice: durable-fix).
+            # saves reading the files (practice: upstream-fix).
             if _received_owner(rel) is not None \
                     or rel == DECOMMISSIONED_PATHS_REGISTRY \
                     or any(_exempt_matches(rel, e) for e in _retired_exempt):
@@ -7214,6 +7725,8 @@ def _rename_updates_links(ctx):
                 # the registry and were being flagged for doing their job.
                 # See _decommissioning_record_exemptions() for the incident.
                 continue
+            if any(_exempt_matches(rel, e) for e in _records):
+                continue      # a declared record: it names what was, then
             f = ROOT / rel
             if not f.is_file():
                 continue
@@ -7221,9 +7734,14 @@ def _rename_updates_links(ctx):
                 text = f.read_text(encoding='utf-8', errors='ignore')
             except OSError:
                 continue
+            if _is_history(rel, text):
+                continue      # a generated view, or a closed todo item
             lines = text.splitlines()
+            in_story = _story_mask(lines) if rel.endswith('.md') else [False] * len(lines)
             for i, (line, in_generated) in enumerate(
                     zip(lines, generated_blocks.mask(lines)), 1):
+                if in_story[i - 1]:
+                    continue  # a Story section: what happened, named as it was
                 # The loader block is rewritten wholesale by build_views.py
                 # from the practice sources, so a reference inside it is the
                 # sources' to fix, exactly like the materialized files it is
@@ -7238,16 +7756,178 @@ def _rename_updates_links(ctx):
                 # longer exists -- it cannot go stale. A link to a branch can,
                 # and still counts.
                 if old in line and old in PINNED_PERMALINK_RE.sub('', line):
+                    if moved and is_guarded_fallback(rel, line, old):
+                        continue  # the fallback beside tools/, as templates write it
                     where = f'renamed to {new_path}' if new_path else 'deleted'
+                    if moved:
+                        where = (f'deleted; the file is at tools/'
+                                 f'{old.split("/tools/", 1)[-1]} now')
                     out.append(Finding(
                         f'{rel}:{i}',
                         f'still references {old!r}, which this branch '
                         f'{where} -- repoint it in the same change, or the '
-                        f'repository is broken at every commit in between'))
+                        f'repository is broken at every commit in between',
+                        cause=old))
                     break
     if not out and skipped:
         print(f'  (rename-updates-links: {skipped} single-segment path(s) '
               f'skipped as too generic to search)')
+    return out
+
+
+# A line that itself says the thing is gone is history, not a live pointer:
+# "`x.template` (retired 2026-09-21)", "since removed", "was folded into".
+_SAYS_GONE = re.compile(r'\b(retired|removed|deleted|folded|renamed|tombstoned|'
+                        r'no longer|used to|was|until 20\d\d)\b', re.I)
+
+# Where a Markdown paragraph starts: a blank line, a heading, a list item, a
+# table row, a fence or a quote. Every other line continues the one above.
+_BLOCK_START = re.compile(r'^\s*($|#|[-*+]\s|\d+[.)]\s|\||```|~~~|>)')
+_SENTENCE_END = re.compile(r'[.!?](?=\s|$)')
+
+
+def _sentences_saying_gone(lines, i, path):
+    """True when a sentence that runs through line `i` (0-based), names
+    `path`, and says the thing is gone. A sentence wrapped across lines
+    puts "retired" on the line after the path, and judging one physical
+    line at a time read that as a live pointer (2026-10-01, twice in one
+    consumer session, both fixed by re-wrapping text and nothing else).
+    The sentence, not the paragraph: "Read `x`. This was fine." stays a
+    live pointer."""
+    start = i
+    while start > 0 and lines[start].strip() and not _BLOCK_START.match(lines[start]) \
+            and lines[start - 1].strip() and not re.match(r'^\s*(#|\||```|~~~)', lines[start - 1]):
+        start -= 1
+    end = i + 1
+    while end < len(lines) and lines[end].strip() and not _BLOCK_START.match(lines[end]):
+        end += 1
+    joined, span = '', None
+    for j in range(start, end):
+        if j == i:
+            span = (len(joined), len(joined) + len(lines[j].strip()))
+        joined += lines[j].strip() + ' '
+    if span is None:
+        return False
+    bounds = [0] + [m.end() for m in _SENTENCE_END.finditer(joined)] + [len(joined)]
+    for a, b in zip(bounds, bounds[1:]):
+        if b <= span[0] or a >= span[1]:
+            continue
+        sentence = joined[a:b]
+        if path in sentence and _SAYS_GONE.search(sentence):
+            return True
+    return False
+
+
+def _paths_this_repo_removed():
+    """-> every path this repository's history deleted or renamed away and
+    that is still gone, with a directory in it (a bare `README.md` means a
+    different file in every directory). A shallow clone sees less history,
+    which only finds less."""
+    r = _git('log', '--diff-filter=DR', '-M', '--name-status', '--format=', 'HEAD')
+    if r.returncode != 0:
+        return set()
+    tracked = set(_git('ls-files').stdout.split())
+    gone = set()
+    for line in r.stdout.splitlines():
+        parts = line.split('\t')
+        if len(parts) >= 2 and parts[0][:1] in ('D', 'R'):
+            gone.add(parts[1])
+    return {g for g in gone if '/' in g and g not in tracked
+            and not (ROOT / g).exists() and not _lives_on_in_own_engine(g)}
+
+
+_PATH_RUN = re.compile(r'[\w./-]+')
+
+
+def gone_path_matcher(gone):
+    """-> f(line): the first path of `gone`, in sorted order, that `line`
+    names on a boundary -- not after [\\w./-], not before [\\w-], so
+    `other-repo/practices/x.md` is not `practices/x.md` -- or None.
+
+    The same answer as one regex per path tried in sorted order, which is
+    what this check did until 2026-10-02 and what the harness compares it
+    with. That cost one regex per deleted path over every line of every
+    document: five to ten minutes on a consumer with thousands of documents
+    and a long history of deletions. A path made only of [\\w./-] can match
+    only where a run of those characters starts (the boundary before it
+    rules out any later start), and ends at the run's end or at a `.` or
+    `/` inside it, so its candidates are a handful of prefixes of each run,
+    looked up in a set. A path with any other character keeps its regex."""
+    simple, odd = set(), []
+    for g in sorted(gone):
+        if _PATH_RUN.fullmatch(g):
+            simple.add(g)
+        else:
+            odd.append((g, re.compile(r'(?<![\w./-])' + re.escape(g) + r'(?![\w-])')))
+
+    def first(line):
+        hits = []
+        if simple:
+            for m in _PATH_RUN.finditer(line):
+                run = m.group()
+                ends = [k for k, c in enumerate(run) if c in './'] + [len(run)]
+                hits += [run[:k] for k in ends if run[:k] in simple]
+        hits += [g for g, pat in odd if pat.search(line)]
+        return min(hits) if hits else None
+    return first
+
+
+@check('change-updates-its-docs', 'tree',
+       'no live document names a path this repository once had and has '
+       'since deleted or renamed away',
+       'a document that is wrong in any other way: this sees only a path '
+       'that history shows is gone, never a wrong claim, a retired command, '
+       'or a path this repository never had (a consuming repo\'s own layout, '
+       'which docs here describe on purpose). History is left alone, as '
+       'rename-updates-links leaves it: a generated view, a closed todo '
+       'item, a `## Story` section, a declared record file, a commit-pinned '
+       'permalink, and a line that itself says the thing was retired or '
+       'removed. A shallow clone sees less history, so finds less.')
+def _docs_name_no_removed_path(ctx):
+    gone = _paths_this_repo_removed()
+    if not gone:
+        raise NotApplicable('this repository\'s history deletes no path that '
+                            'is still gone')
+    first_gone = gone_path_matcher(gone)
+    exempt = _declared_record_paths() + _decommissioning_record_exemptions()
+    # A link to this repository's own branch names a path here too:
+    # `https://github.com/<this>/blob/staging/practices/x.md` is x.md.
+    slug = _origin_slug()
+    own_url = (re.compile(r'https://github\.com/' + re.escape(slug)
+                          + r'/(?:blob|tree)/[^/\s)]+/') if slug else None)
+    out = []
+    for rel in _git('ls-files', '*.md').stdout.split():
+        if _received_owner(rel) is not None or rel == DECOMMISSIONED_PATHS_REGISTRY \
+                or any(_exempt_matches(rel, e) for e in exempt):
+            continue
+        try:
+            text = (ROOT / rel).read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        if _is_history(rel, text):
+            continue
+        lines = text.splitlines()
+        story = _story_mask(lines)
+        for i, (line, generated) in enumerate(
+                zip(lines, generated_blocks.mask(lines)), 1):
+            if story[i - 1] or generated or '/' not in line \
+                    or _SAYS_GONE.search(line):
+                continue
+            live = PINNED_PERMALINK_RE.sub('', line)
+            if own_url:
+                live = own_url.sub(' ', live)
+            # A consumer's mirror of this repository's own file, as
+            # INSTALL-era docs name it: `process/upstream/<path here>`.
+            live += ' ' + live.replace('process/upstream/', ' ')
+            hit = first_gone(live)
+            if hit and _sentences_saying_gone(lines, i - 1, hit):
+                continue
+            if hit:
+                out.append(Finding(
+                    f'{rel}:{i}', f'names {hit!r}, which this repository no '
+                    f'longer has -- say what is true now, or that it was '
+                    f'retired (practice: change-updates-its-docs)',
+                    cause=hit))
     return out
 
 
@@ -8530,6 +9210,73 @@ RETIRED_VOCAB_CONFIG = 'process/retired_vocabulary.json'
 RETIRED_VOCAB_SKIP_FILES = {'tools/verify_harness.py'}
 
 
+# DATED RECORDS NAME THE PATH AS IT WAS (2026-09-30, a consumer's promote).
+# rename-updates-links asks every mention of a deleted or renamed path to be
+# repointed, which is right for a live document and wrong for history: a
+# closed todo item, a gotcha's Story, a migration record or a dated audit
+# names the old path because that was the path when it was written, and a
+# really deleted path has nowhere to be repointed to. Four kinds are left
+# alone, agreed with that consumer's session. Open items and live documents,
+# a gotcha's Symptom and Fix included, are still read.
+TODO_CLOSED_STATUSES = ('done', 'dropped')
+
+
+def _declared_record_paths():
+    """-> precedent.json's `record_paths` entries ({"path", "reason"}), as
+    path strings; an entry ending in "/" covers a directory. A whole record
+    file names paths as they were -- a migration record, a dated audit --
+    and is declared, with its reason, rather than folded into the
+    decommissioning registry's exempt_files, which is for records OF a
+    decommissioning."""
+    try:
+        cfg = json.loads((ROOT / 'precedent.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for e in (cfg.get('record_paths') if isinstance(cfg, dict) else None) or []:
+        path = e.get('path') if isinstance(e, dict) else e
+        if isinstance(path, str) and path.strip():
+            out.append(path.strip())
+    return out
+
+
+# A document whose lifecycle header says it is finished is a record of what
+# was, like a closed todo item (spec/DOCUMENT_LIFECYCLE.md's statuses).
+DOCUMENT_DONE_STATUSES = ('closed', 'executed', 'superseded', 'expired', 'declined')
+
+
+def _is_history(rel, text):
+    """-> True for a whole file that is not live text: a generated view (its
+    source is read instead, and the fix belongs there), a todo item whose
+    status is closed, or a document whose lifecycle header says it is
+    finished."""
+    if rel.endswith('.md') and _generated_label(rel, text):
+        return True
+    if rel.endswith('.md') and not rel.startswith('todo/'):
+        m = re.match(r'---\n(.*?)\n---', text, re.S)
+        if m and re.search(r'^kind:', m.group(1), re.M):
+            st = re.search(r'^status:\s*"?(\w+)', m.group(1), re.M)
+            if st and st.group(1) in DOCUMENT_DONE_STATUSES:
+                return True
+    if rel.startswith('todo/') and rel.endswith('.md'):
+        m = re.match(r'---\n(.*?)\n---', text, re.S)
+        st = re.search(r'^status:\s*"?(\w+)', m.group(1), re.M) if m else None
+        if st and st.group(1) in TODO_CLOSED_STATUSES:
+            return True
+    return False
+
+
+def _story_mask(lines):
+    """-> one bool per line: True inside a `## Story` section, heading
+    included, up to the next level-2 heading."""
+    out, inside = [], False
+    for line in lines:
+        if line.startswith('## '):
+            inside = line.strip().lower() == '## story'
+        out.append(inside)
+    return out
+
+
 def _exempt_matches(rel, exempt_entry):
     """True if `rel` (a POSIX-relative path) is covered by one
     `exempt_files` entry. An entry ending in `/` is a DIRECTORY exemption --
@@ -8538,6 +9285,18 @@ def _exempt_matches(rel, exempt_entry):
     if exempt_entry.endswith('/'):
         return rel == exempt_entry.rstrip('/') or rel.startswith(exempt_entry)
     return rel == exempt_entry
+
+
+def _decommissioned_paths():
+    """-> the set of paths the decommissioning registry records as deleted
+    on purpose, or an empty set."""
+    try:
+        cfg = json.loads(
+            (ROOT / DECOMMISSIONED_PATHS_REGISTRY).read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        return set()
+    return {e.get('path') for e in cfg.get('decommissioned') or []
+            if isinstance(e, dict) and e.get('path')}
 
 
 def _decommissioning_record_exemptions():
@@ -8911,6 +9670,62 @@ def _todo_gotcha_stale_reference(ctx):
                     'stub since the 2026-09-16 migration and takes no new '
                     'items; file it under todo/ instead '
                     '(spec/OPEN_ITEM_AND_GOTCHA_PLAN.md)'))
+    return out
+
+
+@check('manifest-entries-resolve', 'tree',
+       'every process/manifest*.json entry (a declined one aside) names a '
+       'local_path that exists -- practice_audit.py fails on one that does '
+       'not, and the push gate does not run that audit',
+       'an entry whose file exists but holds the wrong thing -- that is '
+       'practice_audit.py\'s drift and hash comparison, which needs the '
+       'upstream tree; this sees only a path that is gone',
+       practice_backed=False, selects_on=('*', '*/*', 'process/manifest*.json'))
+def _manifest_entries_resolve(ctx):
+    # 2026-10-01, from a consumer's Update Vendors: the catalogue sweep
+    # deleted process/upstream/tools/ and left the doc-lint entry pointing
+    # into it. The update said DONE, every push check passed, and the audit
+    # failed. One question for every step that deletes, asked of the result
+    # (precedent_vendor_engine.dead_manifest_entries).
+    import precedent_vendor_engine as pve
+    return [Finding(f'process/{m}', f'entry {name!r} names {rel}, which does not '
+                                    f'exist -- restore the file, or drop the '
+                                    f'entry if it is gone on purpose')
+            for m, name, rel in pve.dead_manifest_entries(ROOT)]
+
+
+OPEN_ITEM_FILE_RE = re.compile(r'(?:^|/)(todo|gotcha)-\d{4}-\d{2}-\d{2}-[^/]*\.md$')
+
+
+@check('open-items-outside-todo', 'tree',
+       'an open item (todo-<date>-*.md) or gotcha (gotcha-<date>-*.md) '
+       'filed anywhere but the repository\'s root todo/ or gotchas/, where '
+       'the index, the closing check and every other tool look',
+       'an item filed under its own name in the right directory but with '
+       'broken frontmatter -- that is the item format\'s own checks; this '
+       'sees only where the file sits',
+       practice_backed=False,
+       selects_on=('*todo-*.md', '*gotcha-*.md', 'tools/todo_migrate.py'))
+def _open_items_outside_todo(ctx):
+    # 2026-10-01, from a consumer's Update Vendors: `todo_migrate.py --repo
+    # docs` wrote 33 items under docs/todo/, and build_todo_index.py and
+    # every check read only <repo>/todo -- so for 13 days they were
+    # invisible, closed items unrecognised, and nothing said so.
+    home = {'todo': 'todo/', 'gotcha': 'gotchas/'}
+    mirrored = _mirrored(ctx.root)
+    out = []
+    for rel in _git('ls-files', '*.md').stdout.split():
+        m = OPEN_ITEM_FILE_RE.search(rel)
+        if not m or rel.startswith(home[m.group(1)]) or rel.startswith(mirrored) \
+                or _received_owner(rel) is not None:
+            continue
+        text = ctx.read(rel) or ''
+        if not (text.startswith('---') and re.search(r'^status:', text, re.M)):
+            continue
+        out.append(Finding(rel, f'an item outside the root {home[m.group(1)]} -- '
+                                f'nothing indexes or closes it here; git mv it '
+                                f'into {home[m.group(1)]} and run '
+                                f'python3 tools/build_todo_index.py'))
     return out
 
 
@@ -9547,8 +10362,8 @@ SIZE_CAP_CHECKS = frozenset({'loader-within-caps', 'session-load-budget',
        'the occasion index and this source\'s own occasion share, as '
        '`build_views.py --budgets` measures them',
        'anything outside the loader block -- the whole instructions file is '
-       'session-load-budget\'s. On the way into pre-staging a finding here '
-       'warns and does not refuse (SIZE_CAP_CHECKS); the full check refuses',
+       'session-load-budget\'s. At the quick check a finding here warns and '
+       'does not refuse (SIZE_CAP_CHECKS); the full check refuses',
        practice_backed=False,
        selects_on=('practices/*.md', 'local/practices/*.md', 'AGENTS.md',
                    _BUDGET_REGISTRY, 'precedent-source.json',
@@ -9566,9 +10381,17 @@ def _loader_within_caps(ctx):
     r = subprocess.run([sys.executable, str(builder), '--repo', str(ROOT),
                         '--budgets', '--agents-only'],
                        cwd=str(ROOT), capture_output=True, text=True)
+    out = r.stdout + r.stderr
     if r.returncode == 0:
+        # A source this repo declares is not on disk (a bare CI checkout has
+        # no sibling practice sets): the caps were not measured, which is
+        # neither a violation nor a pass (2026-09-30).
+        if 'budgets NOT VERIFIED' in out:
+            return [Unverified('AGENTS.md', 'the loader block\'s caps were not '
+                               'measured: a declared source is not reachable '
+                               'here, so the block cannot be built from it')]
         return []
-    why = [l for l in (r.stdout + r.stderr).splitlines() if 'FAIL' in l]
+    why = [l for l in out.splitlines() if 'FAIL' in l]
     return [Finding('AGENTS.md', (why[-1] if why else
                                   'build_views.py --budgets failed').strip())]
 
@@ -9649,6 +10472,35 @@ def _session_load_budgets():
         return None
 
 
+def _charge_brought_share(n):
+    """-> (n less the brought sets' share, Finding or None) for the session
+    file. The share is measured by rendering the file with and without the
+    sets the person brings; it is held to `brought_sets_tokens` in their
+    individual set's precedent-source.json. With no such budget the share
+    stays charged to the repository, as it was before the budget existed."""
+    try:
+        import precedent_session_practices as _psp
+        share, names = _psp.brought_share(ROOT)
+    except Exception:                                         # noqa: BLE001
+        return n, None
+    if not share:
+        return n, None
+    budget, ind = _psp.brought_budget(ROOT)
+    rel = '.precedent/SESSION_PRACTICES.md'
+    if budget is None:
+        # Undeclared: charged to the repository, as before the budget
+        # existed, so nobody's check changes until they declare one -- and a
+        # rollout need not land the individual set first.
+        return n, None
+    if share > budget:
+        return n - share, Finding(rel, (
+            f"{share:,} tokens of it come from the set(s) this person brings "
+            f"({', '.join(names)}), over the {budget:,}-token "
+            f"`{_psp.BROUGHT_BUDGET_KEY}` budget in their individual set. "
+            f"Reduce in the brought set, or the person raises their own budget"))
+    return n - share, None
+
+
 @check('session-load-budget', 'tree',
        'every file a session loads before it works is declared in '
        'tools/session_load_budgets.json and is under its declared ceiling, '
@@ -9715,6 +10567,13 @@ def _session_load_budget(ctx):
             out.append(Finding(rel, 'has a registry entry with no integer '
                                     '"ceiling"'))
             continue
+        if rel == '.precedent/SESSION_PRACTICES.md':
+            # The sets a person brings are charged to that person's own
+            # budget, not to this repository's ceiling (Morgan, 2026-10-03,
+            # strength: assented; precedent_session_practices.brought_share).
+            n, brought_finding = _charge_brought_share(n)
+            if brought_finding:
+                out.append(brought_finding)
         if n > ceiling:
             out.append(Finding(rel, f'{n:,} tokens, every session, over its '
                                     f'declared ceiling of {ceiling:,}. Run the '
@@ -9976,6 +10835,26 @@ def _touched_files():
         if r.returncode == 0:
             out.update(x for x in r.stdout.split() if x)
     return sorted(out)
+
+
+def _gone_in_change(ctx):
+    """-> the paths the change in scope deleted or renamed away: its range
+    when it has one, else what the working tree and index changed against
+    HEAD. Empty when git cannot say."""
+    if ctx.range:
+        diffs = [['diff', '--name-status', '--find-renames', ctx.range]]
+    else:
+        diffs = [['diff', '--name-status', '--find-renames', 'HEAD']]
+    gone = set()
+    for args in diffs:
+        r = _git(*args)
+        if r.returncode != 0:
+            continue
+        for line in r.stdout.splitlines():
+            parts = line.split('\t')
+            if len(parts) >= 2 and parts[0][:1] in ('D', 'R'):
+                gone.add(parts[1])
+    return gone
 
 
 def _scoped_tree_slugs(tree_slugs, buckets=None):
@@ -10318,13 +11197,22 @@ def main():
                     and _manifest_entry(c) is not None:
                 in_change.discard(c)
                 materialized += 1
+        # A path this change deleted or renamed away is the change's own
+        # doing wherever the mention it strands sits, and that is never in
+        # the change: the pre-staging check could not see a stranded
+        # reference at all, so a consumer's Update Vendors passed Booked and
+        # the Debut into staging refused on about 15 files no earlier run
+        # had named (2026-09-30). Narrows the rule above, it does not undo
+        # it: what the push brings includes what it takes away.
+        gone_in_change = _gone_in_change(ctx)
         kept_results = []
         for slug, status, findings, why, uv in results:
             if status == 'VIOLATION':
                 kept = [f for f in findings
                         if (f.file() if hasattr(f, 'file') else
                             str(getattr(f, 'where', '') or '').split(':', 1)[0])
-                        in in_change]
+                        in in_change
+                        or getattr(f, 'cause', None) in gone_in_change]
                 outside_change += len(findings) - len(kept)
                 status = 'VIOLATION' if kept else 'PASS'
                 findings = kept
@@ -10371,10 +11259,10 @@ def main():
             print(f'    {line}')
 
     for slug, _st, findings, _why, _uv in held_for_staging:
-        print(f'\nWARNING    {slug} — over a size cap. Allowed onto '
-              f'pre-staging; the full check refuses it at the Debut, so it '
-              f'must be brought under the cap before this can go to staging. '
-              f'Tell the person (practice: reduction-pass).')
+        print(f'\nWARNING    {slug} — over a size cap. The quick check '
+              f'lets it through; the full check refuses it, so it must be '
+              f'brought under the cap before it goes further. Tell the '
+              f'person (practice: reduction-pass).')
         for f in findings:
             print(f'    {f}')
 

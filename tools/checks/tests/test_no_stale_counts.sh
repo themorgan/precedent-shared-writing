@@ -429,6 +429,26 @@ record of what one past run measured, not a current claim.
 MD
 }
 
+fixture_generated_by_label () {
+  keep_sources
+  # A file the engine writes wholesale carries `generated_by:` front matter
+  # and quotes whatever its sources say -- here a closed item's historical
+  # count, as todo/CLOSED.md does once a commit rebuilds it (2026-10-04).
+  # The label alone makes it generated; no older marker wording is present.
+  mkdir -p todo
+  cat > todo/CLOSED.md <<'MD'
+---
+generated_by: tools/build_todo_index.py
+edit_instead: "todo/todo-*.md"
+---
+# Closed
+
+| Item | What |
+|---|---|
+| x | Materialized 999 practices, a historical count |
+MD
+}
+
 fixture_open_todo_item () {
   keep_sources
   # Same filename shape and same wrong count as L, but the item is still
@@ -636,6 +656,7 @@ run "F. a repo with no practices/ tree"                     skipped fixture_no_p
 # closed, not on the filename alone.
 run "L. a closed todo/ item's own historical count"         clean   fixture_closed_todo_item   no-engine
 run "M. the same shape, item still OPEN -- must still fire" fires   fixture_open_todo_item     no-engine
+run "L2. a file carrying the engine's generated_by label"  clean   fixture_generated_by_label no-engine
 
 # N-P: false positives found running this check against the engine's own
 # repository (2026-09-28), each with the control that proves the exclusion

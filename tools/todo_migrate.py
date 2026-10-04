@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""todo_migrate.py — one-time converter from the old TODO.md / gotchas-index
+"""One-time converter from the old TODO.md/gotchas-index format into spec/OPEN_ITEM_AND_GOTCHA_PLAN.md's per-item todo/gotchas files, dry-run by default
+
+todo_migrate.py — one-time converter from the old TODO.md / gotchas-index
 format into the per-item file format spec/OPEN_ITEM_AND_GOTCHA_PLAN.md
 specifies (Part 1: open items under todo/, Part 2: gotchas under gotchas/).
 
@@ -728,6 +730,18 @@ def main(argv):
     if source is None:
         sys.exit('todo_migrate FAIL: --source is required '
                   '(todo.md | gotchas.md | gotchas-archive.md).')
+
+    # The repository root, or nothing: build_todo_index.py and every check
+    # read <root>/todo only, so items written under docs/todo/ (`--repo
+    # docs`, 2026-09-18) sat invisible for 13 days (reported 2026-10-01).
+    top = subprocess.run(['git', '-C', str(repo), 'rev-parse', '--show-toplevel'],
+                         capture_output=True, text=True)
+    if top.returncode == 0 and pathlib.Path(top.stdout.strip()).resolve() != repo:
+        sys.exit(f'todo_migrate FAIL: --repo {repo} is not the repository root '
+                 f'({top.stdout.strip()}). The index and the checks read only '
+                 f'<root>/todo/, so items written under {repo}/todo/ would be '
+                 f'invisible to them. Move the list to the root first '
+                 f'(git mv), then run this with --repo set to the root.')
 
     source_map = {
         'todo.md': ('TODO.md', 'todo'),

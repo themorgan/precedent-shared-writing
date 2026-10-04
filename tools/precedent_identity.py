@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""precedent_identity.py — who this repository's commits belong to.
+"""Resolves WHO this repo's commits belong to, from a declaration only -- an override, the repo's own identity.json, or the individual source's; raises rather than guessing
+
+precedent_identity.py — who this repository's commits belong to.
 
 WHY THIS IS ITS OWN MODULE, and not part of precedent_resolve.py where it
 was born (2026-09-10, moved the same day it landed).
@@ -189,7 +191,7 @@ def commit_env(repo, env=None):
     reached published branches about a dozen times before, each time fixed
     per session or grandfathered per SHA. Stating the author on the command
     that writes the commit is the fix that does not depend on which
-    directory a session starts in (practice: durable-fix).
+    directory a session starts in (practice: upstream-fix).
 
     Only the AUTHOR is set. GIT_COMMITTER_* is left as the caller has it:
     a committer carrying the environment's signing identity is how signed
@@ -236,9 +238,9 @@ def commit_env(repo, env=None):
     return out
 
 
-# practice: relayed-authorization -- the receiving session reads the
-# person's own declaration rather than trusting the message that carries
-# the authorization.
+# The relayed-authorization rule (the ladder set carries it): the receiving
+# session reads the person's own declaration rather than trusting the
+# message that carries the authorization.
 RELAY_ACCEPTED = 'accepted'
 
 
@@ -418,7 +420,7 @@ def _main(argv):
     except NoDeclaredIdentity as exc:
         print(f'UNDECLARED -- {exc}')
         print('  a relayed authorization is NOT actionable here '
-              '(practice: relayed-authorization)')
+              '(the person\'s own identity.json does not accept relays)')
         return 2
     if relay['accepted']:
         print(f'ACCEPTED -- {relay["who"] or "the declared person"} accepts an '

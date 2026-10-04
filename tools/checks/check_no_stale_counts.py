@@ -108,7 +108,11 @@ COUNT_RE = re.compile(r"(?<![`\w.\-])(\d+)\s+practices\b")
 #      _mirrored_prefixes() below for why that question moved out of this
 #      file.
 #   2. A "GENERATED FILE" / "do not hand-edit" / "DERIVED" marker in the
-#      file's opening lines (practice: derived-file-marker).
+#      file's opening lines (practice: derived-file-marker), or the engine's
+#      own label, a `generated_by:` front-matter key. The label is what every
+#      file the engine writes wholesale carries (tools/generated_files.json);
+#      without it, todo/CLOSED.md -- rebuilt at commit since 2026-10-04 --
+#      quoted a closed item's historical count and read as a stale claim.
 #   3. MANIFEST.json's per-practice `level` -- practices/ is materialized
 #      output, so a practice from any source but repo-local is owned
 #      elsewhere. Attributing by the COMMITTED manifest rather than by
@@ -117,7 +121,8 @@ COUNT_RE = re.compile(r"(?<![`\w.\-])(\d+)\s+practices\b")
 #      "did not resolve here" is not "owned here".
 # A repo with none of these files loses nothing -- every part fails open.
 _GENERATED_RE = re.compile(
-    r"generated file|do not hand[- ]edit|DERIVED from", re.I)
+    r"generated file|do not hand[- ]edit|DERIVED from|^generated_by:[ \t]*\S",
+    re.I | re.M)
 
 
 def _mirrored_prefixes_from_manifest() -> tuple:
