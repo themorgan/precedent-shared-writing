@@ -63,3 +63,27 @@ if ! python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRI
   exit 1
 fi
 echo "ok: tools/create_word_doc.py writes a .docx end to end (installing python-docx if missing)"
+
+# A "> " block is a block quotation: Word's Quote style, indented, and no
+# ">" left anywhere in the text (Morgan, 2026-10-04: the markers were
+# printing as literal text in the Joseph manuscript's Word file).
+printf '# Sample\n\n## Part I\nBody.\n\n> One *verse*.\n>\n> Two.\n\nAfter.\n' \
+  > "$SCRATCH/book-sample/MANUSCRIPT.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Quote.docx" --date 2026-01-01 > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Quote.docx" <<'PY'
+import sys
+from docx import Document
+d = Document(sys.argv[1])
+quotes = [p for p in d.paragraphs if p.style.name == "Quote"]
+assert [p.text for p in quotes] == ["One verse.", "Two."], [p.text for p in quotes]
+assert not any(">" in p.text for p in d.paragraphs), "a > marker reached the text"
+style = d.styles["Quote"]
+assert style.paragraph_format.left_indent and style.paragraph_format.right_indent
+assert style.font.italic is False
+PY
+)"; then
+  echo "FAIL: a > block did not become an indented Quote-style block quotation" >&2
+  exit 1
+fi
+echo "ok: a > block becomes an indented, upright Quote-style block quotation"

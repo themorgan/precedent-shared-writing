@@ -5,8 +5,9 @@ with a confidential-draft footer stamped on every page.
 # practice: create-word-doc
 
 Parses the manuscript's plain Markdown (headings up to ###, **bold**,
-*italic*, "- " bullet lists, and multi-line blocks such as song lyrics
-where each physical line is a hard break within one paragraph) and
+*italic*, "- " bullet lists, "> " block quotations, and multi-line blocks
+such as song lyrics where each physical line is a hard break within one
+paragraph) and
 renders it as a Word document using python-docx's built-in Title/
 Heading 1/Heading 2/List Bullet styles, so the result carries real
 heading structure (Word's Navigation Pane, an auto-updating TOC) rather
@@ -22,6 +23,15 @@ Every Part (##) and chapter (###) heading starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
 that ends mid-page never bleeds into the next one's heading. The title
 page is the one exception: nothing precedes it, so no break is needed.
+
+A "> " block -- a long excerpt quoted from another text -- becomes a
+block quotation, the way a printed book sets one off: indented half an
+inch on both sides, a point smaller, tighter line spacing, no quotation
+marks, and the ">" characters gone. A bare ">" line inside the block
+starts a new paragraph of the same quotation. It uses Word's own "Quote"
+style, restyled upright (the stock one is italic, which tires the eye
+over a long passage), so the excerpts are findable and restylable in
+Word's Styles pane all at once.
 
 Default page is A4, default line spacing is 1.3x. A "Words: <count>"
 line (with an optional trailing parenthetical, e.g. "(PART 1)") is
@@ -112,6 +122,43 @@ INLINE_RE = re.compile(r"(\*\*[^*]+?\*\*|\*[^*]+?\*)")
 # live NUMWORDS field instead of a number that goes stale as soon as the
 # text changes; any trailing "(PART 1)"-style note is dropped with it.
 WORDS_LINE_RE = re.compile(r"^Words:\s*[\d,]+\s*(\(.*\))?\s*$", re.IGNORECASE)
+# practice: create-word-doc -- a "> " line is a block quotation, never text
+# that starts with a ">" character.
+QUOTE_LINE_RE = re.compile(r"^\s*>\s?")
+
+
+def style_block_quote(doc):
+    """Restyle Word's built-in "Quote" style as a book's block quotation:
+    indented both sides, upright, a point smaller than the body, a little
+    tighter. Spacing between paragraphs is left to the document default, so a
+    quotation sits in the text the way any paragraph does. Returns the style."""
+    style = doc.styles["Quote"]
+    style.font.italic = False
+    style.font.size = Pt(11)
+    pf = style.paragraph_format
+    pf.left_indent = Inches(0.5)
+    pf.right_indent = Inches(0.5)
+    pf.first_line_indent = Inches(0)
+    pf.line_spacing = 1.15
+    pf.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    return style
+
+
+def quote_paragraphs(block):
+    """Split a "> " block into its paragraphs: a bare ">" line separates
+    them, and the other lines lose their ">" marker."""
+    paras, current = [], []
+    for line in block:
+        body = QUOTE_LINE_RE.sub("", line, count=1).rstrip()
+        if body.strip() == "":
+            if current:
+                paras.append(current)
+                current = []
+        else:
+            current.append(body.strip())
+    if current:
+        paras.append(current)
+    return paras
 
 
 def parse_inline(text):
@@ -203,6 +250,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
         setattr(section, side, Inches(1))
 
     word_count_cache = str(len(text.split()))
+    quote_style = style_block_quote(doc)  # practice: create-word-doc
 
     saw_title = False
     last_para = None  # practice: create-word-doc (chapter page breaks)
@@ -243,6 +291,23 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
                 last_para.add_run().add_break(WD_BREAK.PAGE)
             last_para = doc.add_heading(first[4:].strip(), level=2)
             last_was_heading = True
+            continue
+
+        if all(QUOTE_LINE_RE.match(l) for l in block):
+            # practice: create-word-doc (block quotations)
+            paras = quote_paragraphs(block)
+            for lines_ in paras:
+                p = doc.add_paragraph(style=quote_style)
+                for idx, l in enumerate(lines_):
+                    for run_text, bold, italic in parse_inline(l):
+                        r = p.add_run(run_text)
+                        r.bold = bold
+                        r.italic = italic
+                    if idx < len(lines_) - 1:
+                        p.add_run().add_break(WD_BREAK.LINE)
+                last_para = p
+            if paras:
+                last_was_heading = False
             continue
 
         if all(re.match(r"^-\s+", l.strip()) for l in block):
