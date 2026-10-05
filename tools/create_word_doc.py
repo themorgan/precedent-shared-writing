@@ -60,7 +60,8 @@ Word's stock List Bullet puts the bullet flush against the margin, which
 looks like a mistake beside indented block quotations. style_list_bullet()
 does the same for a document built by hand.
 
-Default page is A4, default line spacing is 1.3x. A "Words: <count>"
+Default page is A4 with 0.75-inch margins on all four sides, default
+line spacing is 1.3x. A "Words: <count>"
 line (with an optional trailing parenthetical, e.g. "(PART 1)") is
 replaced with a live Word NUMWORDS field and the parenthetical dropped
 -- so the count always reflects the whole manuscript and never goes
@@ -181,6 +182,10 @@ FOOTER_SIZE = 10
 # (26 point) and Heading 2 (13): Word's stock 14 point barely stood out
 # from Heading 2 (Morgan, 2026-10-05).
 HEADING_1_SIZE = 20
+# practice: create-word-doc -- the page margin on all four sides, in inches.
+# It was one inch until Morgan asked for 0.75 (2026-10-05). A builder that
+# lays out its own page reads this rather than its own number.
+PAGE_MARGIN = 0.75
 # practice: create-word-doc -- the running header's logo, in inches tall.
 # It was 0.4 until Morgan asked for it about half as big again (2026-10-05).
 HEADER_IMAGE_HEIGHT = 0.6
@@ -685,7 +690,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
     section.page_width = Mm(210)  # A4 -- practice: create-word-doc
     section.page_height = Mm(297)
     for side in ("top_margin", "bottom_margin", "left_margin", "right_margin"):
-        setattr(section, side, Inches(1))
+        setattr(section, side, Inches(PAGE_MARGIN))
 
     word_count_cache = str(len(text.split()))
     quote_style = style_block_quote(doc)  # practice: create-word-doc
