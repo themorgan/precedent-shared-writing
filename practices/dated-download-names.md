@@ -15,7 +15,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-10-05
-approved_by: "Morgan F, 2026-10-05, at his own request, in his words: \"whenever it gives the user a doc to download, always put the date in the filename in the format of \\\"-2026-12-31\\\" or \\\" - 2026-12-31\\\" at the end of the filename before the extension. Add a Practice for this or add it to the relevant practice - and add a check for this.\" (strength: decided)"
+approved_by: "Morgan F, 2026-10-05, at his own request, in his words: \"whenever it gives the user a doc to download, always put the date in the filename in the format of \\\"-2026-12-31\\\" or \\\" - 2026-12-31\\\" at the end of the filename before the extension. Add a Practice for this or add it to the relevant practice - and add a check for this.\" (strength: decided). Revised the same day at his own request, so a document the repository keeps is dated too: \"Yes, so it's consistent and has the same file name, and also so it's super clear which vesion/when is it from.\" (strength: decided)"
 ---
 ## Rule
 **Every document you hand someone to download has the date at the end of
@@ -34,18 +34,21 @@ This covers a Word file, a PDF, a spreadsheet, a CSV, a deck, an e-book --
 anything the reader saves and opens somewhere else. It does not cover an
 image, a web page shown in the side panel, or source code.
 
-**A file the repository keeps under a fixed name keeps that name.** A
-committed `book-joseph/output/holy-hardball-joseph-manuscript.docx` is a
-link target and gets rebuilt in place, so it is never renamed; the reader
-gets a dated copy of it instead:
+**A document the repository keeps for download is dated the same way**,
+with the day it was last built: `book-joseph/output/holy-hardball-joseph-manuscript-2026-10-05.docx`.
+The copy in the repository and the copy you are sent then have the same
+name, and either one says when it is from. A rebuild that changes the
+document saves it under the new day's name and deletes the older copy, so
+the folder holds one copy of each document; a rebuild that changes nothing
+leaves the file and its date alone. Because the name moves, link to the
+folder (`book-joseph/output/`), never to the file.
+
+A one-off built straight into the scratchpad is simply saved under its
+dated name. A file whose name you cannot change gets a dated copy to send:
 
 ```
-python3 tools/dated_name.py book-joseph/output/holy-hardball-joseph-manuscript.docx --to <scratchpad>
+python3 tools/dated_name.py some/file.docx --to <scratchpad>
 ```
-
-which writes `holy-hardball-joseph-manuscript-2026-10-05.docx` there to
-send (`--spaced` for the ` - ` form). A one-off built straight into the
-scratchpad can simply be saved under its dated name.
 
 **Claude Code refuses to send an undated document.** A `PreToolUse` hook on
 `SendUserFile` runs `tools/dated_name.py --hook`, which stops the call and
@@ -57,6 +60,10 @@ document extensions, the two accepted forms, and the date, which it takes
 from [`tools/precedent_time.py`](../tools/precedent_time.py) so it is the reader's day and not UTC's.
 `--check NAME...` answers whether names pass, for any script that wants to
 ask before it saves.
+A builder that keeps a document in the repository calls
+`dated_name.current(base)` to find the copy there now and
+`dated_name.replace(base, date)` for where the rebuild goes and which older
+copies to delete, where `base` is the name without a date.
 
 The hook is wired by hand in each repository's `.claude/settings.json`,
 because a practice set ships files and not harness wiring:
@@ -75,16 +82,17 @@ answers that at a glance.
 ## Story
 2026-10-05: Morgan, after a day of rebuilding the Joseph Word files several
 times over, asked that every document he is handed carry its date at the
-end of its name, and that something check it. The committed copies in each
-`output/` directory keep their fixed names, since links and the
-book-docx-current check point at them; the copy he receives is the one that
-carries the date.
+end of its name, and that something check it. The first version kept the
+committed copies under fixed names and dated only the copy sent. He asked
+the same day for the committed copies to carry the date too, "so it's
+consistent and has the same file name, and also so it's super clear which
+version/when is it from."
 
 ## Install
 [`tools/checks/check_dated_download_names.py`](../tools/checks/check_dated_download_names.py) confirms, wherever
 [`tools/dated_name.py`](../tools/dated_name.py) is vendored, that the tool parses, cites this
-practice and still tells dated names from undated ones, and that a
+practice and still tells dated names from undated ones, that a
 repository with a `.claude/settings.json` wires the `SendUserFile` hook
-above. It is SKIPPED where the tool is not vendored. A document handed over
+above, and that every document the repository tracks has a dated name. It is SKIPPED where the tool is not vendored. A document handed over
 any other way -- attached to an email, linked in the repository -- is
 session judgment.

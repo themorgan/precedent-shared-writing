@@ -31,6 +31,12 @@ Three ways in:
       a repository's .claude/settings.json; check_dated_download_names.py
       fails where this tool is vendored and the hook is not wired.
 
+A builder that keeps a document in the repository names it the same way,
+for the day it was built: current(base) finds the copy there now, and
+replace(base, date) says where the rebuild goes and which older copies it
+retires, so the repository holds one copy and its name says when it is
+from.
+
 "Downloadable document" is the DOC_EXTENSIONS list below -- a file a
 reader saves and opens elsewhere. Images, web pages, source code and plain
 text files are not on it: a screenshot or a page rendered in the side panel
@@ -86,6 +92,46 @@ def dated_name(name, date=None, spaced=False) -> str:
     datetime.date.fromisoformat(date)  # refuse a malformed --date
     sep = " - " if spaced else "-"
     return f"{p.stem}{sep}{date}{p.suffix}"
+
+
+def dated_copies(base) -> list:
+    """Every file beside BASE that is BASE's name with a date added, newest
+    date first. BASE is the name without a date -- book/output/Notes.docx
+    stands for Notes-2026-10-05.docx, Notes - 2026-10-04.docx, and so on."""
+    base = pathlib.Path(base)
+    if not base.parent.is_dir():
+        return []
+    found = []
+    for f in base.parent.iterdir():
+        if f.suffix != base.suffix or not is_dated(f.name):
+            continue
+        m = DATED_STEM_RE.search(f.stem)
+        if f.stem[:m.start()] == base.stem:
+            found.append((m.group(1), f))
+    return [f for _, f in sorted(found, reverse=True)]
+
+
+def current(base):
+    """The file a repository keeps for BASE: its newest dated copy, else
+    BASE itself if an undated one is still there, else None."""
+    copies = dated_copies(base)
+    if copies:
+        return copies[0]
+    base = pathlib.Path(base)
+    return base if base.is_file() else None
+
+
+def replace(base, date, spaced=False):
+    """Where a rebuild of BASE dated DATE goes, and every older copy it
+    replaces (the undated BASE included). The caller saves the new file,
+    then deletes the old ones -- so a repository keeps exactly one copy,
+    named for the day it was built."""
+    base = pathlib.Path(base)
+    new = base.parent / dated_name(base.name, date, spaced)
+    old = [f for f in dated_copies(base) if f != new]
+    if base.is_file():
+        old.append(base)
+    return new, old
 
 
 def undated(names) -> list:

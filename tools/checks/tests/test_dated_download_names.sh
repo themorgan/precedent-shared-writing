@@ -7,7 +7,10 @@
 #   3. the same with the hook wired -- require clean;
 #   4. the hook itself: refuses an undated .docx, lets a dated one and an
 #      image through;
-#   5. the copy: --to writes the dated name and leaves the source alone.
+#   5. the copy: --to writes the dated name and leaves the source alone;
+#   6. a document the repository keeps: undated fires, dated is clean;
+#   7. replace(): a rebuild goes to the new dated name and retires every
+#      older copy, the undated one included, and nothing else.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 SET_ROOT="$(pwd)"
@@ -71,3 +74,29 @@ if [[ ! -f "$SCRATCH/send/notes-2026-12-31.docx" || ! -f "$SCRATCH/send/notes - 
   echo "FAIL: --to did not write both dated copies, or moved the source: $OUT / $OUT2" >&2; exit 1
 fi
 echo "ok: --to copies under the dated name, both forms, source untouched"
+rm -rf "$SCRATCH/src" "$SCRATCH/send" "$SCRATCH/hook.err"
+
+mkdir -p "$SCRATCH/book/output"
+printf 'x' > "$SCRATCH/book/output/Notes.docx"
+OUT="$(python3 "$CHECK" || true)"
+if ! grep -q "book/output/Notes.docx is a document kept for download with no date" <<<"$OUT"; then
+  echo "FAIL: did not flag an undated kept document" >&2; echo "$OUT" >&2; exit 1
+fi
+mv "$SCRATCH/book/output/Notes.docx" "$SCRATCH/book/output/Notes-2026-12-30.docx"
+if ! python3 "$CHECK" >/dev/null; then
+  echo "FAIL: flagged a dated kept document" >&2; python3 "$CHECK" >&2 || true; exit 1
+fi
+echo "ok: a kept document fires undated and is clean dated"
+
+printf 'x' > "$SCRATCH/book/output/Notes.docx"
+printf 'x' > "$SCRATCH/book/output/Notes Extra-2026-12-29.docx"
+GOT="$(cd "$SET_ROOT/tools" && python3 -c "
+import sys, pathlib; import dated_name as d
+new, old = d.replace(pathlib.Path(sys.argv[1]) / 'Notes.docx', '2026-12-31')
+print(new.name, '|', ', '.join(sorted(o.name for o in old)))
+" "$SCRATCH/book/output")"
+WANT="Notes-2026-12-31.docx | Notes-2026-12-30.docx, Notes.docx"
+if [[ "$GOT" != "$WANT" ]]; then
+  echo "FAIL: replace() gave '$GOT', want '$WANT'" >&2; exit 1
+fi
+echo "ok: replace() retires the older copies of that document and no other"

@@ -13,7 +13,10 @@ on that tool call is in place rather than looking for files:
      cases, run in-process);
   2. where the repository has a Claude Code .claude/settings.json, a
      PreToolUse hook on SendUserFile runs `dated_name.py --hook`, so an
-     undated document is refused at the moment it would be sent.
+     undated document is refused at the moment it would be sent;
+  3. every document the repository itself keeps (a committed .docx, .pdf,
+     spreadsheet...) is named with its date, the same way -- the file a
+     reader downloads from the repository is as clearly dated as one sent.
 
 SKIPPED (exit 2) where tools/dated_name.py is not vendored. Whether a file
 handed over some other way -- an attachment to an email, a link into the
@@ -32,6 +35,7 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
@@ -73,6 +77,18 @@ def hook_wired(settings: dict) -> bool:
     return False
 
 
+def kept_files() -> list:
+    """The repository's tracked files; every file, where it is not a git
+    checkout (a test fixture)."""
+    try:
+        out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"],
+                             capture_output=True, text=True, check=True).stdout
+        return [p for p in out.split("\0") if p]
+    except (OSError, subprocess.CalledProcessError):
+        return [str(p.relative_to(ROOT)) for p in ROOT.rglob("*")
+                if p.is_file() and ".git" not in p.relative_to(ROOT).parts]
+
+
 def find_violations() -> list:
     findings = []
     rel = SCRIPT.relative_to(ROOT)
@@ -94,6 +110,14 @@ def find_violations() -> list:
                     f"{rel} reads {name!r} as "
                     f"{'dated' if not want else 'undated'}; it should be the opposite"
                 )
+
+        for name in mod.undated(kept_files()):
+            findings.append(
+                f"{name} is a document kept for download with no date in its "
+                "name -- its builder should save it as <name>-YYYY-MM-DD"
+                "<extension> (dated_name.replace() says where, and which "
+                "older copy it retires)"
+            )
     except Exception as e:  # a broken tool is a finding, not a crash
         findings.append(f"{rel} could not be loaded: {e}")
 
