@@ -17,12 +17,12 @@ closed:            null
 ## What
 
 1. <a id="engine-cases-need-a-bestpractice-clone"></a>**The mirror-exclusion test cases need a BestPractice clone, and skip
-   without one.** [`check_no_stale_counts.py`](tools/checks/check_no_stale_counts.py)
-   and [`check_draft_marker.py`](tools/checks/check_draft_marker.py) get
+   without one.** [`check_no_stale_counts.py`](../tools/checks/check_no_stale_counts.py)
+   and [`check_draft_marker.py`](../tools/checks/check_draft_marker.py) get
    their mirror exclusion from `precedent_resolve.mirrored_prefixes()`,
    which is in upstream's `CONSUMER_ENGINE_FILES` and not its
    `ENGINE_FILES` — so it is absent inside a practice set, correctly, and
-   [`tools/ENGINE_MANIFEST.json`](tools/ENGINE_MANIFEST.json) does not list
+   [`tools/ENGINE_MANIFEST.json`](../tools/ENGINE_MANIFEST.json) does not list
    it. The cases that exercise the engine path therefore copy a real
    `precedent_resolve.py` in from a clone found via
    `PRECEDENT_BESTPRACTICE_CLONE`, and report `SKIPPED (not a pass)` where
@@ -30,17 +30,17 @@ closed:            null
    Each suite still asserts the no-engine direction unconditionally, so a
    run with no clone proves the fallback and not the fix.
    **What would close it:** a CI job that clones BestPractice once and runs
-   [`tools/checks/tests/run_all.sh`](tools/checks/tests/run_all.sh) with
+   [`tools/checks/tests/run_all.sh`](../tools/checks/tests/run_all.sh) with
    `PRECEDENT_BESTPRACTICE_CLONE` and `PRECEDENT_REQUIRE_ENGINE_CASES=1`
    set, which turns the skip into a failure.
 
    **The stated blocker is stale.** This item said, as of 2026-09-10, that
    the blocker was having no Actions workflow at all to hang the job on.
-   [`.github/workflows/precedent-check.yml`](.github/workflows/precedent-check.yml)
+   `.github/workflows/precedent-check.yml` (removed 2026-09-21)
    has existed since 2026-09-12 and runs on every push, but it only calls
    `python3 tools/precedent_check.py` — the check REGISTRY, which runs each
    check once against this repo's own live tree. It never calls
-   [`tools/checks/tests/run_all.sh`](tools/checks/tests/run_all.sh) — the
+   [`tools/checks/tests/run_all.sh`](../tools/checks/tests/run_all.sh) — the
    TEST SUITES, which exercise each check's own correctness (including the
    fixtures this item is about) against planted fixtures rather than this
    repo's real content. Those are two different things this repo runs
@@ -49,7 +49,7 @@ closed:            null
    the real blocker was never "no workflow" — it is that the existing
    workflow's one job does not reach these fixtures, and 2026-09-19's
    `no-stale-counts` fix (adding fixture pair J/K alongside existing H/I in
-   [`test_no_stale_counts.sh`](tools/checks/tests/test_no_stale_counts.sh))
+   [`test_no_stale_counts.sh`](../tools/checks/tests/test_no_stale_counts.sh))
    landed with all four of those engine-path cases still unverified by CI —
    confirmed locally only, by hand, in that session.
 
