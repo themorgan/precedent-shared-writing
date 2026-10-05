@@ -148,8 +148,12 @@ nothing in a Word file), `- ` bullet blocks whose items may wrap onto
 indented continuation lines, `> ` block quotations (a block counts as one only when
 every line of it starts with `>`), and multi-line blocks such as a lyrics or verse excerpt,
 where each physical line becomes a hard line-break within one paragraph
-rather than its own paragraph. A trailing `\\` (Markdown's own hard line
-break) is dropped, since the line already breaks, and HTML comments -- a
+rather than its own paragraph. A source wrapped at a fixed width -- a
+note whose paragraphs run over several lines of seventy-odd characters --
+asks for `--soft-wraps` (`soft_wraps=True`) instead, and reads the way
+Markdown does: a paragraph's lines join with a space, and only a line
+ending in `\` or two spaces breaks. A trailing `\` (Markdown's own hard
+line break) is dropped either way, since the line already breaks, and HTML comments -- a
 file header, a generated-block marker -- are removed before parsing.
 
 python-docx, not a Node/docx-js script, so the tool matches a repo whose
@@ -287,4 +291,5 @@ the header of every page but the first, as part of the template rather
 than one document's script. Both landed here; so did the inline links,
 wrapped list items and HTML comments a first brainstorm-note export
 needed, the last of which a consumer had been stripping in its own
-wrapper.
+wrapper, and `--soft-wraps`, since that note is wrapped at seventy-odd
+characters and every wrap came out as a line break.

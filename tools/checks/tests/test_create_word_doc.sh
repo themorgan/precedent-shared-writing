@@ -202,3 +202,24 @@ PY
   exit 1
 fi
 echo "ok: --header-image on every page but the first; page one keeps its footer"
+
+# 7. --soft-wraps: a paragraph's lines join with a space; a trailing "\"
+#    still breaks. Without it, every source line is a line break (verse).
+printf '# Sample\n\nOne wrapped\nparagraph.\n\nKept\\\nbreak.\n' > "$SCRATCH/book-sample/MANUSCRIPT.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Soft.docx" --date 2026-01-01 --soft-wraps > /dev/null
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Hard.docx" --date 2026-01-01 > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Soft.docx" "$SCRATCH/out/Hard.docx" <<'PY' 2>&1
+import sys
+import docx
+soft = [p.text for p in docx.Document(sys.argv[1]).paragraphs]
+hard = [p.text for p in docx.Document(sys.argv[2]).paragraphs]
+assert soft[1:] == ["One wrapped paragraph.", "Kept\nbreak."], soft
+assert hard[1:] == ["One wrapped\nparagraph.", "Kept\nbreak."], hard
+PY
+)"; then
+  echo "FAIL: --soft-wraps did not join wrapped lines, or the default did: $OUT" >&2
+  exit 1
+fi
+echo "ok: --soft-wraps joins a wrapped paragraph; a backslash still breaks; the default keeps every line"

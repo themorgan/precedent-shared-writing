@@ -28,6 +28,9 @@ and a heading that follows the title with nothing between them shares
 the title's page, so a title never sits alone on an otherwise empty
 page. `--no-section-breaks` turns the breaks off altogether, for a
 shorter document (notes, a brainstorm) whose sections should flow on.
+`--soft-wraps` reads a source wrapped at a fixed width the way Markdown
+does: a paragraph's lines join with a space, and only a line ending in a
+backslash or two spaces breaks.
 
 `--header-image PATH` puts a small copy of an image (a logo) centered in
 the header of every page but the first, which already carries the
@@ -203,6 +206,17 @@ def parse_inline(text):
     if not runs:
         runs.append(("", False, False))
     return runs
+
+
+def line_end(paragraph, line, soft_wraps):
+    """End one source line inside a paragraph. By default every line is a
+    line of its own -- verse, lyrics. With soft_wraps, a source wrapped at
+    a fixed width reads as Markdown does: the lines join with a space, and
+    only a line ending in a backslash or two spaces breaks."""
+    if soft_wraps and not (line.rstrip().endswith("\\") or line.endswith("  ")):
+        paragraph.add_run(" ")
+    else:
+        paragraph.add_run().add_break(WD_BREAK.LINE)
 
 
 def strip_comments(text):
@@ -384,7 +398,7 @@ def add_contents(doc):
 
 
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
-              section_breaks=True, header_image=None):
+              section_breaks=True, header_image=None, soft_wraps=False):
     text = strip_comments(manuscript_path.read_text(encoding="utf-8"))
     lines = text.split("\n")
     blocks = group_blocks(lines)
@@ -458,7 +472,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
                         r.bold = bold
                         r.italic = italic
                     if idx < len(lines_) - 1:
-                        p.add_run().add_break(WD_BREAK.LINE)
+                        line_end(p, l, soft_wraps)
                 last_para = p
             if paras:
                 last_was_heading = False
@@ -488,7 +502,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
                     r.bold = bold
                     r.italic = italic
             if idx < len(block) - 1:
-                p.add_run().add_break(WD_BREAK.LINE)
+                line_end(p, l, soft_wraps)
         last_para = p
         last_was_heading = False
 
@@ -563,6 +577,13 @@ def main():
         help="let sections flow on instead of starting each ## and ### on a new page",
     )
     ap.add_argument(
+        "--soft-wraps",
+        action="store_true",
+        help="join a paragraph's source lines with a space, as Markdown does, "
+             "for a source wrapped at a fixed width (a backslash or two "
+             "trailing spaces still break the line)",
+    )
+    ap.add_argument(
         "--header-image",
         type=pathlib.Path,
         default=None,
@@ -584,6 +605,7 @@ def main():
     doc = build_doc(args.manuscript, short_name, not args.no_footer, date_str,
                     contents=args.contents,
                     section_breaks=not args.no_section_breaks,
+                    soft_wraps=args.soft_wraps,
                     header_image=args.header_image)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(args.out)
