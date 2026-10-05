@@ -91,7 +91,7 @@ Run:  python3 tools/doc_lint.py             # changed-vs-default-branch, gate
 (In a repo that vendors this the classic way, the path is
 process/upstream/tools/doc_lint.py.)
 """
-import re, sys, subprocess, pathlib
+import json, re, sys, subprocess, pathlib
 import frontmatter_yaml
 import generated_blocks
 
@@ -1130,6 +1130,75 @@ def check_residue(path):
     return out
 
 
+
+# ---- unrendered tables (check 7; practice `tabular-shared-renderer`) ----
+# A document whose tables have several columns ships as a sortable HTML
+# render, but the render gate only knows documents already registered for
+# one, so a new document never registered slipped past every check (origin
+# 2026-10-02: a product specification with eight multi-column tables landed
+# as markdown only; the reader caught it). The host names its registry:
+# RENDER_REGISTRY is a callable returning the repo-relative markdown paths
+# registered for a render, or None to skip the check. A new document fails
+# the gate; an existing one only warns, so the legacy corpus never blocks.
+# A document whose tables are not worth sorting says so with the opt-out
+# marker anywhere in its text.
+RENDER_REGISTRY = None
+RENDER_MIN_COLUMNS = 3
+RENDER_OPT_OUT = "<!--no-render-->"
+_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+
+
+def widest_table(path):
+    """Column count of the widest pipe table in a markdown file (0 if none)."""
+    try:
+        lines = (ROOT / path).read_text(errors="ignore").splitlines()
+    except OSError:
+        return 0
+    widest, fence = 0, False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+            continue
+        if fence or i == 0 or not _TABLE_SEP_RE.match(line) or "|" not in line:
+            continue
+        head = lines[i - 1].strip()
+        if "|" not in head:
+            continue
+        cells = [c for c in head.strip("|").split("|")]
+        widest = max(widest, len(cells))
+    return widest
+
+
+def added_md():
+    """Markdown files this change adds: new since the merge base, or untracked."""
+    base = merge_base()
+    committed = _git(['diff', '--name-only', '--diff-filter=A', base, '--', '*.md'], cwd=ROOT).split()
+    untracked = _git(['ls-files', '--others', '--exclude-standard', '--', '*.md'], cwd=ROOT).split()
+    return set(committed) | set(untracked)
+
+
+def check_unrendered(files):
+    """[(path, columns)] documents with a multi-column table and no render."""
+    if RENDER_REGISTRY is None:
+        return []
+    registered = {str(p).replace("\\", "/") for p in RENDER_REGISTRY()}
+    out = []
+    for f in files:
+        rel = str(f).replace("\\", "/")
+        if rel in registered or is_record_doc(rel) or _is_vendored(rel):
+            continue
+        cols = widest_table(rel)
+        if cols < RENDER_MIN_COLUMNS:
+            continue
+        try:
+            if RENDER_OPT_OUT in (ROOT / rel).read_text(errors="ignore"):
+                continue
+        except OSError:
+            continue
+        out.append((rel, cols))
+    return out
+
+
 # ---- findability check (check 5; practice `search-by-purpose`) ----
 #
 # An analysis nobody can find is an analysis that gets redone -- or, worse,
@@ -1507,6 +1576,22 @@ def main():
         if len(residue_lines) > 40:
             print(f"  … and {len(residue_lines) - 40} more")
 
+    # check 7: a multi-column table with no sortable render. A document this
+    # change adds fails the gate; one it only edits is reported.
+    unrendered = check_unrendered(files)
+    _added = added_md() if (gate and unrendered) else set()
+    unrendered_new = [(d, c) for d, c in unrendered if d in _added]
+    if unrendered:
+        print(f"\nTABLES WITH NO SORTABLE RENDER — {len(unrendered)} document(s) "
+              f"hold a table of {RENDER_MIN_COLUMNS}+ columns and are not "
+              f"registered for a render ({'FAIL for a new document' if gate else 'backlog report'}; "
+              f"register the document with the renderer, or mark it "
+              f"{RENDER_OPT_OUT} if its tables are not worth sorting):")
+        for d, c in unrendered[:40]:
+            print(f"  {d}: widest table {c} columns" + ("  [new]" if (d, c) in unrendered_new else ""))
+        if len(unrendered) > 40:
+            print(f"  … and {len(unrendered) - 40} more")
+
     # gate: strikethrough always fails in scope; unsourced quantities fail only
     # in documents that explicitly opted in, so the legacy corpus never blocks;
     # process residue (check 6) fails on any deliverable in scope. Skipped
@@ -1660,6 +1745,8 @@ def main():
               "references may be\n  right to -- judge each one.")
         return 1
 
+    fatal.extend(f"  {d}: widest table {c} columns, no sortable render (new document)"
+                 for d, c in unrendered_new)
     if gate and (fatal or findability or frontmatter_lines or index_lines):
         _where = ("on lines this change touched" if scope is not None
                   else "in the file(s) named")
@@ -1670,6 +1757,40 @@ def main():
         print('\n'.join(fatal[:40]))
         return 1
     return 0
+
+# A CONSUMER'S LINT RUNS WITH ITS OWN SETTINGS (2026-10-04). A consumer
+# configures this engine from a host shim (its record-class names, index
+# files, render registry...), but the push check runs this file directly,
+# so none of that reached the gate that matters most: a folder the consumer
+# had exempted failed its push. As tools/model_audit.py does, a consumer
+# names its shim in tools/doc_lint_host.json ({"shim": "path/to/shim.py"})
+# and running this file runs the shim. The shim loads this engine under its
+# own module name, so this hand-off never runs twice.
+HOST_FILE = 'tools/doc_lint_host.json'
+
+
+def _host_shim():
+    f = ROOT / HOST_FILE
+    if not f.is_file() or not (ROOT / 'tools' / 'ENGINE_MANIFEST.json').is_file():
+        return None
+    try:
+        shim = json.loads(f.read_text(encoding='utf-8')).get('shim')
+    except ValueError as e:
+        sys.exit(f'doc_lint FAIL: {HOST_FILE} is not valid JSON ({e})')
+    if not shim:
+        return None
+    p = ROOT / shim
+    if not p.is_file():
+        sys.exit(f'doc_lint FAIL: {HOST_FILE} names shim {shim}, which does not exist')
+    return p
+
+
+if __name__ == '__main__' and _host_shim() is not None:
+    import runpy
+    _shim = _host_shim()
+    sys.argv[0] = str(_shim)
+    runpy.run_path(str(_shim), run_name='__main__')
+    sys.exit(0)
 
 if __name__ == '__main__':
     # `--help` is what anyone types first. Before 2026-09-06 the tools here

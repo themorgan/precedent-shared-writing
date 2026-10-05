@@ -10,7 +10,7 @@ Built from every practice's `defines:` frontmatter field -- the terms that pract
 
 | Term | Defined in |
 |---|---|
-| *(none yet)* | — |
+| ASSORTED_NOTES.md | [assorted-notes](practices/assorted-notes.md) |
 
 ## Engine vocabulary
 

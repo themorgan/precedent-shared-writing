@@ -6,7 +6,7 @@ severity:    default
 applies_to:  ["tools/create_word_doc.py"]
 occasion:    "producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc"
 gates:       []
-index_clause: "creating any Word (.docx) document means it carries a footer -- a structured export runs tools/create_word_doc.py (A4, 1.3 line spacing, footer, section page breaks, live word count, all in the same pass); anything else still needs a live Page X of Y footer plus a title/date line, built by hand into whatever script makes it"
+index_clause: "a Word file for a reader: a footer, and it opens without an update-fields prompt"
 checked_by:  tools/checks/check_create_word_doc.py
 ships:       ["tools/create_word_doc.py"]
 defines:     []
@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -83,7 +83,21 @@ fresh page rather than each forcing a separate break: the second heading
 does not get its own break when the one right before it was itself a
 heading with nothing of its own to separate them. The title page is the
 one exception that needs no break of its own: it opens the document, so
-nothing precedes it.
+nothing precedes it. **The title counts as a heading for this**: a `##`
+straight after the title, with nothing between them, shares the title's
+page, so a title never sits alone on an otherwise empty page.
+`--no-section-breaks` (`section_breaks=False`) turns the breaks off
+altogether, for a shorter document -- notes, a brainstorm -- whose
+sections are better read flowing on than one to a page.
+
+**A running header is optional: `--header-image PATH`**
+(`header_image=` to `build_doc()`). It puts a small copy of the image --
+a logo, 0.4 inch tall -- centered in the header of every page but the
+first, which carries the cover and so gets Word's "different first page"
+with an empty header and a copy of the footer (without the copy, page one
+would lose its "Page X of Y"). A Word document built by hand gets the
+same header from `add_header_image(section, path)`, called once its
+footer is written.
 
 **Page is A4, default line spacing is 1.3x**, set once on the `Normal`
 style and the section's page size rather than per paragraph, so every
@@ -114,10 +128,24 @@ page of its own before the first Part -- a "Contents" line in Word's
 table of contents (TOC) heading style, **TOC Heading**, which stays out of the contents and the Navigation
 Pane, then a table-of-contents field listing the Parts and chapters
 (Heading 1 and 2).
-The field already holds those titles, so the page reads sensibly before
-Word fills in the page numbers, which it offers to do when the file is
-opened. Ask for it when the reader will move around a long document; a
-short one does not need it.
+The field is written already filled in: each title is a link that jumps
+to its heading. It carries no page numbers, since only Word knows where
+its pages break and the file must not ask Word to work them out on
+opening (below); a reader who wants them right-clicks the list and picks
+**Update Field**. Ask for it when the reader will move around a long
+document; a short one does not need it.
+
+**A Word document built for someone to download never asks anything when
+it opens.** In particular it never sets Word's "update fields on open"
+setting (`updateFields` in the document's settings), which is what puts
+up *"This document contains fields that may refer to other files. Do you
+want to update the fields in this document?"* -- a question that alarms
+the reader, and that a document from someone they trust should never
+raise. Every field in the file either updates by itself (the footer's
+page number and page count) or is written already showing the right
+result (the contents list, the word count). This holds for a hand-built
+one-off as much as for this script's output, and the check below fails
+on any script under `tools/` that writes the setting.
 
 The generated `.docx` is a deliverable, not a source file: the script
 never writes into the repo, and nothing about this practice implies
@@ -128,11 +156,19 @@ The parser handles a working subset of Markdown: `#`/`##`/`###` headings
 (even when not followed by a blank line -- some manuscripts' own section
 headers have none, and an earlier draft of this script merged the
 heading into the following paragraph and leaked the `#` characters into
-the body text as a result), `**bold**` and `*italic*` inline spans, `- `
-bullet blocks, `> ` block quotations (a block counts as one only when
+the body text as a result), `**bold**` and `*italic*` inline spans, `[links](...)` printed as their
+text (the target is a path in the source's repository, which means
+nothing in a Word file), `- ` bullet blocks whose items may wrap onto
+indented continuation lines, `> ` block quotations (a block counts as one only when
 every line of it starts with `>`), and multi-line blocks such as a lyrics or verse excerpt,
 where each physical line becomes a hard line-break within one paragraph
-rather than its own paragraph.
+rather than its own paragraph. A source wrapped at a fixed width -- a
+note whose paragraphs run over several lines of seventy-odd characters --
+asks for `--soft-wraps` (`soft_wraps=True`) instead, and reads the way
+Markdown does: a paragraph's lines join with a space, and only a line
+ending in `\` or two spaces breaks. A trailing `\` (Markdown's own hard
+line break) is dropped either way, since the line already breaks, and HTML comments -- a
+file header, a generated-block marker -- are removed before parsing.
 
 python-docx, not a Node/docx-js script, so the tool matches a repo whose
 `tools/` is otherwise all-Python -- and, incidentally, python-docx's
@@ -260,3 +296,23 @@ behavior -- that a session actually reached for this script instead of
 writing a fresh one, that a generated `.docx` was reviewed before being
 handed over, or that a hand-built one-off carried a footer at all -- that
 is session judgment.
+
+2026-10-05: the first blurbs file built with this script put its first
+blurb on page two, leaving the cover with nothing but the logo and the
+title. Morgan asked for it to flow on the way the manuscript's cover
+does, and in the same message for a tiny copy of the project's logo in
+the header of every page but the first, as part of the template rather
+than one document's script. Both landed here; so did the inline links,
+wrapped list items and HTML comments a first brainstorm-note export
+needed, the last of which a consumer had been stripping in its own
+wrapper, and `--soft-wraps`, since that note is wrapped at seventy-odd
+characters and every wrap came out as a line break.
+
+Same day: Morgan opened the rebuilt Joseph manuscript and Word asked
+*"This document contains fields that may refer to other files. Do you
+want to update the fields in this document?"* The contents page had
+turned on Word's update-fields-on-open setting so that Word would fill in
+the page numbers. He asked that a downloaded document never do this. The
+setting is gone; the contents list is written finished, as links to the
+headings, without page numbers; and the check now fails on any script
+that writes the setting.
