@@ -143,7 +143,7 @@ echo "ok: --contents puts Word's own TOC, linked to the headings, on its own pag
 #    Links print as their text, a "- " item may wrap onto an indented line,
 #    a trailing "\" hard break leaves no backslash, and an HTML comment is
 #    never text.
-printf '<!-- header -->\n# Sample\n\n## First\nSee [the notes](NOTES.md).\\\nNext line.\n\n- one item that\n  wraps\n- two\n\n## Second\nMore.\n' \
+printf '<!-- header -->\n# Sample\n\n## First\nSee [the notes](OTHER.md).\\\nNext line.\n\n- one item that\n  wraps\n- two\n\n## Second\nMore.\n' \
   > "$SCRATCH/book-sample/MANUSCRIPT.md"
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
   --out "$SCRATCH/out/Flow.docx" --date 2026-01-01 > /dev/null
