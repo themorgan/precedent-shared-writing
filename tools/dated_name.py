@@ -13,11 +13,9 @@ Three ways in:
 
   python3 tools/dated_name.py FILE... --to DIR [--date YYYY-MM-DD] [--spaced]
       Copy each FILE into DIR under its dated name and print the new path.
-      The way to hand over a file the repository keeps under a fixed name
-      (book-joseph/output/holy-hardball-joseph-manuscript.docx): the
-      repository copy stays put, and the person receives
-      holy-hardball-joseph-manuscript-2026-10-05.docx. A FILE whose name is
-      already dated is copied as it is. The date defaults to today in the
+      The way to hand over a file whose name cannot change: Notes.docx is
+      sent as Notes-2026-10-05.docx and stays as it is. A FILE whose name
+      is already dated is copied as it is. The date defaults to today in the
       person's own zone (tools/precedent_time.py), never the container's.
 
   python3 tools/dated_name.py --check NAME...
