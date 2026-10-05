@@ -164,13 +164,21 @@ assert breaks(sys.argv[1]) == ["two"], f"page breaks after: {breaks(sys.argv[1])
 assert "See the notes.\nNext line." in texts, texts
 bullets = [p.text for p in d.paragraphs if p.style.name == "List Bullet"]
 assert bullets == ["one item that wraps", "two"], bullets
+# A bullet sits half an inch in, its text a quarter inch past it (Morgan,
+# 2026-10-05: the stock List Bullet put the bullets flush with the margin),
+# in the style and in the numbering level Word draws the bullet from.
+pf = d.styles["List Bullet"].paragraph_format
+assert (round(pf.left_indent.inches, 2), round(pf.first_line_indent.inches, 2)) == (0.75, -0.25), \
+    (pf.left_indent, pf.first_line_indent)
+num_xml = d.part.numbering_part.element.xml
+assert 'w:left="1080" w:hanging="360"' in num_xml, "the bullet's numbering level is still at the margin"
 assert breaks(sys.argv[2]) == [], f"--no-section-breaks still broke after: {breaks(sys.argv[2])}"
 PY
 )"; then
   echo "FAIL: title page, links, wrapped bullets or --no-section-breaks: $OUT" >&2
   exit 1
 fi
-echo "ok: a heading after the title shares its page; links, wrapped bullets, comments, --no-section-breaks"
+echo "ok: a heading after the title shares its page; links, wrapped and indented bullets, comments, --no-section-breaks"
 
 # 6. --header-image: the image in the header of every page but the first,
 #    whose own header stays empty and whose footer still carries Page X of Y.
