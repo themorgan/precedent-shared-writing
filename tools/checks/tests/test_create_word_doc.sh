@@ -133,3 +133,72 @@ PY
   exit 1
 fi
 echo "ok: --contents puts Word's own TOC on its own page before the first Part, updateFields in place"
+
+# 5. A heading straight after the title shares the title's page (Morgan,
+#    2026-10-05: a blurbs file's cover held only the logo and the title);
+#    later headings still break. --no-section-breaks drops every break.
+#    Links print as their text, a "- " item may wrap onto an indented line,
+#    a trailing "\" hard break leaves no backslash, and an HTML comment is
+#    never text.
+printf '<!-- header -->\n# Sample\n\n## First\nSee [the notes](NOTES.md).\\\nNext line.\n\n- one item that\n  wraps\n- two\n\n## Second\nMore.\n' \
+  > "$SCRATCH/book-sample/MANUSCRIPT.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Flow.docx" --date 2026-01-01 > /dev/null
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/NoBreaks.docx" --date 2026-01-01 --no-section-breaks > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Flow.docx" "$SCRATCH/out/NoBreaks.docx" <<'PY' 2>&1
+import sys
+import docx
+
+def breaks(path):
+    return [p.text for p in docx.Document(path).paragraphs if 'w:type="page"' in p._p.xml]
+
+d = docx.Document(sys.argv[1])
+texts = [p.text for p in d.paragraphs]
+assert not any("<!--" in t for t in texts), "an HTML comment reached the text"
+assert texts[0] == "Sample", texts
+assert breaks(sys.argv[1]) == ["two"], f"page breaks after: {breaks(sys.argv[1])}"
+assert "See the notes.\nNext line." in texts, texts
+bullets = [p.text for p in d.paragraphs if p.style.name == "List Bullet"]
+assert bullets == ["one item that wraps", "two"], bullets
+assert breaks(sys.argv[2]) == [], f"--no-section-breaks still broke after: {breaks(sys.argv[2])}"
+PY
+)"; then
+  echo "FAIL: title page, links, wrapped bullets or --no-section-breaks: $OUT" >&2
+  exit 1
+fi
+echo "ok: a heading after the title shares its page; links, wrapped bullets, comments, --no-section-breaks"
+
+# 6. --header-image: the image in the header of every page but the first,
+#    whose own header stays empty and whose footer still carries Page X of Y.
+python3 - "$SCRATCH/logo.png" <<'PY'
+import struct, sys, zlib
+def chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+# a 2x2 PNG in the logo purple, written by hand so the test needs no image library
+png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0))
+       + chunk(b"IDAT", zlib.compress((b"\x00" + b"\x40\x24\x54" * 2) * 2))
+       + chunk(b"IEND", b""))
+open(sys.argv[1], "wb").write(png)
+PY
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Header.docx" --date 2026-01-01 --header-image "$SCRATCH/logo.png" > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Header.docx" "$SCRATCH/out/Flow.docx" <<'PY' 2>&1
+import sys
+import docx
+
+s = docx.Document(sys.argv[1]).sections[0]
+assert s.different_first_page_header_footer, "first page is not different"
+assert "graphicData" in s.header._element.xml, "no image in the running header"
+assert "graphicData" not in s.first_page_header._element.xml, "the first page's header has the image"
+first_footer = s.first_page_footer._element.xml
+assert "PAGE" in first_footer and "NUMPAGES" in first_footer, "page one lost its Page X of Y"
+plain = docx.Document(sys.argv[2]).sections[0]
+assert not plain.different_first_page_header_footer, "the default build changed the first page"
+assert "graphicData" not in plain.header._element.xml, "the default build has a header image"
+PY
+)"; then
+  echo "FAIL: --header-image did not put the image on every page but the first: $OUT" >&2
+  exit 1
+fi
+echo "ok: --header-image on every page but the first; page one keeps its footer"

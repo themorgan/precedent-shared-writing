@@ -5,9 +5,10 @@ with a confidential-draft footer stamped on every page.
 # practice: create-word-doc
 
 Parses the manuscript's plain Markdown (headings up to ###, **bold**,
-*italic*, "- " bullet lists, "> " block quotations, and multi-line blocks
-such as song lyrics where each physical line is a hard break within one
-paragraph) and
+*italic*, [links](...) printed as their text, "- " bullet lists whose
+items may wrap onto indented lines, "> " block quotations, and
+multi-line blocks such as song lyrics where each physical line is a hard
+break within one paragraph; HTML comments are dropped) and
 renders it as a Word document using python-docx's built-in Title/
 Heading 1/Heading 2/List Bullet styles, so the result carries real
 heading structure (Word's Navigation Pane, an auto-updating TOC) rather
@@ -22,7 +23,15 @@ repaginates the content.
 Every Part (##) and chapter (###) heading starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
 that ends mid-page never bleeds into the next one's heading. The title
-page is the one exception: nothing precedes it, so no break is needed.
+page is the one exception: nothing precedes it, so no break is needed --
+and a heading that follows the title with nothing between them shares
+the title's page, so a title never sits alone on an otherwise empty
+page. `--no-section-breaks` turns the breaks off altogether, for a
+shorter document (notes, a brainstorm) whose sections should flow on.
+
+`--header-image PATH` puts a small copy of an image (a logo) centered in
+the header of every page but the first, which already carries the
+cover. add_header_image() does the same for a document built by hand.
 
 A "> " block -- a long excerpt quoted from another text -- becomes a
 block quotation, the way a printed book sets one off: indented half an
@@ -44,6 +53,8 @@ Usage:
   python3 tools/create_word_doc.py book-moses/MANUSCRIPT.md --out /path/to/Moses.docx --short-name Moses
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --no-footer
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --contents
+  python3 tools/create_word_doc.py notes/NOTES.md --out /path/to/Notes.docx --short-name Notes \
+      --no-section-breaks --header-image logo.png
 
 The short book name defaults to the manuscript's book-*/ directory name
 with "book-" stripped and the remainder title-cased (book-joseph ->
@@ -119,6 +130,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import precedent_time  # noqa: E402  (practice: timestamps-carry-offset)
 
 INLINE_RE = re.compile(r"(\*\*[^*]+?\*\*|\*[^*]+?\*)")
+# practice: create-word-doc -- a Markdown link prints as its text: the
+# target is usually a path inside the source's repository, which means
+# nothing to someone reading the Word file.
+LINK_RE = re.compile(r"\[([^\]]+)\]\([^)\s]*\)")
+# An HTML comment (a file header, a generated-block marker) is never text.
+COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+BULLET_RE = re.compile(r"^\s*-\s+")
 # practice: create-word-doc -- a manuscript's own word-count line becomes a
 # live NUMWORDS field instead of a number that goes stale as soon as the
 # text changes; any trailing "(PART 1)"-style note is dropped with it.
@@ -163,7 +181,12 @@ def quote_paragraphs(block):
 
 
 def parse_inline(text):
-    """Split a line into (text, bold, italic) runs on **bold**/*italic*."""
+    """Split a line into (text, bold, italic) runs on **bold**/*italic*.
+    A link becomes its text, and a trailing backslash -- Markdown's hard
+    line break, which the caller already makes a real one -- is dropped."""
+    text = LINK_RE.sub(r"\1", text)
+    if text.endswith("\\"):
+        text = text[:-1].rstrip()
     runs = []
     last = 0
     for m in INLINE_RE.finditer(text):
@@ -180,6 +203,61 @@ def parse_inline(text):
     if not runs:
         runs.append(("", False, False))
     return runs
+
+
+def strip_comments(text):
+    """Drop HTML comments, and any line they leave empty, so no marker
+    ever reaches the page as text and none splits a paragraph in two."""
+    lines = COMMENT_RE.sub("\x00", text).split("\n")
+    kept = [ln.replace("\x00", "") for ln in lines
+            if not (ln.strip("\x00 ") == "" and "\x00" in ln)]
+    return "\n".join(kept).lstrip("\n")
+
+
+def bullet_items(block):
+    """A "- " list's items, or None when the block is not a list. An item
+    may wrap: a line that does not start with "- " but is indented
+    continues the item before it."""
+    if not BULLET_RE.match(block[0]):
+        return None
+    items = []
+    for line in block:
+        if BULLET_RE.match(line):
+            items.append(BULLET_RE.sub("", line).strip())
+        elif line[:1].isspace():
+            items[-1] += " " + line.strip()
+        else:
+            return None
+    return items
+
+
+def add_header_image(section, image_path, height=None):
+    """A small copy of an image (a logo) centered in the header of every
+    page but the first (practice: create-word-doc, the running header).
+
+    The first page gets a header and footer of its own -- Word's "different
+    first page" -- so the header there is left empty, under the cover, and
+    the footer is copied onto it: without the copy, page one would lose
+    its "Page X of Y". Call this after the footer is written."""
+    import copy
+    section.different_first_page_header_footer = True
+    header = section.header
+    header.is_linked_to_previous = False
+    p = header.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.line_spacing = 1.0  # a 1.3 line would pad the image
+    p.add_run().add_picture(str(image_path), height=height or Inches(0.4))
+
+    section.first_page_header.is_linked_to_previous = False
+    first_footer = section.first_page_footer
+    first_footer.is_linked_to_previous = False
+    target = first_footer._element
+    for old in list(target):
+        target.remove(old)
+    for el in section.footer._element:
+        target.append(copy.deepcopy(el))
 
 
 def group_blocks(lines):
@@ -305,8 +383,9 @@ def add_contents(doc):
         anchor.addprevious(update)
 
 
-def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False):
-    text = manuscript_path.read_text(encoding="utf-8")
+def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
+              section_breaks=True, header_image=None):
+    text = strip_comments(manuscript_path.read_text(encoding="utf-8"))
     lines = text.split("\n")
     blocks = group_blocks(lines)
 
@@ -341,7 +420,10 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False)
         if not saw_title and re.match(r"^# ", first) and len(block) == 1:
             last_para = doc.add_heading(first[2:].strip(), level=0)
             saw_title = True
-            last_was_heading = False
+            # A heading straight after the title shares its page: a break
+            # there would leave the title alone on page one (Morgan,
+            # 2026-10-05, on a blurbs file whose cover held nothing else).
+            last_was_heading = True
             continue
 
         if re.match(r"^## ", first) and len(block) == 1:
@@ -352,14 +434,14 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False)
             # in a different, earlier paragraph and can't land after the
             # heading's own text -- the heading paragraph carries no
             # page-break marking of its own at all.
-            if last_para is not None and not last_was_heading:
+            if section_breaks and last_para is not None and not last_was_heading:
                 last_para.add_run().add_break(WD_BREAK.PAGE)
             last_para = doc.add_heading(first[3:].strip(), level=1)
             last_was_heading = True
             continue
 
         if re.match(r"^### ", first) and len(block) == 1:
-            if last_para is not None and not last_was_heading:
+            if section_breaks and last_para is not None and not last_was_heading:
                 last_para.add_run().add_break(WD_BREAK.PAGE)
             last_para = doc.add_heading(first[4:].strip(), level=2)
             last_was_heading = True
@@ -382,10 +464,11 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False)
                 last_was_heading = False
             continue
 
-        if all(re.match(r"^-\s+", l.strip()) for l in block):
-            for l in block:
+        items = bullet_items(block)
+        if items is not None:
+            for item in items:
                 p = doc.add_paragraph(style="List Bullet")
-                for run_text, bold, italic in parse_inline(re.sub(r"^-\s+", "", l.strip())):
+                for run_text, bold, italic in parse_inline(item):
                     r = p.add_run(run_text)
                     r.bold = bold
                     r.italic = italic
@@ -425,6 +508,9 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False)
         conf_para.add_run(
             f"CONFIDENTIAL - DRAFT BOOK: {short_name.upper()} - {date_str}"
         )
+
+    if header_image is not None:
+        add_header_image(section, header_image)
 
     if contents:
         add_contents(doc)
@@ -471,6 +557,18 @@ def main():
         help="add Word's own table of contents (Parts and chapters) on a page "
              "of its own before the first Part",
     )
+    ap.add_argument(
+        "--no-section-breaks",
+        action="store_true",
+        help="let sections flow on instead of starting each ## and ### on a new page",
+    )
+    ap.add_argument(
+        "--header-image",
+        type=pathlib.Path,
+        default=None,
+        help="an image (a logo) to put, small and centered, in the header of "
+             "every page but the first",
+    )
     args = ap.parse_args()
 
     if not args.manuscript.is_file():
@@ -481,8 +579,12 @@ def main():
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     date_str = args.date or precedent_time.today(repo_root)
 
+    if args.header_image is not None and not args.header_image.is_file():
+        sys.exit(f"error: {args.header_image} does not exist")
     doc = build_doc(args.manuscript, short_name, not args.no_footer, date_str,
-                    contents=args.contents)
+                    contents=args.contents,
+                    section_breaks=not args.no_section_breaks,
+                    header_image=args.header_image)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(args.out)
     print(f"wrote {args.out}")

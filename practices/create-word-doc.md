@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -83,7 +83,21 @@ fresh page rather than each forcing a separate break: the second heading
 does not get its own break when the one right before it was itself a
 heading with nothing of its own to separate them. The title page is the
 one exception that needs no break of its own: it opens the document, so
-nothing precedes it.
+nothing precedes it. **The title counts as a heading for this**: a `##`
+straight after the title, with nothing between them, shares the title's
+page, so a title never sits alone on an otherwise empty page.
+`--no-section-breaks` (`section_breaks=False`) turns the breaks off
+altogether, for a shorter document -- notes, a brainstorm -- whose
+sections are better read flowing on than one to a page.
+
+**A running header is optional: `--header-image PATH`**
+(`header_image=` to `build_doc()`). It puts a small copy of the image --
+a logo, 0.4 inch tall -- centered in the header of every page but the
+first, which carries the cover and so gets Word's "different first page"
+with an empty header and a copy of the footer (without the copy, page one
+would lose its "Page X of Y"). A Word document built by hand gets the
+same header from `add_header_image(section, path)`, called once its
+footer is written.
 
 **Page is A4, default line spacing is 1.3x**, set once on the `Normal`
 style and the section's page size rather than per paragraph, so every
@@ -128,11 +142,15 @@ The parser handles a working subset of Markdown: `#`/`##`/`###` headings
 (even when not followed by a blank line -- some manuscripts' own section
 headers have none, and an earlier draft of this script merged the
 heading into the following paragraph and leaked the `#` characters into
-the body text as a result), `**bold**` and `*italic*` inline spans, `- `
-bullet blocks, `> ` block quotations (a block counts as one only when
+the body text as a result), `**bold**` and `*italic*` inline spans, `[links](...)` printed as their
+text (the target is a path in the source's repository, which means
+nothing in a Word file), `- ` bullet blocks whose items may wrap onto
+indented continuation lines, `> ` block quotations (a block counts as one only when
 every line of it starts with `>`), and multi-line blocks such as a lyrics or verse excerpt,
 where each physical line becomes a hard line-break within one paragraph
-rather than its own paragraph.
+rather than its own paragraph. A trailing `\\` (Markdown's own hard line
+break) is dropped, since the line already breaks, and HTML comments -- a
+file header, a generated-block marker -- are removed before parsing.
 
 python-docx, not a Node/docx-js script, so the tool matches a repo whose
 `tools/` is otherwise all-Python -- and, incidentally, python-docx's
@@ -260,3 +278,13 @@ behavior -- that a session actually reached for this script instead of
 writing a fresh one, that a generated `.docx` was reviewed before being
 handed over, or that a hand-built one-off carried a footer at all -- that
 is session judgment.
+
+2026-10-05: the first blurbs file built with this script put its first
+blurb on page two, leaving the cover with nothing but the logo and the
+title. Morgan asked for it to flow on the way the manuscript's cover
+does, and in the same message for a tiny copy of the project's logo in
+the header of every page but the first, as part of the template rather
+than one document's script. Both landed here; so did the inline links,
+wrapped list items and HTML comments a first brainstorm-note export
+needed, the last of which a consumer had been stripping in its own
+wrapper.
