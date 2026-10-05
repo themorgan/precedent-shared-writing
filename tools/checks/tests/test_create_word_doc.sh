@@ -90,10 +90,11 @@ echo "ok: a > block becomes an indented, upright Quote-style block quotation"
 
 # 4. --contents: Word's own table of contents on a page of its own before the
 #    first Heading 1 -- a "Contents" paragraph in "TOC Heading", a TOC field
-#    whose cached result lists the Heading 1 and 2 texts, the page break in a
-#    paragraph of its own after the field, and w:updateFields in its schema
-#    place in settings.xml (before w:compat), not appended at the end. And the
-#    default build carries none of it.
+#    whose cached result lists the Heading 1 and 2 texts as links to
+#    bookmarks on the headings, and the page break in a paragraph of its own
+#    after the field. Never w:updateFields: that setting makes Word ask
+#    "Do you want to update the fields in this document?" on opening
+#    (Morgan, 2026-10-05). And the default build carries none of it.
 printf '# Sample\n\nA preface.\n\n## Part I\n### One\nText.\n\n## Part II\n### Two\nMore.\n' \
   > "$SCRATCH/book-sample/MANUSCRIPT.md"
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
@@ -120,19 +121,21 @@ assert 'w:fldCharType="end"' in paras[first_h1 - 2][2], "field does not close in
 brk = paras[first_h1 - 1]
 assert brk[1] == "" and 'w:type="page"' in brk[2] and "fldChar" not in brk[2], \
     "the page break is not a paragraph of its own after the field"
-tags = re.findall(r"<w:(\w+)[ />]", zipfile.ZipFile(sys.argv[1]).read("word/settings.xml").decode())
-assert "updateFields" in tags, "w:updateFields missing from settings.xml"
-assert tags.index("updateFields") < tags.index("compat"), "w:updateFields is after w:compat"
+for path in sys.argv[1:]:
+    assert "updateFields" not in zipfile.ZipFile(path).read("word/settings.xml").decode(), \
+        f"{path} asks Word to update its fields on opening"
+xml = "".join(x for _s, _t, x in paras)
+anchors = re.findall(r'w:hyperlink [^>]*w:anchor="([^"]+)"', xml)
+marks = re.findall(r'w:bookmarkStart [^>]*w:name="([^"]+)"', xml)
+assert len(anchors) == 4 and sorted(anchors) == sorted(marks), (anchors, marks)
 plain = body(sys.argv[2])
 assert not any(s == "TOC Heading" for s, _t, _x in plain), "the default build has a contents page"
-assert "updateFields" not in zipfile.ZipFile(sys.argv[2]).read("word/settings.xml").decode(), \
-    "the default build sets updateFields"
 PY
 )"; then
   echo "FAIL: --contents did not build Word's contents page as specified: $OUT" >&2
   exit 1
 fi
-echo "ok: --contents puts Word's own TOC on its own page before the first Part, updateFields in place"
+echo "ok: --contents puts Word's own TOC, linked to the headings, on its own page; no update-fields prompt"
 
 # 5. A heading straight after the title shares the title's page (Morgan,
 #    2026-10-05: a blurbs file's cover held only the logo and the title);
@@ -223,3 +226,16 @@ PY
   exit 1
 fi
 echo "ok: --soft-wraps joins a wrapped paragraph; a backslash still breaks; the default keeps every line"
+
+# 8. The check fails on any script under tools/ that writes Word's
+#    updateFields setting, the shared script or a hand-built one-off.
+mkdir -p "$SCRATCH/tools"
+cp "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/tools/create_word_doc.py"
+printf 'el = OxmlElement("w:updateFields")\n' > "$SCRATCH/tools/one_off_docx.py"
+OUT="$(python3 "$SET_ROOT/tools/checks/check_create_word_doc.py" || true)"
+if ! grep -q "one_off_docx.py writes Word's updateFields" <<<"$OUT"; then
+  echo "FAIL: the check did not flag a script that writes updateFields: $OUT" >&2
+  exit 1
+fi
+rm "$SCRATCH/tools/one_off_docx.py"
+echo "ok: the check fails on a script that makes a document ask to update its fields"

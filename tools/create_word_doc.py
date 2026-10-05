@@ -326,19 +326,6 @@ def add_field(paragraph, instr, cached_text="1"):
     run._r.append(end)
 
 
-# The settings part's children that come AFTER w:updateFields in the
-# schema's fixed order. Word can refuse a file that breaks the order, so
-# updateFields is inserted before the first of these, never appended.
-_SETTINGS_AFTER_UPDATE_FIELDS = (
-    "hdrShapeDefaults", "footnotePr", "endnotePr", "compat", "docVars",
-    "rsids", "attachedSchema", "themeFontLang", "clrSchemeMapping",
-    "doNotIncludeSubdocsInStats", "doNotAutoCompressPictures",
-    "forceUpgrade", "captions", "readModeInkLockDown", "smartTagType",
-    "schemaLibrary", "shapeDefaults", "doNotEmbedSmartTags",
-    "decimalSymbol", "listSeparator")
-_MATH_PR = "{http://schemas.openxmlformats.org/officeDocument/2006/math}mathPr"
-
-
 def add_contents(doc):
     """Word's own table of contents, on a page of its own just before the
     first Heading 1 (practice: create-word-doc, the contents page).
@@ -346,19 +333,42 @@ def add_contents(doc):
     A "Contents" paragraph in the "TOC Heading" style -- it looks like a
     Heading 1 but stays out of the contents and the Navigation Pane, where a
     Heading 1 would list itself. Then a TOC field (TOC \\o "1-2" \\h \\z \\u)
-    whose cached result is the Heading 1 and Heading 2 texts, so the page
-    reads sensibly before Word updates it, and w:updateFields so Word fills
-    in the page numbers when the file is opened. The page break after it is
-    a paragraph of its own: updating the field rewrites everything inside
-    it, and a break there would go too. Lifted from a consumer's working
-    book export, 2026-10-05."""
+    whose cached result is the finished list: each Heading 1 and Heading 2,
+    as a link that jumps to a bookmark on the heading itself.
+
+    The document never asks Word to update its fields when it opens (no
+    updateFields setting): that is the "This document contains fields that
+    may refer to other files" prompt, and a document sent to someone must
+    open without it (Morgan, 2026-10-05). So the list carries no page
+    numbers -- only Word knows where its pages break -- and a reader who
+    wants them right-clicks the list and picks Update Field. The page break
+    after the list is a paragraph of its own: updating the field rewrites
+    everything inside it, and a break there would go too."""
     first_part = next((p for p in doc.paragraphs
                        if p.style.name == "Heading 1"), None)
     if first_part is None:
         raise SystemExit("create_word_doc: --contents needs a Heading 1 (a "
                          "`## ` heading) to put the contents page before")
-    entries = [(p.style.name, p.text) for p in doc.paragraphs
-               if p.style.name in ("Heading 1", "Heading 2")]
+    headings = [p for p in doc.paragraphs
+                if p.style.name in ("Heading 1", "Heading 2")]
+
+    # A bookmark around each heading's text, named the way Word names its
+    # own (_Toc...), so updating the field later finds the same targets.
+    names = []
+    for i, h in enumerate(headings, start=1):
+        name = f"_Toc{i:08d}"
+        start = OxmlElement("w:bookmarkStart")
+        start.set(qn("w:id"), str(i))
+        start.set(qn("w:name"), name)
+        end = OxmlElement("w:bookmarkEnd")
+        end.set(qn("w:id"), str(i))
+        pPr = h._p.pPr
+        if pPr is not None:
+            pPr.addnext(start)
+        else:
+            h._p.insert(0, start)
+        h._p.append(end)
+        names.append(name)
 
     first_part.insert_paragraph_before("Contents", style="TOC Heading")
 
@@ -370,10 +380,11 @@ def add_contents(doc):
     # The field opens in the first entry's paragraph and closes in the last,
     # so its cached result is the list of headings itself.
     paras = []
-    for style, text in entries:
+    for h, name in zip(headings, names):
         p = first_part.insert_paragraph_before()
-        p.paragraph_format.left_indent = Inches(0.3 if style == "Heading 2" else 0)
-        paras.append((p, text))
+        p.paragraph_format.left_indent = Inches(
+            0.3 if h.style.name == "Heading 2" else 0)
+        paras.append((p, h.text, name))
     first = paras[0][0]
     field_char(first, "begin")
     instr = OxmlElement("w:instrText")
@@ -381,20 +392,19 @@ def add_contents(doc):
     instr.text = ' TOC \\o "1-2" \\h \\z \\u '
     first.add_run()._r.append(instr)
     field_char(first, "separate")
-    for p, text in paras:
-        p.add_run(text)
+    for p, text, name in paras:
+        link = OxmlElement("w:hyperlink")
+        link.set(qn("w:anchor"), name)
+        link.set(qn("w:history"), "1")
+        run = OxmlElement("w:r")
+        t = OxmlElement("w:t")
+        t.set(qn("xml:space"), "preserve")
+        t.text = text
+        run.append(t)
+        link.append(run)
+        p._p.append(link)
     field_char(paras[-1][0], "end")
     first_part.insert_paragraph_before().add_run().add_break(WD_BREAK.PAGE)
-
-    settings = doc.settings.element
-    update = OxmlElement("w:updateFields")
-    update.set(qn("w:val"), "true")
-    later = {qn(f"w:{tag}") for tag in _SETTINGS_AFTER_UPDATE_FIELDS} | {_MATH_PR}
-    anchor = next((el for el in settings if el.tag in later), None)
-    if anchor is None:
-        settings.append(update)
-    else:
-        anchor.addprevious(update)
 
 
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,

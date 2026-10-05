@@ -6,7 +6,7 @@ severity:    default
 applies_to:  ["tools/create_word_doc.py"]
 occasion:    "producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc"
 gates:       []
-index_clause: "creating any Word (.docx) document means it carries a footer -- a structured export runs tools/create_word_doc.py (A4, 1.3 line spacing, footer, section page breaks, live word count, all in the same pass); anything else still needs a live Page X of Y footer plus a title/date line, built by hand into whatever script makes it"
+index_clause: "a Word file for a reader: a footer, and it opens without an update-fields prompt"
 checked_by:  tools/checks/check_create_word_doc.py
 ships:       ["tools/create_word_doc.py"]
 defines:     []
@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -128,10 +128,24 @@ page of its own before the first Part -- a "Contents" line in Word's
 table of contents (TOC) heading style, **TOC Heading**, which stays out of the contents and the Navigation
 Pane, then a table-of-contents field listing the Parts and chapters
 (Heading 1 and 2).
-The field already holds those titles, so the page reads sensibly before
-Word fills in the page numbers, which it offers to do when the file is
-opened. Ask for it when the reader will move around a long document; a
-short one does not need it.
+The field is written already filled in: each title is a link that jumps
+to its heading. It carries no page numbers, since only Word knows where
+its pages break and the file must not ask Word to work them out on
+opening (below); a reader who wants them right-clicks the list and picks
+**Update Field**. Ask for it when the reader will move around a long
+document; a short one does not need it.
+
+**A Word document built for someone to download never asks anything when
+it opens.** In particular it never sets Word's "update fields on open"
+setting (`updateFields` in the document's settings), which is what puts
+up *"This document contains fields that may refer to other files. Do you
+want to update the fields in this document?"* -- a question that alarms
+the reader, and that a document from someone they trust should never
+raise. Every field in the file either updates by itself (the footer's
+page number and page count) or is written already showing the right
+result (the contents list, the word count). This holds for a hand-built
+one-off as much as for this script's output, and the check below fails
+on any script under `tools/` that writes the setting.
 
 The generated `.docx` is a deliverable, not a source file: the script
 never writes into the repo, and nothing about this practice implies
@@ -293,3 +307,12 @@ wrapped list items and HTML comments a first brainstorm-note export
 needed, the last of which a consumer had been stripping in its own
 wrapper, and `--soft-wraps`, since that note is wrapped at seventy-odd
 characters and every wrap came out as a line break.
+
+Same day: Morgan opened the rebuilt Joseph manuscript and Word asked
+*"This document contains fields that may refer to other files. Do you
+want to update the fields in this document?"* The contents page had
+turned on Word's update-fields-on-open setting so that Word would fill in
+the page numbers. He asked that a downloaded document never do this. The
+setting is gone; the contents list is written finished, as links to the
+headings, without page numbers; and the check now fails on any script
+that writes the setting.

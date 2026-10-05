@@ -13,7 +13,9 @@ export as a hand-built one-off, which the Rule explicitly allows. SKIPPED
 
 Where the script IS present: it must be syntactically valid Python,
 non-trivial in size (catching an accidental deletion or a truncated
-re-copy), and must cite this practice. It cannot check the Rule's own
+re-copy), and must cite this practice. And no script under tools/ may
+write Word's updateFields setting, the one that makes a document ask
+"Do you want to update the fields in this document?" when it opens. It cannot check the Rule's own
 behavior -- that a session actually reached for this script instead of
 writing a fresh one, that a generated .docx was reviewed before being
 handed over, or that a hand-built one-off carried a footer at all -- that
@@ -42,6 +44,8 @@ PRACTICE_FILE = SOURCE_ROOT / "practices" / "create-word-doc.md"
 SCRIPT = ROOT / "tools" / "create_word_doc.py"
 
 MIN_BYTES = 4_000
+# An element built with the setting's tag; prose that names it is fine.
+UPDATE_FIELDS_RE = re.compile(r"""["']w:updateFields["']""")
 
 
 def rule_text() -> str:
@@ -67,6 +71,23 @@ def find_violations() -> list[str]:
         ast.parse(source, filename=str(SCRIPT))
     except SyntaxError as e:
         findings.append(f"{SCRIPT.relative_to(ROOT)} does not parse as Python: {e}")
+
+    # A downloaded document never asks to update its fields on opening:
+    # no script here may write Word's updateFields setting -- the shared
+    # script, or any hand-built one-off beside it.
+    for script in sorted((ROOT / "tools").rglob("*.py")):
+        if "checks" in script.relative_to(ROOT / "tools").parts:
+            continue
+        try:
+            text = script.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if UPDATE_FIELDS_RE.search(text):
+            findings.append(
+                f"{script.relative_to(ROOT)} writes Word's updateFields "
+                "setting -- the document will ask the reader to update its "
+                "fields when it opens"
+            )
 
     if "practice: create-word-doc" not in source:
         findings.append(
