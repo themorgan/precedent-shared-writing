@@ -233,9 +233,11 @@ def style_contents(doc, section=None):
     into an unbroken column nobody recognized (Morgan, 2026-10-05). Both
     carry a dotted right-aligned tab at the text's right edge, so when a
     reader picks Update Field in Word, the page numbers it adds sit at the
-    end of a dot leader, the way a printed book's do. Word rewrites the
-    list with these same styles on that update, so it keeps the look.
-    Returns (toc1, toc2)."""
+    end of a dot leader, the way a printed book's do. Every entry is set in
+    the footer's sans-serif face (FOOTER_FONT) and underlined, so it reads
+    as a link -- which it is -- rather than as more text (Morgan,
+    2026-10-05). Word rewrites the list with these same styles on that
+    update, so it keeps the look. Returns (toc1, toc2)."""
     from docx.enum.style import WD_STYLE_TYPE
     from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
     section = section or doc.sections[0]
@@ -260,6 +262,8 @@ def style_contents(doc, section=None):
         pf.space_before = Pt(8 if level == 1 else 0)
         pf.space_after = Pt(2)
         style.font.bold = level == 1
+        set_style_font(style, FOOTER_FONT)
+        style.font.underline = True
         pf.tab_stops.add_tab_stop(width, WD_TAB_ALIGNMENT.RIGHT,
                                   WD_TAB_LEADER.DOTS)
         out.append(style)
