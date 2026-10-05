@@ -382,6 +382,14 @@ ENGINE_FILES = [
     # about a catalogue, and only the second reason keeps a file out of a
     # set.
     'precedent_identity.py',
+    # Whether this session's person is one of the repository's code owners,
+    # so a practice marked `visible_to: code-owners` reaches only them
+    # (2026-10-05). Beside precedent_identity.py, which it reads, and in
+    # every kind of repo, since each channel that filters runs in all of them.
+    'precedent_audience.py',
+    # The remote branches a code owner can delete across the session's
+    # repositories, for the ladder set's stale-branch-cleanup (2026-10-05).
+    'precedent_stale_branches.py',
     # The resolver and the untracked-block writer, added 2026-09-13 so a
     # session rooted in a practice SET reads the universal catalogue instead
     # of that set's own practices alone. Until then a set resolved nothing:
@@ -510,6 +518,13 @@ ENGINE_FILES = [
     # other and accumulates its own open items the same way a consumer does.
     'build_todo_index.py',
     'todo_migrate.py',
+    # The "Drop it" writer (added 2026-10-05): park-it tells every session
+    # to run it, and every kind of repo keeps todo items -- the same reason
+    # build_todo_index.py is here.
+    'todo_disposition.py',
+    # A practice's standing (added 2026-10-05): every source's practices may
+    # carry one, and every channel that shows a practice reads the label.
+    'practice_standing.py',
     # title_case.py was CONSUMER-only until 2026-09-19, since headline
     # capitalization was thought of as a consumer-catalogue concern. Moved
     # here the same day build_todo_index.py was: it imports title_case at
@@ -519,6 +534,11 @@ ENGINE_FILES = [
     # real run, the same failure shape precedent_check.py's own promotion
     # (see below) was caught by.
     'title_case.py',
+    # artifact_publish_gate.py -- docs-track-models rule 4, run by
+    # hooks/artifact-publish-gate.sh. Here rather than consumer-only because
+    # the hooks/ directory reaches both kinds (shipped-hook-carries-its-script);
+    # only a consumer wires it, and in a set it stays unwired.
+    'artifact_publish_gate.py',
     # The one way a generator copies prose into a summary field: links out,
     # then the cut (added 2026-09-25). build_todo_index.py, todo_migrate.py,
     # build_views.py and build_gotcha_index.py all import it at module level,
@@ -710,6 +730,10 @@ CONSUMER_ENGINE_FILES = ENGINE_FILES[:-1] + [
     # by the duplicate guard below, which is how this was caught.
     'precedent_materialize.py',
     'precedent_sync_views.py',
+    # The commit each live source was synced at, and reading a source back
+    # at it, so the views check stops depending on the branch a set's clone
+    # has checked out (2026-10-05). Imported by the two above.
+    'precedent_source_pins.py',
     # Whether each declared source repository is still CALLED what this repo
     # calls it (added 2026-09-11). CONSUMER-only for the same reason
     # precedent_resolve.py is -- it reads a multi-source config, which a
@@ -1019,6 +1043,9 @@ HOOK_WIRING = {
         # No workflow file written straight onto GitHub, past the push gate
         # that checks its approval (2026-09-26).
         ('PreToolUse', WORKFLOW_WRITE_MATCHER, 'workflow-write-gate.sh', ''),
+        # Only a fresh render of a registered document reaches a link; a
+        # page typed by hand never meets a model check (2026-10-05).
+        ('PreToolUse', 'Artifact', 'artifact-publish-gate.sh', ''),
         ('Stop', None, 'stop-git-check.sh', ''),
         ('Stop', None, 'stop-reply-check.sh', ''),
     ),
