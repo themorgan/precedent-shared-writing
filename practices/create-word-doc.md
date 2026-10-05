@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2; revised again the same day at his own request, so a contents page looks like one"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -157,7 +157,14 @@ table of contents (TOC) heading style, **TOC Heading**, which stays out of the c
 Pane, then a table-of-contents field listing the Parts and chapters
 (Heading 1 and 2).
 The field is written already filled in: each title is a link that jumps
-to its heading. It carries no page numbers, since only Word knows where
+to its heading. **It looks like a contents page**, in Word's own **TOC 1**
+and **TOC 2** styles: each Part bold, with a little space above it, its
+chapters indented under it, and the whole list single-spaced, never in
+the body's 1.3 spacing. Both styles carry a dotted tab at the right
+margin, so the page numbers Word adds on **Update Field** land at the end
+of a dot leader, and Word keeps the styles when it rewrites the list. A
+document that builds its own contents list by hand calls
+`style_contents(doc)` and sets each entry in those styles. It carries no page numbers, since only Word knows where
 its pages break and the file must not ask Word to work them out on
 opening (below); a reader who wants them right-clicks the list and picks
 **Update Field**. Ask for it when the reader will move around a long
@@ -383,3 +390,11 @@ Word's stock 14 point against Heading 2's 13, hardly looked like a level
 above it; he wanted it bigger, though not as big as the title. All three
 went into the script and this Rule, so every document built from it picks
 them up.
+
+Same evening: Morgan opened the rebuilt manuscript and found the
+contents page "unrecognizable". Every entry was a body-text paragraph --
+same weight, 1.3 spacing, chapters set off only by a small indent -- so
+forty lines ran down two pages looking like more text. He asked that a
+contents page always look like one. The entries now carry Word's contents
+styles: Parts bold, chapters indented, single-spaced, with a dot-leader
+tab ready for page numbers.
