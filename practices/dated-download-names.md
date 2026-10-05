@@ -51,9 +51,9 @@ scratchpad can simply be saved under its dated name.
 prints the command that makes the dated copy.
 
 ## Detail
-`tools/dated_name.py` is the one place the format lives: the list of
+[`tools/dated_name.py`](../tools/dated_name.py) is the one place the format lives: the list of
 document extensions, the two accepted forms, and the date, which it takes
-from `tools/precedent_time.py` so it is the reader's day and not UTC's.
+from [`tools/precedent_time.py`](../tools/precedent_time.py) so it is the reader's day and not UTC's.
 `--check NAME...` answers whether names pass, for any script that wants to
 ask before it saves.
 
@@ -80,8 +80,8 @@ book-docx-current check point at them; the copy he receives is the one that
 carries the date.
 
 ## Install
-`tools/checks/check_dated_download_names.py` confirms, wherever
-`tools/dated_name.py` is vendored, that the tool parses, cites this
+[`tools/checks/check_dated_download_names.py`](../tools/checks/check_dated_download_names.py) confirms, wherever
+[`tools/dated_name.py`](../tools/dated_name.py) is vendored, that the tool parses, cites this
 practice and still tells dated names from undated ones, and that a
 repository with a `.claude/settings.json` wires the `SendUserFile` hook
 above. It is SKIPPED where the tool is not vendored. A document handed over
