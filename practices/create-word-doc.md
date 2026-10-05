@@ -206,7 +206,9 @@ document's text, and fails if one is.
 
 The generated `.docx` is a deliverable, not a source file: the script
 never writes into the repo, and nothing about this practice implies
-committing the output.
+committing the output. **The file carries its date at
+the end of its name** (`Name-2026-12-31.docx`), per
+[dated-download-names](dated-download-names.md).
 
 ## Detail
 The parser handles a working subset of Markdown: `#`/`##`/`###` headings
