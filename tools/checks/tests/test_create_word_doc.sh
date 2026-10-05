@@ -309,3 +309,27 @@ if grep -q "asterisk" "$SCRATCH/nested.err"; then
   exit 1
 fi
 echo "ok: emphasis nests and spans wrapped lines; no emphasis asterisk reaches the text; a stray one is reported"
+
+# 10. When marks cross, the outer one wins (Morgan, 2026-10-05: "it should
+#     always take the form of the OUTER one"), and the inner marks' asterisks
+#     never reach the text; a stray asterisk is left out and reported.
+if ! OUT="$(cd "$SET_ROOT/tools" && python3 - <<'PY' 2>&1
+import create_word_doc as c
+cases = {
+    "**a *b** c*": [("a b", True, False), (" c", False, False)],
+    "*a **b* c**": [("a b", False, True), (" c", False, False)],
+    "**bold *never closed**": [("bold never closed", True, False)],
+    "A *stray asterisk.": [("A stray asterisk.", False, False)],
+    "5 * 3 stays": [("5 * 3 stays", False, False)],
+}
+for text, want in cases.items():
+    c.STRAY_ASTERISKS.clear()
+    got = c.parse_inline(text)
+    assert got == want, (text, got)
+    assert bool(c.STRAY_ASTERISKS) == (text != "5 * 3 stays"), (text, c.STRAY_ASTERISKS)
+PY
+)"; then
+  echo "FAIL: crossed emphasis did not take the outer form, or a stray asterisk reached the text: $OUT" >&2
+  exit 1
+fi
+echo "ok: crossed emphasis takes the outer form; a stray asterisk is left out and reported"
