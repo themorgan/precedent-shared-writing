@@ -1,6 +1,6 @@
 ---
 slug:        create-word-doc
-title:       Every Word (.docx) document built for a reader carries a footer -- a structured export runs tools/create_word_doc.py (footer, section page breaks, A4, 1.3 line spacing, live word count all included); anything else still needs the same Page X of Y + title/date footer built into whatever script makes it
+title:       Every Word (.docx) document built for a reader carries a footer -- a structured export runs tools/create_word_doc.py (footer, section page breaks, A4, 1.3 line spacing, live word count, indented block quotations all included); anything else still needs the same Page X of Y + title/date footer built into whatever script makes it
 tier:        on-demand
 severity:    default
 applies_to:  ["tools/create_word_doc.py"]
@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -96,6 +96,29 @@ number typed once into a source document is exactly the kind of count
 that goes stale the moment the text changes; the field recalculates
 instead of needing someone to notice and retype it.
 
+**A `> ` block is a block quotation, set the way a printed book sets
+one off** -- indented half an inch on both sides, a point smaller than
+the body, a little tighter, upright, with no quotation marks and no `>`
+anywhere in the text. A bare `>` line inside the block starts a new
+paragraph of the same quotation. Every quotation paragraph carries Word's
+own **Quote** style, restyled that way, so a reader who wants them
+italic, or wider, changes one style in Word's Styles pane and every
+excerpt follows. Write a long excerpt from another text -- scripture, a
+letter, a speech -- as a `> ` block in the source, never as a quoted
+paragraph of body text: the block is what tells the export it is an
+excerpt.
+
+**A contents page is optional: `--contents`** (`contents=True` to
+`build_doc()`; off by default). It puts Word's own table of contents on a
+page of its own before the first Part -- a "Contents" line in Word's
+table of contents (TOC) heading style, **TOC Heading**, which stays out of the contents and the Navigation
+Pane, then a table-of-contents field listing the Parts and chapters
+(Heading 1 and 2).
+The field already holds those titles, so the page reads sensibly before
+Word fills in the page numbers, which it offers to do when the file is
+opened. Ask for it when the reader will move around a long document; a
+short one does not need it.
+
 The generated `.docx` is a deliverable, not a source file: the script
 never writes into the repo, and nothing about this practice implies
 committing the output.
@@ -106,7 +129,8 @@ The parser handles a working subset of Markdown: `#`/`##`/`###` headings
 headers have none, and an earlier draft of this script merged the
 heading into the following paragraph and leaked the `#` characters into
 the body text as a result), `**bold**` and `*italic*` inline spans, `- `
-bullet blocks, and multi-line blocks such as a lyrics or verse excerpt,
+bullet blocks, `> ` block quotations (a block counts as one only when
+every line of it starts with `>`), and multi-line blocks such as a lyrics or verse excerpt,
 where each physical line becomes a hard line-break within one paragraph
 rather than its own paragraph.
 
@@ -214,6 +238,16 @@ the same fresh page instead of each forcing a separate one. Verified
 directly in the regenerated file's XML: no heading paragraph, including
 both `Part I` and `Part II`, carries a trailing page-break run anymore.
 `Go update`.
+
+2026-10-04: Morgan opened the Joseph manuscript's Word file and found its
+long Torah excerpts printed with a literal `>` at the start of each line
+-- the tool had never been taught Markdown's block-quote marker, so it
+fell through to the plain-paragraph path and kept the characters as
+text. "That is confusing and not clear." The fix is the book convention
+for a long excerpt: set it off by indentation, not by marks, using Word's
+own Quote style so the look can be changed in one place. Upright rather
+than the stock style's italic, because some excerpts run to several
+paragraphs, and a long run of italic tires the eye.
 
 ## Install
 `tools/checks/check_create_word_doc.py` is structural only: it confirms
