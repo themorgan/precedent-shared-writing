@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -167,11 +167,15 @@ A `*phrase*` in the source is italic in Word, a `**phrase**` is bold, and
 when one sits inside the other (`**a long bold sentence with a *phrase*
 in italics**`, the commonest way authors stress a word inside a stressed
 sentence) and when an italic title wraps from one source line onto the
-next. [`tools/create_word_doc.py`](../tools/create_word_doc.py) reads emphasis the way Markdown does, so
-both come out right, and it warns on stderr, quoting the passage, about any
-asterisk placed like emphasis that nothing closes; an escaped `\*` and a
-spaced `5 * 3` stay plain characters and are not reported. A warning is a
-typo to fix in the source before the file goes to anyone. A hand-built
+next. Word can show both at once (bold italic), so it does. **Where it
+cannot -- the marks cross, as in `**a *b** c*`, or an inner one is never
+closed -- the outer one wins**: the text takes the outer mark's form, and the
+inner mark's asterisks are left out. [`tools/create_word_doc.py`](../tools/create_word_doc.py)
+reads emphasis the way Markdown does, applies the outer-wins rule, and warns
+on stderr, quoting the passage, about any asterisk placed like emphasis that
+nothing pairs, which it leaves out of the text; an escaped `\*` and a spaced
+`5 * 3` stay plain characters and are not reported. A warning is a typo to
+fix in the source before the file goes to anyone. A hand-built
 one-off carries the same promise: whatever script builds it confirms, after
 building, that no `*` (and no other Markdown or HTML markup) is left in the
 document's text, and fails if one is.

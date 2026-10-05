@@ -247,8 +247,10 @@ def parse_inline(text):
     ***both***, nested either way round -- "**a *b* c**" gives a bold run
     with an italic-and-bold middle. A link becomes its text, a trailing
     backslash -- Markdown's hard line break, which the caller already makes
-    a real one -- is dropped, and an escaped \\* is a plain asterisk. An
-    asterisk nothing closes stays a plain character, as in Markdown.
+    a real one -- is dropped, and an escaped \\* or a spaced "5 * 3" is a
+    plain asterisk. When marks cross ("**a *b** c*") the outer one wins.
+    An asterisk placed like emphasis that nothing pairs never reaches the
+    text: it is left out and noted in STRAY_ASTERISKS for a warning.
     The text may hold "\\n" (a line break inside the paragraph); emphasis
     carries across it, so an italic title wrapped over two source lines
     still comes out italic."""
@@ -275,8 +277,14 @@ def parse_inline(text):
         pieces.append(text[last:])
 
     # Match closers to the nearest opener still holding asterisks, two at a
-    # time (bold) when both sides have two, else one (italic). Openers
-    # skipped over by a match can no longer close anything: they stay plain.
+    # time (bold) when both sides have two, else one (italic). When marks
+    # cross -- "**a *b** c*" -- the outer one wins (Morgan, 2026-10-05: "it
+    # should always take the form of the OUTER one"): a closer that cannot
+    # pair with the nearest opener's kind, but can with one further out,
+    # closes that outer one, and the inner openers it skips are dropped.
+    def fits(opener_left, closer_left):
+        return opener_left >= 2 if closer_left >= 2 else opener_left in (1, 3)
+
     stack = []
     for piece in pieces:
         if isinstance(piece, str):
@@ -284,6 +292,11 @@ def parse_inline(text):
         piece["left"] = piece["n"]
         if piece["can_close"]:
             while piece["left"] and stack:
+                if not fits(stack[-1]["left"], piece["left"]):
+                    outer = next((i for i in range(len(stack) - 2, -1, -1)
+                                  if fits(stack[i]["left"], piece["left"])), None)
+                    if outer is not None:
+                        del stack[outer + 1:]
                 opener = stack[-1]
                 use = 2 if opener["left"] >= 2 and piece["left"] >= 2 else 1
                 kind = "bold" if use == 2 else "italic"
@@ -315,17 +328,18 @@ def parse_inline(text):
             emit(piece)
             at += len(piece)
             continue
+        # An asterisk placed like emphasis that nothing paired -- a crossed
+        # inner mark the outer one won over, or a typo -- never reaches the
+        # page; it is reported instead, so the source gets fixed.
         if piece["left"] and (piece["can_open"] or piece["can_close"]):
             STRAY_ASTERISKS.append(plain[max(0, at - 40):at + 40])
+        elif piece["left"]:
+            emit("*" * piece["left"])  # spaced on both sides: "5 * 3"
         at += piece["n"]
         for kind in piece["closes"]:
             depth[kind] -= 1
-        if piece["opens"]:
-            emit("*" * piece["left"])  # unmatched, outside the emphasis
-            for kind in piece["opens"]:
-                depth[kind] += 1
-        else:
-            emit("*" * piece["left"])
+        for kind in piece["opens"]:
+            depth[kind] += 1
     if not runs:
         runs.append(("", False, False))
     return runs
@@ -689,7 +703,8 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
     # nothing closed is almost always a typo in the source; say where, never
     # pass it silently. An escaped \\* or a spaced "5 * 3" is not reported.
     for where in STRAY_ASTERISKS:
-        print(f"create_word_doc WARNING: a stray asterisk reached the text: "
+        print(f"create_word_doc WARNING: a stray asterisk was left out of the "
+              f"text -- fix the source: "
               f"...{where}...", file=sys.stderr)
 
     return doc
