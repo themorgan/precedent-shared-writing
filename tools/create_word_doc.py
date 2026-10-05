@@ -219,6 +219,50 @@ def style_heading_1(doc, size=None):
     return style
 
 
+def style_contents(doc, section=None):
+    """Word's own contents styles, "TOC 1" for a Part and "TOC 2" for a
+    chapter, set so the list reads as a contents page at a glance
+    (practice: create-word-doc, the contents page): a Part bold with a
+    little space above it, its chapters indented under it, everything
+    single-spaced -- body text's 1.3 line spacing turned a contents list
+    into an unbroken column nobody recognized (Morgan, 2026-10-05). Both
+    carry a dotted right-aligned tab at the text's right edge, so when a
+    reader picks Update Field in Word, the page numbers it adds sit at the
+    end of a dot leader, the way a printed book's do. Word rewrites the
+    list with these same styles on that update, so it keeps the look.
+    Returns (toc1, toc2)."""
+    from docx.enum.style import WD_STYLE_TYPE
+    from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+    section = section or doc.sections[0]
+    width = section.page_width - section.left_margin - section.right_margin
+    out = []
+    for level in (1, 2):
+        # Word knows its contents styles by the id "TOC1" and the internal
+        # name "toc 1", and only a built-in style -- not a custom one of the
+        # same look -- is what Update Field rewrites the list with.
+        style = next((st for st in doc.styles
+                      if st.style_id == f"TOC{level}"), None)
+        if style is None:
+            style = doc.styles.add_style(f"TOC {level}", WD_STYLE_TYPE.PARAGRAPH)
+            style.base_style = doc.styles["Normal"]
+            style.element.style_id = f"TOC{level}"
+            style.element.name_val = f"toc {level}"
+            style.element.attrib.pop(qn("w:customStyle"), None)
+        style.next_paragraph_style = style
+        pf = style.paragraph_format
+        pf.line_spacing = 1.0
+        pf.left_indent = Inches(0 if level == 1 else 0.3)
+        pf.space_before = Pt(8 if level == 1 else 0)
+        pf.space_after = Pt(2)
+        style.font.bold = level == 1
+        pf.tab_stops.add_tab_stop(width, WD_TAB_ALIGNMENT.RIGHT,
+                                  WD_TAB_LEADER.DOTS)
+        out.append(style)
+    # A Part's first chapter line stays on the Part's page.
+    out[0].paragraph_format.keep_with_next = True
+    return tuple(out)
+
+
 def style_block_quote(doc):
     """Restyle Word's built-in "Quote" style as a book's block quotation:
     indented both sides, upright, a point smaller than the body, a little
@@ -551,7 +595,8 @@ def add_contents(doc):
     Heading 1 but stays out of the contents and the Navigation Pane, where a
     Heading 1 would list itself. Then a TOC field (TOC \\o "1-2" \\h \\z \\u)
     whose cached result is the finished list: each Heading 1 and Heading 2,
-    as a link that jumps to a bookmark on the heading itself.
+    as a link that jumps to a bookmark on the heading itself, in Word's own
+    "TOC 1" and "TOC 2" styles as style_contents() sets them.
 
     The document never asks Word to update its fields when it opens (no
     updateFields setting): that is the "This document contains fields that
@@ -596,11 +641,11 @@ def add_contents(doc):
 
     # The field opens in the first entry's paragraph and closes in the last,
     # so its cached result is the list of headings itself.
+    toc1, toc2 = style_contents(doc)
     paras = []
     for h, name in zip(headings, names):
-        p = first_part.insert_paragraph_before()
-        p.paragraph_format.left_indent = Inches(
-            0.3 if h.style.name == "Heading 2" else 0)
+        p = first_part.insert_paragraph_before(
+            style=toc2 if h.style.name == "Heading 2" else toc1)
         paras.append((p, h.text, name))
     first = paras[0][0]
     field_char(first, "begin")
