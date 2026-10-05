@@ -19,7 +19,14 @@ Every page's footer carries two centered lines:
   Page <n> of <total>
   CONFIDENTIAL - DRAFT BOOK: <SHORT NAME> - <date>
 using live PAGE/NUMPAGES fields so the count stays correct after Word
-repaginates the content.
+repaginates the content. The footer is set in a sans-serif face (Arial),
+a touch smaller than the body (10 point against 12), so it reads as page
+furniture against the serif text. style_footer() does the same for a
+document built by hand.
+
+Heading 1 is 20 point, between the title's 26 and Heading 2's 13: Word's
+stock 14 point barely stood out from Heading 2. style_heading_1() does
+the same for a document built by hand.
 
 Every Part (##) and chapter (###) heading starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
@@ -33,8 +40,8 @@ shorter document (notes, a brainstorm) whose sections should flow on.
 does: a paragraph's lines join with a space, and only a line ending in a
 backslash or two spaces breaks.
 
-`--header-image PATH` puts a small copy of an image (a logo) centered in
-the header of every page but the first, which already carries the
+`--header-image PATH` puts a small copy of an image (a logo), 0.6 inch
+tall, centered in the header of every page but the first, which already carries the
 cover. add_header_image() does the same for a document built by hand.
 
 A "> " block -- a long excerpt quoted from another text -- becomes a
@@ -53,7 +60,8 @@ Word's stock List Bullet puts the bullet flush against the margin, which
 looks like a mistake beside indented block quotations. style_list_bullet()
 does the same for a document built by hand.
 
-Default page is A4, default line spacing is 1.3x. A "Words: <count>"
+Default page is A4 with 0.75-inch margins on all four sides, default
+line spacing is 1.3x. A "Words: <count>"
 line (with an optional trailing parenthetical, e.g. "(PART 1)") is
 replaced with a live Word NUMWORDS field and the parenthetical dropped
 -- so the count always reflects the whole manuscript and never goes
@@ -163,6 +171,105 @@ WORDS_LINE_RE = re.compile(r"^Words:\s*[\d,]+\s*(\(.*\))?\s*$", re.IGNORECASE)
 # practice: create-word-doc -- a "> " line is a block quotation, never text
 # that starts with a ">" character.
 QUOTE_LINE_RE = re.compile(r"^\s*>\s?")
+
+
+# practice: create-word-doc -- the footer's face and size. A sans-serif
+# footer a touch smaller than the body reads as page furniture, set apart
+# from the serif text (Morgan, 2026-10-05).
+FOOTER_FONT = "Arial"
+FOOTER_SIZE = 10
+# practice: create-word-doc -- Heading 1 sits clearly between the title
+# (26 point) and Heading 2 (13): Word's stock 14 point barely stood out
+# from Heading 2 (Morgan, 2026-10-05).
+HEADING_1_SIZE = 20
+# practice: create-word-doc -- the page margin on all four sides, in inches.
+# It was one inch until Morgan asked for 0.75 (2026-10-05). A builder that
+# lays out its own page reads this rather than its own number.
+PAGE_MARGIN = 0.75
+# practice: create-word-doc -- the running header's logo, in inches tall.
+# It was 0.4 until Morgan asked for it about half as big again (2026-10-05).
+HEADER_IMAGE_HEIGHT = 0.6
+
+
+def set_style_font(style, name):
+    """Set a style's typeface in every slot Word reads (Latin, East Asian,
+    complex script) and drop any theme font, which would otherwise win over
+    the name in some viewers."""
+    style.font.name = name
+    rfonts = style.element.get_or_add_rPr().get_or_add_rFonts()
+    for slot in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+        rfonts.set(qn(slot), name)
+    for attr in ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme"):
+        if rfonts.get(qn(attr)) is not None:
+            del rfonts.attrib[qn(attr)]
+
+
+def style_footer(doc, size=None):
+    """Set Word's built-in "Footer" style in FOOTER_FONT, a touch smaller
+    than the body (FOOTER_SIZE, or `size` points for a document whose body
+    is smaller than 12). Every footer paragraph must carry the style --
+    python-docx gives one to the footer's first paragraph only, so add the
+    others with style="Footer". Returns the style."""
+    style = doc.styles["Footer"]
+    set_style_font(style, FOOTER_FONT)
+    style.font.size = Pt(size or FOOTER_SIZE)
+    return style
+
+
+def style_heading_1(doc, size=None):
+    """Make Heading 1 HEADING_1_SIZE points (or `size`), clearly bigger than
+    Heading 2 and still smaller than the title. Returns the style."""
+    style = doc.styles["Heading 1"]
+    style.font.size = Pt(size or HEADING_1_SIZE)
+    return style
+
+
+def style_contents(doc, section=None):
+    """Word's own contents styles, "TOC 1" for a Part and "TOC 2" for a
+    chapter, set so the list reads as a contents page at a glance
+    (practice: create-word-doc, the contents page): a Part bold with a
+    little space above it, its chapters indented under it, everything
+    single-spaced -- body text's 1.3 line spacing turned a contents list
+    into an unbroken column nobody recognized (Morgan, 2026-10-05). Both
+    carry a dotted right-aligned tab at the text's right edge, so when a
+    reader picks Update Field in Word, the page numbers it adds sit at the
+    end of a dot leader, the way a printed book's do. Every entry is set in
+    the footer's sans-serif face (FOOTER_FONT) and underlined, so it reads
+    as a link -- which it is -- rather than as more text (Morgan,
+    2026-10-05). Word rewrites the list with these same styles on that
+    update, so it keeps the look. Returns (toc1, toc2)."""
+    from docx.enum.style import WD_STYLE_TYPE
+    from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+    section = section or doc.sections[0]
+    width = section.page_width - section.left_margin - section.right_margin
+    out = []
+    for level in (1, 2):
+        # Word knows its contents styles by the id "TOC1" and the internal
+        # name "toc 1", and only a built-in style -- not a custom one of the
+        # same look -- is what Update Field rewrites the list with.
+        style = next((st for st in doc.styles
+                      if st.style_id == f"TOC{level}"), None)
+        if style is None:
+            style = doc.styles.add_style(f"TOC {level}", WD_STYLE_TYPE.PARAGRAPH)
+            style.base_style = doc.styles["Normal"]
+            style.element.style_id = f"TOC{level}"
+            style.element.name_val = f"toc {level}"
+            style.element.attrib.pop(qn("w:customStyle"), None)
+        style.next_paragraph_style = style
+        pf = style.paragraph_format
+        pf.line_spacing = 1.0
+        pf.left_indent = Inches(0 if level == 1 else 0.3)
+        pf.space_before = Pt(8 if level == 1 else 0)
+        pf.space_after = Pt(2)
+        style.font.bold = level == 1
+        set_style_font(style, FOOTER_FONT)
+        style.font.underline = True
+        pf.tab_stops.add_tab_stop(width, WD_TAB_ALIGNMENT.RIGHT,
+                                  WD_TAB_LEADER.DOTS)
+        out.append(style)
+    # A Part's first chapter line stays on the Part's page.
+    out[0].paragraph_format.keep_with_next = True
+    return tuple(out)
 
 
 def style_block_quote(doc):
@@ -408,8 +515,9 @@ def bullet_items(block):
 
 
 def add_header_image(section, image_path, height=None):
-    """A small copy of an image (a logo) centered in the header of every
-    page but the first (practice: create-word-doc, the running header).
+    """A small copy of an image (a logo), HEADER_IMAGE_HEIGHT inches tall
+    unless `height` says otherwise, centered in the header of every page
+    but the first (practice: create-word-doc, the running header).
 
     The first page gets a header and footer of its own -- Word's "different
     first page" -- so the header there is left empty, under the cover, and
@@ -424,7 +532,7 @@ def add_header_image(section, image_path, height=None):
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.line_spacing = 1.0  # a 1.3 line would pad the image
-    p.add_run().add_picture(str(image_path), height=height or Inches(0.4))
+    p.add_run().add_picture(str(image_path), height=height or Inches(HEADER_IMAGE_HEIGHT))
 
     section.first_page_header.is_linked_to_previous = False
     first_footer = section.first_page_footer
@@ -496,7 +604,8 @@ def add_contents(doc):
     Heading 1 but stays out of the contents and the Navigation Pane, where a
     Heading 1 would list itself. Then a TOC field (TOC \\o "1-2" \\h \\z \\u)
     whose cached result is the finished list: each Heading 1 and Heading 2,
-    as a link that jumps to a bookmark on the heading itself.
+    as a link that jumps to a bookmark on the heading itself, in Word's own
+    "TOC 1" and "TOC 2" styles as style_contents() sets them.
 
     The document never asks Word to update its fields when it opens (no
     updateFields setting): that is the "This document contains fields that
@@ -541,11 +650,11 @@ def add_contents(doc):
 
     # The field opens in the first entry's paragraph and closes in the last,
     # so its cached result is the list of headings itself.
+    toc1, toc2 = style_contents(doc)
     paras = []
     for h, name in zip(headings, names):
-        p = first_part.insert_paragraph_before()
-        p.paragraph_format.left_indent = Inches(
-            0.3 if h.style.name == "Heading 2" else 0)
+        p = first_part.insert_paragraph_before(
+            style=toc2 if h.style.name == "Heading 2" else toc1)
         paras.append((p, h.text, name))
     first = paras[0][0]
     field_char(first, "begin")
@@ -585,10 +694,12 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
     section.page_width = Mm(210)  # A4 -- practice: create-word-doc
     section.page_height = Mm(297)
     for side in ("top_margin", "bottom_margin", "left_margin", "right_margin"):
-        setattr(section, side, Inches(1))
+        setattr(section, side, Inches(PAGE_MARGIN))
 
     word_count_cache = str(len(text.split()))
     quote_style = style_block_quote(doc)  # practice: create-word-doc
+    style_footer(doc)  # practice: create-word-doc
+    style_heading_1(doc)  # practice: create-word-doc
     style_list_bullet(doc)  # practice: create-word-doc
 
     saw_title = False
@@ -681,13 +792,14 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         footer.is_linked_to_previous = False
 
         page_para = footer.paragraphs[0]
+        page_para.style = doc.styles["Footer"]
         page_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         page_para.add_run("Page ")
         add_field(page_para, "PAGE")
         page_para.add_run(" of ")
         add_field(page_para, "NUMPAGES")
 
-        conf_para = footer.add_paragraph()
+        conf_para = footer.add_paragraph(style="Footer")
         conf_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         conf_para.add_run(
             f"CONFIDENTIAL - DRAFT BOOK: {short_name.upper()} - {date_str}"
