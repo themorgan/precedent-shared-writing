@@ -10,13 +10,13 @@ index_clause: "one ASSORTED_NOTES.md for ideas never cited elsewhere; listing it
 checked_by:  tools/checks/check_assorted_notes.py
 defines:     ["ASSORTED_NOTES.md"]
 status:      active
+in_force_at: null
 supersedes:  []
 overrides:   null
 added:       "2026-10-05"
 approved_by: "Morgan F, 2026-10-05, moved from the shared set precedent-shared-working-style (there: Morgan F, 2026-09-23, moved from the individual set precedent-individual (there: Morgan F, 2026-09-04; revised 2026-09-05, Morgan F, to exempt plain directory-listing links, then again the same day to exempt any See also section))"
-source_practice_number: null
-in_force_at: null
 strength: decided
+source_practice_number: null
 ---
 ## Rule
 A repo keeps a single file, `ASSORTED_NOTES.md`, for random notes, observations, comments, and things to use later -- content not yet organized or ready to be relied on as support for something else. When upgrading a legacy repo that already has an equivalent file under a different name (`BRAINSTORM.md`, `NOTES.md`, `IDEAS.md`, or similar), rename it to `ASSORTED_NOTES.md`, keeping its content, for consistency across repos.
