@@ -19,7 +19,14 @@ Every page's footer carries two centered lines:
   Page <n> of <total>
   CONFIDENTIAL - DRAFT BOOK: <SHORT NAME> - <date>
 using live PAGE/NUMPAGES fields so the count stays correct after Word
-repaginates the content.
+repaginates the content. The footer is set in a sans-serif face (Arial),
+a touch smaller than the body (10 point against 12), so it reads as page
+furniture against the serif text. style_footer() does the same for a
+document built by hand.
+
+Heading 1 is 20 point, between the title's 26 and Heading 2's 13: Word's
+stock 14 point barely stood out from Heading 2. style_heading_1() does
+the same for a document built by hand.
 
 Every Part (##) and chapter (###) heading starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
@@ -33,8 +40,8 @@ shorter document (notes, a brainstorm) whose sections should flow on.
 does: a paragraph's lines join with a space, and only a line ending in a
 backslash or two spaces breaks.
 
-`--header-image PATH` puts a small copy of an image (a logo) centered in
-the header of every page but the first, which already carries the
+`--header-image PATH` puts a small copy of an image (a logo), 0.6 inch
+tall, centered in the header of every page but the first, which already carries the
 cover. add_header_image() does the same for a document built by hand.
 
 A "> " block -- a long excerpt quoted from another text -- becomes a
@@ -163,6 +170,53 @@ WORDS_LINE_RE = re.compile(r"^Words:\s*[\d,]+\s*(\(.*\))?\s*$", re.IGNORECASE)
 # practice: create-word-doc -- a "> " line is a block quotation, never text
 # that starts with a ">" character.
 QUOTE_LINE_RE = re.compile(r"^\s*>\s?")
+
+
+# practice: create-word-doc -- the footer's face and size. A sans-serif
+# footer a touch smaller than the body reads as page furniture, set apart
+# from the serif text (Morgan, 2026-10-05).
+FOOTER_FONT = "Arial"
+FOOTER_SIZE = 10
+# practice: create-word-doc -- Heading 1 sits clearly between the title
+# (26 point) and Heading 2 (13): Word's stock 14 point barely stood out
+# from Heading 2 (Morgan, 2026-10-05).
+HEADING_1_SIZE = 20
+# practice: create-word-doc -- the running header's logo, in inches tall.
+# It was 0.4 until Morgan asked for it about half as big again (2026-10-05).
+HEADER_IMAGE_HEIGHT = 0.6
+
+
+def set_style_font(style, name):
+    """Set a style's typeface in every slot Word reads (Latin, East Asian,
+    complex script) and drop any theme font, which would otherwise win over
+    the name in some viewers."""
+    style.font.name = name
+    rfonts = style.element.get_or_add_rPr().get_or_add_rFonts()
+    for slot in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+        rfonts.set(qn(slot), name)
+    for attr in ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme"):
+        if rfonts.get(qn(attr)) is not None:
+            del rfonts.attrib[qn(attr)]
+
+
+def style_footer(doc, size=None):
+    """Set Word's built-in "Footer" style in FOOTER_FONT, a touch smaller
+    than the body (FOOTER_SIZE, or `size` points for a document whose body
+    is smaller than 12). Every footer paragraph must carry the style --
+    python-docx gives one to the footer's first paragraph only, so add the
+    others with style="Footer". Returns the style."""
+    style = doc.styles["Footer"]
+    set_style_font(style, FOOTER_FONT)
+    style.font.size = Pt(size or FOOTER_SIZE)
+    return style
+
+
+def style_heading_1(doc, size=None):
+    """Make Heading 1 HEADING_1_SIZE points (or `size`), clearly bigger than
+    Heading 2 and still smaller than the title. Returns the style."""
+    style = doc.styles["Heading 1"]
+    style.font.size = Pt(size or HEADING_1_SIZE)
+    return style
 
 
 def style_block_quote(doc):
@@ -408,8 +462,9 @@ def bullet_items(block):
 
 
 def add_header_image(section, image_path, height=None):
-    """A small copy of an image (a logo) centered in the header of every
-    page but the first (practice: create-word-doc, the running header).
+    """A small copy of an image (a logo), HEADER_IMAGE_HEIGHT inches tall
+    unless `height` says otherwise, centered in the header of every page
+    but the first (practice: create-word-doc, the running header).
 
     The first page gets a header and footer of its own -- Word's "different
     first page" -- so the header there is left empty, under the cover, and
@@ -424,7 +479,7 @@ def add_header_image(section, image_path, height=None):
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.line_spacing = 1.0  # a 1.3 line would pad the image
-    p.add_run().add_picture(str(image_path), height=height or Inches(0.4))
+    p.add_run().add_picture(str(image_path), height=height or Inches(HEADER_IMAGE_HEIGHT))
 
     section.first_page_header.is_linked_to_previous = False
     first_footer = section.first_page_footer
@@ -589,6 +644,8 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
     word_count_cache = str(len(text.split()))
     quote_style = style_block_quote(doc)  # practice: create-word-doc
+    style_footer(doc)  # practice: create-word-doc
+    style_heading_1(doc)  # practice: create-word-doc
     style_list_bullet(doc)  # practice: create-word-doc
 
     saw_title = False
@@ -681,13 +738,14 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         footer.is_linked_to_previous = False
 
         page_para = footer.paragraphs[0]
+        page_para.style = doc.styles["Footer"]
         page_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         page_para.add_run("Page ")
         add_field(page_para, "PAGE")
         page_para.add_run(" of ")
         add_field(page_para, "NUMPAGES")
 
-        conf_para = footer.add_paragraph()
+        conf_para = footer.add_paragraph(style="Footer")
         conf_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         conf_para.add_run(
             f"CONFIDENTIAL - DRAFT BOOK: {short_name.upper()} - {date_str}"

@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -60,6 +60,14 @@ Page <n> of <total>
 CONFIDENTIAL - DRAFT BOOK: <SHORT NAME> - <date>
 ```
 
+**The footer is set in a sans-serif face, a touch smaller than the
+body** -- Arial, 10 point against the body's 12 -- so it reads as page
+furniture, set apart from the serif text. It lives in Word's own
+**Footer** style, which every footer paragraph carries, so it is one
+style to change. A Word document built by hand calls `style_footer(doc)`
+(passing a smaller size when its body is smaller than 12 point) and adds
+each footer paragraph with `style="Footer"`.
+
 `<n>`/`<total>` are live Word PAGE/NUMPAGES fields, not a computed
 count, so they stay correct after Word repaginates. `<SHORT NAME>`
 defaults to a `book-*/` ancestor directory's name (this tool's own
@@ -92,12 +100,18 @@ sections are better read flowing on than one to a page.
 
 **A running header is optional: `--header-image PATH`**
 (`header_image=` to `build_doc()`). It puts a small copy of the image --
-a logo, 0.4 inch tall -- centered in the header of every page but the
+a logo, 0.6 inch tall -- centered in the header of every page but the
 first, which carries the cover and so gets Word's "different first page"
 with an empty header and a copy of the footer (without the copy, page one
 would lose its "Page X of Y"). A Word document built by hand gets the
 same header from `add_header_image(section, path)`, called once its
 footer is written.
+
+**Heading 1 stands clearly between the title and Heading 2**: 20
+point, where Word's stock 14 point sat barely above Heading 2's 13 and
+the title is 26. `style_heading_1(doc)` sets it; `build_doc()` calls it,
+and a document built by hand with its own sizes keeps the same order --
+title, then Heading 1 well below it, then Heading 2 well below that.
 
 **Page is A4, default line spacing is 1.3x**, set once on the `Normal`
 style and the section's page size rather than per paragraph, so every
@@ -360,3 +374,12 @@ line-up of each item's own wrapped lines was right; only the bullets
 were out. He asked for them about half an inch in, in every Word file
 and in this practice. `style_list_bullet()` landed here and in the
 script, so the next build of every document picks it up.
+
+Same day, evening: Morgan asked for three more defaults. The footer, in
+the body's serif face and size, did not stand apart from the text; he
+wanted it sans-serif and a touch smaller. The logo in the running header
+was "a bit too small", so it went from 0.4 inch to 0.6. And Heading 1, at
+Word's stock 14 point against Heading 2's 13, hardly looked like a level
+above it; he wanted it bigger, though not as big as the title. All three
+went into the script and this Rule, so every document built from it picks
+them up.
