@@ -49,7 +49,7 @@ echo "ok: clean with the hook wired"
 
 hook() { printf '%s' "$1" | python3 "$TOOL" --hook 2>"$SCRATCH/hook.err"; }
 set +e
-hook '{"tool_name":"SendUserFile","tool_input":{"files":["out/holy-hardball-joseph-manuscript.docx"]}}'; C1=$?
+hook '{"tool_name":"SendUserFile","tool_input":{"files":["out/joseph-manuscript.docx"]}}'; C1=$?
 ERR1="$(cat "$SCRATCH/hook.err")"
 hook '{"tool_name":"SendUserFile","tool_input":{"files":["out/Joseph - 2026-10-05.docx","a/b-2026-10-05.pdf"]}}'; C2=$?
 hook '{"tool_name":"SendUserFile","tool_input":{"files":["shot.png","page.html"]}}'; C3=$?
@@ -59,7 +59,7 @@ if [[ $C1 -ne 2 || $C2 -ne 0 || $C3 -ne 0 ]]; then
   exit 1
 fi
 if ! grep -q "dated-download-names: a document handed over" <<<"$ERR1" \
-    || ! grep -q "holy-hardball-joseph-manuscript.docx" <<<"$ERR1"; then
+    || ! grep -q "joseph-manuscript.docx" <<<"$ERR1"; then
   echo "FAIL: the refusal did not come from the dated-name gate, naming the file: $ERR1" >&2
   exit 1
 fi

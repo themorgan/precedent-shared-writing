@@ -35,7 +35,7 @@ anything the reader saves and opens somewhere else. It does not cover an
 image, a web page shown in the side panel, or source code.
 
 **A document the repository keeps for download is dated the same way**,
-with the day it was last built: `book-joseph/output/holy-hardball-joseph-manuscript-2026-10-05.docx`.
+with the day it was last built: `book/output/manuscript-2026-10-05.docx`.
 The copy in the repository and the copy you are sent then have the same
 name, and either one says when it is from. A rebuild that changes the
 document saves it under the new day's name and deletes the older copy, so

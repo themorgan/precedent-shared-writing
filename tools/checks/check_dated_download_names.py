@@ -47,7 +47,7 @@ SETTINGS = ROOT / ".claude" / "settings.json"
 CASES = {
     "Joseph Manuscript-2026-12-31.docx": True,
     "Joseph Manuscript - 2026-12-31.docx": True,
-    "holy-hardball-joseph-manuscript.docx": False,
+    "joseph-manuscript.docx": False,
     "report_2026-12-31.pdf": False,      # underscore is not one of the forms
     "report-2026-13-45.pdf": False,      # not a real date
     "report-2026-12-31-final.pdf": False,  # the date is not last
