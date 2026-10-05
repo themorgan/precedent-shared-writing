@@ -239,3 +239,65 @@ if ! grep -q "one_off_docx.py writes Word's updateFields" <<<"$OUT"; then
 fi
 rm "$SCRATCH/tools/one_off_docx.py"
 echo "ok: the check fails on a script that makes a document ask to update its fields"
+
+# 9. Emphasis nests and spans lines the way Markdown reads it, and no
+#    asterisk that marks emphasis ever reaches the text (Morgan, 2026-10-05:
+#    "**... a *deeply realistic* view ...**" printed as italic text wrapped
+#    in literal asterisks). Italic inside bold, bold inside italic, ***both***,
+#    an italic phrase wrapped over two lines, in a bullet and a quotation;
+#    an escaped \* and a lone "5 * 3" stay plain characters; a stray
+#    asterisk is reported on stderr, never passed silently.
+cat > "$SCRATCH/book-sample/MANUSCRIPT.md" <<'MD'
+# Sample
+
+**Bold with a *nested italic* inside.**
+
+*Italic with **nested bold** inside.* And ***both*** at once.
+
+A title *wrapped over
+two lines*, then more.
+
+- **Item with *italic* in bold**
+
+> **Quoted *nested* emphasis.**
+
+Escaped \*stars\* and 5 * 3 stay.
+MD
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Nested.docx" --date 2026-01-01 --soft-wraps > /dev/null 2>"$SCRATCH/nested.err"
+if ! OUT="$(python3 - "$SCRATCH/out/Nested.docx" <<'PY' 2>&1
+import sys
+import docx
+paras = docx.Document(sys.argv[1]).paragraphs[1:]
+def runs(p):
+    return [(r.text, bool(r.bold), bool(r.italic)) for r in p.runs if r.text]
+assert runs(paras[0]) == [("Bold with a ", True, False), ("nested italic", True, True),
+                          (" inside.", True, False)], runs(paras[0])
+assert runs(paras[1]) == [("Italic with ", False, True), ("nested bold", True, True),
+                          (" inside.", False, True), (" And ", False, False),
+                          ("both", True, True), (" at once.", False, False)], runs(paras[1])
+assert runs(paras[2]) == [("A title ", False, False), ("wrapped over two lines", False, True),
+                          (", then more.", False, False)], runs(paras[2])
+assert runs(paras[3]) == [("Item with ", True, False), ("italic", True, True),
+                          (" in bold", True, False)], runs(paras[3])
+assert runs(paras[4]) == [("Quoted ", True, False), ("nested", True, True),
+                          (" emphasis.", True, False)], runs(paras[4])
+assert paras[5].text == "Escaped *stars* and 5 * 3 stay.", paras[5].text
+assert not any("*" in p.text for p in paras[:5]), "an emphasis asterisk reached the text"
+PY
+)"; then
+  echo "FAIL: nested or wrapped emphasis did not render as Markdown reads it: $OUT" >&2
+  exit 1
+fi
+printf '# Sample\n\nA *stray asterisk.\n' > "$SCRATCH/book-sample/MANUSCRIPT.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Stray.docx" --date 2026-01-01 > /dev/null 2>"$SCRATCH/stray.err"
+if ! grep -q "asterisk" "$SCRATCH/stray.err" || ! grep -q "stray asterisk" "$SCRATCH/stray.err"; then
+  echo "FAIL: a stray asterisk was not reported on stderr: $(cat "$SCRATCH/stray.err")" >&2
+  exit 1
+fi
+if grep -q "asterisk" "$SCRATCH/nested.err"; then
+  echo "FAIL: escaped or spaced asterisks were reported as stray: $(cat "$SCRATCH/nested.err")" >&2
+  exit 1
+fi
+echo "ok: emphasis nests and spans wrapped lines; no emphasis asterisk reaches the text; a stray one is reported"
