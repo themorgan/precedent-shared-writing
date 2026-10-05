@@ -13,7 +13,7 @@ own**, and a repo may declare several shared sets — see
 
 <!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block; `python3 tools/build_views.py --check` exits non-zero on drift. Source: practices/ -- edit the practice file, never this block. -->
 
-## Resident block (~149 of 2000 token budget, 2 of 19 practices)
+## Resident block (~149 of 2000 token budget, 2 of 20 practices)
 
 **default-register.** **The register of a reply belongs to its reader.** Where the person you are working with has declared their own -- their individual practice set is where they do it -- that declaration governs and this rule steps aside. **Where none resolves, write to a reader who is not technical**, because on this team they generally are not; `## Detail` says what that means in full.
 
