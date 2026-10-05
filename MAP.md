@@ -52,6 +52,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 
 | Path | What it is |
 |---|---|
+| [tools/artifact_publish_gate.py](tools/artifact_publish_gate.py) | The publish gate: a page reaches a link only as a fresh render of a |
 | [tools/build_codeowners.py](tools/build_codeowners.py) | CODEOWNERS, generated -- a practice set's from its approvers.json, a project's from the maintainers and owned_paths in its precedent.json |
 | [tools/build_todo_index.py](tools/build_todo_index.py) | todo/TODO.md and todo/CLOSED.md, generated from todo/*.md's frontmatter |
 | [tools/build_views.py](tools/build_views.py) | This file, GLOSSARY.md, and AGENTS.md's loader block — generated views |
@@ -65,7 +66,9 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/leak_gate.py](tools/leak_gate.py) | The push-time leak gate — structural rules always, private-term blocklist when configured |
 | [tools/our_language.py](tools/our_language.py) | Our language: the short list of words a person needs to follow a conversation about Precedent, read from tools/our_language.json and rendered into documentation/OUR_LANGUAGE.md's generated table (spec/FIVE_STAGES_AND_OUR_LANGUAGE_PLAN.md) |
 | [tools/parse_check.py](tools/parse_check.py) | Does every JSON/YAML file in scope still parse — changed files for the deep check, the whole tree for the very deep check |
+| [tools/practice_standing.py](tools/practice_standing.py) | a practice's standing: how binding it is, and who may set it |
 | [tools/precedent_access_check.py](tools/precedent_access_check.py) | Probes, at session start, which repos in force this session can actually push to -- so work destined for one it cannot reach is discovered before it is done, not after |
+| [tools/precedent_audience.py](tools/precedent_audience.py) | precedent_audience.py -- whether the person in this session is one of the |
 | [tools/precedent_bootstrap_source.py](tools/precedent_bootstrap_source.py) | Instantiates a brand-new individual or shared practice set from a skeleton, for an adopter who has neither yet |
 | [tools/precedent_branch_name.py](tools/precedent_branch_name.py) | The name for a session's feature branch, built the same way every time -- `claude/<date>-<slug>-<id>`, the id being the end of the session's ID, or random characters when there is none |
 | [tools/precedent_branches.py](tools/precedent_branches.py) | Where a person's work lands here (spec/LADDER_OPT_IN_PLAN.md D3) and whether a push to a branch gets the basic or the full push check; the branch tiers and their moves for a person whose set provides them (spec/BRANCH_TIERS_PLAN.md) |
@@ -98,6 +101,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_show.py](tools/precedent_show.py) | Loads a practice's Rule/Detail/Why/Story/Install — the one code path that reads a practice file |
 | [tools/precedent_source_bootstrap.py](tools/precedent_source_bootstrap.py) | Clone-or-pull for a privately-scoped individual or shared source, used by its SessionStart hook and by precedent_resolve.py's own lazy self-heal |
 | [tools/precedent_source_credentials.py](tools/precedent_source_credentials.py) | Whether this environment can reach its private practice sources, and the git credential helper that lets a SessionStart hook clone them without add_repo |
+| [tools/precedent_stale_branches.py](tools/precedent_stale_branches.py) | precedent_stale_branches.py -- the remote branches you can delete, across |
 | [tools/precedent_time.py](tools/precedent_time.py) | The ONE emitter for every date and time this repo writes down — resolves whose zone, always carries the offset; run it bare to see which rung answered |
 | [tools/precedent_vendor_engine.py](tools/precedent_vendor_engine.py) | Vendors the minimal source-repo engine (this file, precedent_gate/paths/show.py, split_practices.py, a trimmed routing_scope.json) into an individual or shared set, and keeps it refreshable |
 | [tools/precedent_vocabulary.py](tools/precedent_vocabulary.py) | Lists every standing command in force -- each phrase and the plain sentence a person reads -- collected from the `command:` field of every practice across every resolved source; answers the "Vocabulary" command and emits the reader-facing table |
@@ -107,6 +111,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/split_practices.py](tools/split_practices.py) | PRACTICES.md ↔ practices/ converter |
 | [tools/summary_text.py](tools/summary_text.py) | Turns prose into a summary field: links out first, then the cut — run bare to self-check |
 | [tools/title_case.py](tools/title_case.py) | Headline (New York Times) capitalization for markdown headings — --check to gate, --write to fix |
+| [tools/todo_disposition.py](tools/todo_disposition.py) | records "Drop it" on a todo item in both places a park lives, in one go |
 | [tools/todo_migrate.py](tools/todo_migrate.py) | One-time converter from the old TODO.md/gotchas-index format into spec/OPEN_ITEM_AND_GOTCHA_PLAN.md's per-item todo/gotchas files, dry-run by default |
 | [tools/todo_progress.py](tools/todo_progress.py) | which open items a change may have moved, and which name a file that is gone -- reports a resemblance, never a verdict |
 | [tools/very_deep_check.py](tools/very_deep_check.py) | The very deep check — on-demand whole-repo coherence review, distinct from full-practice-audit |
