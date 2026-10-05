@@ -143,6 +143,13 @@ def practices_by_gate(practices_dir=None):
         # kept serving the practice the index had already removed).
         if not bv.is_in_force(fm):
             continue
+        # Code owners only: see resolved_gate_practices().
+        try:
+            import precedent_audience as pa
+            if not pa.visible(fm, practices_dir.parent):
+                continue
+        except ImportError:
+            pass
         for g in json.loads(fm.get('gates', '[]') or '[]'):
             out.setdefault(g, []).append(fm['slug'])
     return out
@@ -253,6 +260,14 @@ def resolved_gate_practices(root, gate):
         except json.JSONDecodeError:
             continue
         if gate in gates:
+            # A practice for code owners only is not printed to anyone else
+            # (tools/precedent_audience.py; Morgan, 2026-10-05).
+            try:
+                import precedent_audience as pa
+                if not pa.visible(practice['fm'], root):
+                    continue
+            except ImportError:
+                pass
             entries.append((slug, practice['level'], practice.get('source', ''),
                             pathlib.Path(practice['file'])))
     replaced = {d['slug']: d['by'].get('slug', '')
@@ -799,6 +814,15 @@ def _print_hard_requirements(root):
                 print(f"- [{src}] the section under /{_rep['heading']}/i is "
                       f"refused when every line of it repeats the last "
                       f"reply's; with nothing new, it is one line{_short}.")
+        # require_quiet_while_background_runs: printed on the turn that
+        # STARTS a batch, which is where it can still shape what follows
+        # (2026-10-05).
+        if r.get('require_quiet_while_background_runs'):
+            print(f"- [{src}] when a background job wakes a turn and another "
+                  f"background command is still running -- or the wake is a "
+                  f"Monitor's progress event -- the reply says NOTHING: no "
+                  f"status line, no Boildown. Report once, when the last job "
+                  f"ends or one fails. A wake that reports a failure may speak.")
         for pair in (r.get('require_paired_with') or []):
             if pair.get('if_matches') and pair.get('must_also_match'):
                 print(f"- [{src}] a reply matching /{pair['if_matches']}/ "
@@ -1152,9 +1176,11 @@ def main():
                 continue
             clause = (bv._json_str(fm.get('index_clause', '')).strip()
                       or bv._json_str(fm.get('title', '')).strip())
+            clause = bv._standing_prefix(fm) + clause
             print(f"- **{slug}** ({where}) — {clause}")
             continue
-        block = f"### {slug} ({where})\n{sections.get('rule', '').strip()}"
+        block = (f"### {slug} ({where}){ps._standing_note(fm)}\n"
+                 f"{sections.get('rule', '').strip()}")
         if manifest is not None:
             note = ps._source_unreachable_note(manifest, slug)
             if note:
@@ -1162,6 +1188,27 @@ def main():
         print(f"{block}\n")
     if gate == 'reply':
         _print_hard_requirements(root)
+        # STALE BRANCHES, for the closing Boildown only (the ladder set's
+        # stale-branch-cleanup; Morgan, 2026-10-05). Only when that practice
+        # reached this person -- it is for code owners -- and only when there
+        # are any: "Don't do that if there aren't any."
+        if 'stale-branch-cleanup' in slugs:
+            try:
+                import precedent_stale_branches as _sb
+                _groups, _ = _sb.collect()
+                _n = sum(len(r) for *_x, r in _groups)
+            except Exception:                                 # noqa: BLE001
+                _n = 0
+            if _n:
+                print(f"- For the CLOSING Boildown only (the reply that says "
+                      f"\"You can archive this session\"): {_n} branch(es) "
+                      f"across {len(_groups)} repositor(ies) can be deleted. "
+                      f"Build the page with `python3 tools/"
+                      f"precedent_stale_branches.py --fetch --html "
+                      f"<scratchpad>/branch-cleanup.html`, publish it as an "
+                      f"artifact, and link it in one Boildown line. In any "
+                      f"other reply, say nothing about it (practice: "
+                      f"stale-branch-cleanup).")
         # COMMITTED, BUT NOT WHERE WORK LANDS. Printed with the hard
         # requirements because for this person it is one: a reply that does
         # not say so is how a branch gets forgotten.
