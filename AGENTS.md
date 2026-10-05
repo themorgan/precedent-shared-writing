@@ -13,7 +13,7 @@ own**, and a repo may declare several shared sets — see
 
 <!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block; `python3 tools/build_views.py --check` exits non-zero on drift. Source: practices/ -- edit the practice file, never this block. -->
 
-## Resident block (~149 of 2000 token budget, 2 of 19 practices)
+## Resident block (~149 of 2000 token budget, 2 of 20 practices)
 
 **default-register.** **The register of a reply belongs to its reader.** Where the person you are working with has declared their own -- their individual practice set is where they do it -- that declaration governs and this rule steps aside. **Where none resolves, write to a reader who is not technical**, because on this team they generally are not; `## Detail` says what that means in full.
 
@@ -30,6 +30,8 @@ When a standing constraint on one file gets stated a second time:
   doc-recipe — present-tense rules for one file, in doc-recipes/<name>.recipe.md
 When about to commit a document that characterizes a real, identifiable person:
   sensitive-characterization-scrub — soften or ask before committing a blunt description of a real person
+When handing a person a document to download -- a Word file, a PDF, a spreadsheet, a deck:
+  dated-download-names — the date goes at the end of its name: Name-2026-12-31.docx
 When leaving a placeholder or fill-in-later note mid-draft:
   draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️, bold and all caps
 When naming a branch in anything written:
