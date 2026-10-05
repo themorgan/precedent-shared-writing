@@ -1,6 +1,6 @@
 ---
 slug:        create-word-doc
-title:       Every Word (.docx) document built for a reader carries a footer -- a structured export runs tools/create_word_doc.py (footer, section page breaks, A4, 1.3 line spacing, live word count, indented block quotations all included); anything else still needs the same Page X of Y + title/date footer built into whatever script makes it
+title:       Every Word (.docx) document built for a reader carries a footer -- a structured export runs tools/create_word_doc.py (footer, section page breaks, A4, 1.3 line spacing, live word count, indented block quotations and bullet lists all included); anything else still needs the same Page X of Y + title/date footer built into whatever script makes it
 tier:        on-demand
 severity:    default
 applies_to:  ["tools/create_word_doc.py"]
@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -121,6 +121,20 @@ excerpt follows. Write a long excerpt from another text -- scripture, a
 letter, a speech -- as a `> ` block in the source, never as a quoted
 paragraph of body text: the block is what tells the export it is an
 excerpt.
+
+**A bullet list sits half an inch in from the margin**, never flush
+with it: the bullet at half an inch, the item's text a quarter inch past
+the bullet, and every wrapped line of an item lined up under its own
+text. Word's stock **List Bullet** style puts the bullet right on the
+margin, which reads as a mistake, most of all beside block quotations
+indented half an inch. `style_list_bullet(doc)` moves it, in the style
+and in the bullet's numbering level both, so every List Bullet paragraph
+follows; `build_doc()` calls it, and a Word document built by hand calls
+it once, after creating the document. A builder that sets a list's
+indents itself -- a numbered list written with literal numbers, a list
+nested inside another -- takes them from `LIST_INDENT` and `LIST_HANG`
+in the same script, so every list in every document sits in the same
+place.
 
 **A contents page is optional: `--contents`** (`contents=True` to
 `build_doc()`; off by default). It puts Word's own table of contents on a
@@ -335,3 +349,10 @@ the page numbers. He asked that a downloaded document never do this. The
 setting is gone; the contents list is written finished, as links to the
 headings, without page numbers; and the check now fails on any script
 that writes the setting.
+
+Same day, later: Morgan opened the Word files and found every bullet
+sitting flush against the left margin -- "That looks a bit funny." The
+line-up of each item's own wrapped lines was right; only the bullets
+were out. He asked for them about half an inch in, in every Word file
+and in this practice. `style_list_bullet()` landed here and in the
+script, so the next build of every document picks it up.

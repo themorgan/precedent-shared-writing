@@ -46,6 +46,13 @@ style, restyled upright (the stock one is italic, which tires the eye
 over a long passage), so the excerpts are findable and restylable in
 Word's Styles pane all at once.
 
+A "- " bullet list sits half an inch in from the margin, the way a
+book indents one: the bullet at half an inch, each item's text a quarter
+inch further, and an item's wrapped lines lined up under its own text.
+Word's stock List Bullet puts the bullet flush against the margin, which
+looks like a mistake beside indented block quotations. style_list_bullet()
+does the same for a document built by hand.
+
 Default page is A4, default line spacing is 1.3x. A "Words: <count>"
 line (with an optional trailing parenthetical, e.g. "(PART 1)") is
 replaced with a live Word NUMWORDS field and the parenthetical dropped
@@ -172,6 +179,49 @@ def style_block_quote(doc):
     pf.first_line_indent = Inches(0)
     pf.line_spacing = 1.15
     pf.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    return style
+
+
+# practice: create-word-doc -- where a list's bullet (or number) sits, and how
+# far past it the item's text starts. A builder that sets list indents by
+# hand reads these rather than its own numbers, so every list matches.
+LIST_INDENT = 0.5
+LIST_HANG = 0.25
+
+
+def style_list_bullet(doc):
+    """Move Word's built-in "List Bullet" half an inch in from the margin:
+    the bullet at LIST_INDENT, the text (and every wrapped line under it) at
+    LIST_INDENT + LIST_HANG. The stock style puts the bullet flush with the
+    margin. The indent is set in both places Word reads it from -- the
+    style's own paragraph settings and the bullet's numbering level, plus
+    the tab stop after the bullet -- so no viewer is left with the old
+    position from whichever one it happens to prefer. Returns the style."""
+    style = doc.styles["List Bullet"]
+    pf = style.paragraph_format
+    pf.left_indent = Inches(LIST_INDENT + LIST_HANG)
+    pf.first_line_indent = Inches(-LIST_HANG)
+    num_pr = style.element.pPr.numPr if style.element.pPr is not None else None
+    if num_pr is None or num_pr.numId is None:
+        return style
+    numbering = doc.part.numbering_part.element
+    abstract_id = numbering.num_having_numId(num_pr.numId.val).abstractNumId.val
+    twips = lambda inches: str(round(inches * 1440))  # noqa: E731
+    for lvl in numbering.xpath(
+            f'./w:abstractNum[@w:abstractNumId="{abstract_id}"]/w:lvl[@w:ilvl="0"]'):
+        ppr = lvl.find(qn("w:pPr"))
+        if ppr is None:
+            ppr = OxmlElement("w:pPr")
+            lvl.append(ppr)
+        for tab in ppr.iter(qn("w:tab")):
+            if tab.get(qn("w:val")) == "num":
+                tab.set(qn("w:pos"), twips(LIST_INDENT + LIST_HANG))
+        ind = ppr.find(qn("w:ind"))
+        if ind is None:
+            ind = OxmlElement("w:ind")
+            ppr.append(ind)
+        ind.set(qn("w:left"), twips(LIST_INDENT + LIST_HANG))
+        ind.set(qn("w:hanging"), twips(LIST_HANG))
     return style
 
 
@@ -525,6 +575,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
     word_count_cache = str(len(text.split()))
     quote_style = style_block_quote(doc)  # practice: create-word-doc
+    style_list_bullet(doc)  # practice: create-word-doc
 
     saw_title = False
     last_para = None  # practice: create-word-doc (chapter page breaks)
