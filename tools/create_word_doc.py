@@ -43,6 +43,7 @@ Usage:
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx
   python3 tools/create_word_doc.py book-moses/MANUSCRIPT.md --out /path/to/Moses.docx --short-name Moses
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --no-footer
+  python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --contents
 
 The short book name defaults to the manuscript's book-*/ directory name
 with "book-" stripped and the remainder title-cased (book-joseph ->
@@ -233,7 +234,78 @@ def add_field(paragraph, instr, cached_text="1"):
     run._r.append(end)
 
 
-def build_doc(manuscript_path, short_name, add_footer, date_str):
+# The settings part's children that come AFTER w:updateFields in the
+# schema's fixed order. Word can refuse a file that breaks the order, so
+# updateFields is inserted before the first of these, never appended.
+_SETTINGS_AFTER_UPDATE_FIELDS = (
+    "hdrShapeDefaults", "footnotePr", "endnotePr", "compat", "docVars",
+    "rsids", "attachedSchema", "themeFontLang", "clrSchemeMapping",
+    "doNotIncludeSubdocsInStats", "doNotAutoCompressPictures",
+    "forceUpgrade", "captions", "readModeInkLockDown", "smartTagType",
+    "schemaLibrary", "shapeDefaults", "doNotEmbedSmartTags",
+    "decimalSymbol", "listSeparator")
+_MATH_PR = "{http://schemas.openxmlformats.org/officeDocument/2006/math}mathPr"
+
+
+def add_contents(doc):
+    """Word's own table of contents, on a page of its own just before the
+    first Heading 1 (practice: create-word-doc, the contents page).
+
+    A "Contents" paragraph in the "TOC Heading" style -- it looks like a
+    Heading 1 but stays out of the contents and the Navigation Pane, where a
+    Heading 1 would list itself. Then a TOC field (TOC \\o "1-2" \\h \\z \\u)
+    whose cached result is the Heading 1 and Heading 2 texts, so the page
+    reads sensibly before Word updates it, and w:updateFields so Word fills
+    in the page numbers when the file is opened. The page break after it is
+    a paragraph of its own: updating the field rewrites everything inside
+    it, and a break there would go too. Lifted from a consumer's working
+    book export, 2026-10-05."""
+    first_part = next((p for p in doc.paragraphs
+                       if p.style.name == "Heading 1"), None)
+    if first_part is None:
+        raise SystemExit("create_word_doc: --contents needs a Heading 1 (a "
+                         "`## ` heading) to put the contents page before")
+    entries = [(p.style.name, p.text) for p in doc.paragraphs
+               if p.style.name in ("Heading 1", "Heading 2")]
+
+    first_part.insert_paragraph_before("Contents", style="TOC Heading")
+
+    def field_char(paragraph, kind):
+        el = OxmlElement("w:fldChar")
+        el.set(qn("w:fldCharType"), kind)
+        paragraph.add_run()._r.append(el)
+
+    # The field opens in the first entry's paragraph and closes in the last,
+    # so its cached result is the list of headings itself.
+    paras = []
+    for style, text in entries:
+        p = first_part.insert_paragraph_before()
+        p.paragraph_format.left_indent = Inches(0.3 if style == "Heading 2" else 0)
+        paras.append((p, text))
+    first = paras[0][0]
+    field_char(first, "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = ' TOC \\o "1-2" \\h \\z \\u '
+    first.add_run()._r.append(instr)
+    field_char(first, "separate")
+    for p, text in paras:
+        p.add_run(text)
+    field_char(paras[-1][0], "end")
+    first_part.insert_paragraph_before().add_run().add_break(WD_BREAK.PAGE)
+
+    settings = doc.settings.element
+    update = OxmlElement("w:updateFields")
+    update.set(qn("w:val"), "true")
+    later = {qn(f"w:{tag}") for tag in _SETTINGS_AFTER_UPDATE_FIELDS} | {_MATH_PR}
+    anchor = next((el for el in settings if el.tag in later), None)
+    if anchor is None:
+        settings.append(update)
+    else:
+        anchor.addprevious(update)
+
+
+def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False):
     text = manuscript_path.read_text(encoding="utf-8")
     lines = text.split("\n")
     blocks = group_blocks(lines)
@@ -354,6 +426,9 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
             f"CONFIDENTIAL - DRAFT BOOK: {short_name.upper()} - {date_str}"
         )
 
+    if contents:
+        add_contents(doc)
+
     return doc
 
 
@@ -390,6 +465,12 @@ def main():
         action="store_true",
         help="skip the Page X of Y / CONFIDENTIAL footer",
     )
+    ap.add_argument(
+        "--contents",
+        action="store_true",
+        help="add Word's own table of contents (Parts and chapters) on a page "
+             "of its own before the first Part",
+    )
     args = ap.parse_args()
 
     if not args.manuscript.is_file():
@@ -400,7 +481,8 @@ def main():
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     date_str = args.date or precedent_time.today(repo_root)
 
-    doc = build_doc(args.manuscript, short_name, not args.no_footer, date_str)
+    doc = build_doc(args.manuscript, short_name, not args.no_footer, date_str,
+                    contents=args.contents)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(args.out)
     print(f"wrote {args.out}")

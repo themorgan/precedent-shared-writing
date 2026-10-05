@@ -108,6 +108,17 @@ letter, a speech -- as a `> ` block in the source, never as a quoted
 paragraph of body text: the block is what tells the export it is an
 excerpt.
 
+**A contents page is optional: `--contents`** (`contents=True` to
+`build_doc()`; off by default). It puts Word's own table of contents on a
+page of its own before the first Part -- a "Contents" line in Word's
+table of contents (TOC) heading style, **TOC Heading**, which stays out of the contents and the Navigation
+Pane, then a table-of-contents field listing the Parts and chapters
+(Heading 1 and 2).
+The field already holds those titles, so the page reads sensibly before
+Word fills in the page numbers, which it offers to do when the file is
+opened. Ask for it when the reader will move around a long document; a
+short one does not need it.
+
 The generated `.docx` is a deliverable, not a source file: the script
 never writes into the repo, and nothing about this practice implies
 committing the output.
