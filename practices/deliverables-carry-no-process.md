@@ -6,8 +6,8 @@ severity:    error
 applies_to:  ["**"]
 occasion:    "writing a document an outside reader will see (a declared output path)"
 gates:       ["push"]
-index_required: true
 index_clause: "no attribution stamps, practice slugs or convention notes in an output document"
+index_required: true
 checked_by:  tools/checks/check_deliverables_carry_no_process.py
 defines:     []
 status:      active
