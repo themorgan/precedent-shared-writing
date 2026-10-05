@@ -5,8 +5,9 @@ with a confidential-draft footer stamped on every page.
 # practice: create-word-doc
 
 Parses the manuscript's plain Markdown (headings up to ###, **bold**,
-*italic*, "- " bullet lists, and multi-line blocks such as song lyrics
-where each physical line is a hard break within one paragraph) and
+*italic*, "- " bullet lists, "> " block quotations, and multi-line blocks
+such as song lyrics where each physical line is a hard break within one
+paragraph) and
 renders it as a Word document using python-docx's built-in Title/
 Heading 1/Heading 2/List Bullet styles, so the result carries real
 heading structure (Word's Navigation Pane, an auto-updating TOC) rather
@@ -23,6 +24,15 @@ page break before it, not after the previous paragraph, so a chapter
 that ends mid-page never bleeds into the next one's heading. The title
 page is the one exception: nothing precedes it, so no break is needed.
 
+A "> " block -- a long excerpt quoted from another text -- becomes a
+block quotation, the way a printed book sets one off: indented half an
+inch on both sides, a point smaller, tighter line spacing, no quotation
+marks, and the ">" characters gone. A bare ">" line inside the block
+starts a new paragraph of the same quotation. It uses Word's own "Quote"
+style, restyled upright (the stock one is italic, which tires the eye
+over a long passage), so the excerpts are findable and restylable in
+Word's Styles pane all at once.
+
 Default page is A4, default line spacing is 1.3x. A "Words: <count>"
 line (with an optional trailing parenthetical, e.g. "(PART 1)") is
 replaced with a live Word NUMWORDS field and the parenthetical dropped
@@ -33,6 +43,7 @@ Usage:
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx
   python3 tools/create_word_doc.py book-moses/MANUSCRIPT.md --out /path/to/Moses.docx --short-name Moses
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --no-footer
+  python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --contents
 
 The short book name defaults to the manuscript's book-*/ directory name
 with "book-" stripped and the remainder title-cased (book-joseph ->
@@ -112,6 +123,43 @@ INLINE_RE = re.compile(r"(\*\*[^*]+?\*\*|\*[^*]+?\*)")
 # live NUMWORDS field instead of a number that goes stale as soon as the
 # text changes; any trailing "(PART 1)"-style note is dropped with it.
 WORDS_LINE_RE = re.compile(r"^Words:\s*[\d,]+\s*(\(.*\))?\s*$", re.IGNORECASE)
+# practice: create-word-doc -- a "> " line is a block quotation, never text
+# that starts with a ">" character.
+QUOTE_LINE_RE = re.compile(r"^\s*>\s?")
+
+
+def style_block_quote(doc):
+    """Restyle Word's built-in "Quote" style as a book's block quotation:
+    indented both sides, upright, a point smaller than the body, a little
+    tighter. Spacing between paragraphs is left to the document default, so a
+    quotation sits in the text the way any paragraph does. Returns the style."""
+    style = doc.styles["Quote"]
+    style.font.italic = False
+    style.font.size = Pt(11)
+    pf = style.paragraph_format
+    pf.left_indent = Inches(0.5)
+    pf.right_indent = Inches(0.5)
+    pf.first_line_indent = Inches(0)
+    pf.line_spacing = 1.15
+    pf.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    return style
+
+
+def quote_paragraphs(block):
+    """Split a "> " block into its paragraphs: a bare ">" line separates
+    them, and the other lines lose their ">" marker."""
+    paras, current = [], []
+    for line in block:
+        body = QUOTE_LINE_RE.sub("", line, count=1).rstrip()
+        if body.strip() == "":
+            if current:
+                paras.append(current)
+                current = []
+        else:
+            current.append(body.strip())
+    if current:
+        paras.append(current)
+    return paras
 
 
 def parse_inline(text):
@@ -186,7 +234,78 @@ def add_field(paragraph, instr, cached_text="1"):
     run._r.append(end)
 
 
-def build_doc(manuscript_path, short_name, add_footer, date_str):
+# The settings part's children that come AFTER w:updateFields in the
+# schema's fixed order. Word can refuse a file that breaks the order, so
+# updateFields is inserted before the first of these, never appended.
+_SETTINGS_AFTER_UPDATE_FIELDS = (
+    "hdrShapeDefaults", "footnotePr", "endnotePr", "compat", "docVars",
+    "rsids", "attachedSchema", "themeFontLang", "clrSchemeMapping",
+    "doNotIncludeSubdocsInStats", "doNotAutoCompressPictures",
+    "forceUpgrade", "captions", "readModeInkLockDown", "smartTagType",
+    "schemaLibrary", "shapeDefaults", "doNotEmbedSmartTags",
+    "decimalSymbol", "listSeparator")
+_MATH_PR = "{http://schemas.openxmlformats.org/officeDocument/2006/math}mathPr"
+
+
+def add_contents(doc):
+    """Word's own table of contents, on a page of its own just before the
+    first Heading 1 (practice: create-word-doc, the contents page).
+
+    A "Contents" paragraph in the "TOC Heading" style -- it looks like a
+    Heading 1 but stays out of the contents and the Navigation Pane, where a
+    Heading 1 would list itself. Then a TOC field (TOC \\o "1-2" \\h \\z \\u)
+    whose cached result is the Heading 1 and Heading 2 texts, so the page
+    reads sensibly before Word updates it, and w:updateFields so Word fills
+    in the page numbers when the file is opened. The page break after it is
+    a paragraph of its own: updating the field rewrites everything inside
+    it, and a break there would go too. Lifted from a consumer's working
+    book export, 2026-10-05."""
+    first_part = next((p for p in doc.paragraphs
+                       if p.style.name == "Heading 1"), None)
+    if first_part is None:
+        raise SystemExit("create_word_doc: --contents needs a Heading 1 (a "
+                         "`## ` heading) to put the contents page before")
+    entries = [(p.style.name, p.text) for p in doc.paragraphs
+               if p.style.name in ("Heading 1", "Heading 2")]
+
+    first_part.insert_paragraph_before("Contents", style="TOC Heading")
+
+    def field_char(paragraph, kind):
+        el = OxmlElement("w:fldChar")
+        el.set(qn("w:fldCharType"), kind)
+        paragraph.add_run()._r.append(el)
+
+    # The field opens in the first entry's paragraph and closes in the last,
+    # so its cached result is the list of headings itself.
+    paras = []
+    for style, text in entries:
+        p = first_part.insert_paragraph_before()
+        p.paragraph_format.left_indent = Inches(0.3 if style == "Heading 2" else 0)
+        paras.append((p, text))
+    first = paras[0][0]
+    field_char(first, "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = ' TOC \\o "1-2" \\h \\z \\u '
+    first.add_run()._r.append(instr)
+    field_char(first, "separate")
+    for p, text in paras:
+        p.add_run(text)
+    field_char(paras[-1][0], "end")
+    first_part.insert_paragraph_before().add_run().add_break(WD_BREAK.PAGE)
+
+    settings = doc.settings.element
+    update = OxmlElement("w:updateFields")
+    update.set(qn("w:val"), "true")
+    later = {qn(f"w:{tag}") for tag in _SETTINGS_AFTER_UPDATE_FIELDS} | {_MATH_PR}
+    anchor = next((el for el in settings if el.tag in later), None)
+    if anchor is None:
+        settings.append(update)
+    else:
+        anchor.addprevious(update)
+
+
+def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False):
     text = manuscript_path.read_text(encoding="utf-8")
     lines = text.split("\n")
     blocks = group_blocks(lines)
@@ -203,6 +322,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
         setattr(section, side, Inches(1))
 
     word_count_cache = str(len(text.split()))
+    quote_style = style_block_quote(doc)  # practice: create-word-doc
 
     saw_title = False
     last_para = None  # practice: create-word-doc (chapter page breaks)
@@ -243,6 +363,23 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
                 last_para.add_run().add_break(WD_BREAK.PAGE)
             last_para = doc.add_heading(first[4:].strip(), level=2)
             last_was_heading = True
+            continue
+
+        if all(QUOTE_LINE_RE.match(l) for l in block):
+            # practice: create-word-doc (block quotations)
+            paras = quote_paragraphs(block)
+            for lines_ in paras:
+                p = doc.add_paragraph(style=quote_style)
+                for idx, l in enumerate(lines_):
+                    for run_text, bold, italic in parse_inline(l):
+                        r = p.add_run(run_text)
+                        r.bold = bold
+                        r.italic = italic
+                    if idx < len(lines_) - 1:
+                        p.add_run().add_break(WD_BREAK.LINE)
+                last_para = p
+            if paras:
+                last_was_heading = False
             continue
 
         if all(re.match(r"^-\s+", l.strip()) for l in block):
@@ -289,6 +426,9 @@ def build_doc(manuscript_path, short_name, add_footer, date_str):
             f"CONFIDENTIAL - DRAFT BOOK: {short_name.upper()} - {date_str}"
         )
 
+    if contents:
+        add_contents(doc)
+
     return doc
 
 
@@ -325,6 +465,12 @@ def main():
         action="store_true",
         help="skip the Page X of Y / CONFIDENTIAL footer",
     )
+    ap.add_argument(
+        "--contents",
+        action="store_true",
+        help="add Word's own table of contents (Parts and chapters) on a page "
+             "of its own before the first Part",
+    )
     args = ap.parse_args()
 
     if not args.manuscript.is_file():
@@ -335,7 +481,8 @@ def main():
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     date_str = args.date or precedent_time.today(repo_root)
 
-    doc = build_doc(args.manuscript, short_name, not args.no_footer, date_str)
+    doc = build_doc(args.manuscript, short_name, not args.no_footer, date_str,
+                    contents=args.contents)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(args.out)
     print(f"wrote {args.out}")
