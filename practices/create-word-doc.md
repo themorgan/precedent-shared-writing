@@ -1,6 +1,6 @@
 ---
 slug:        create-word-doc
-title:       Every Word (.docx) document built for a reader carries a footer -- a structured export runs tools/create_word_doc.py (footer, section page breaks, A4, 1.3 line spacing, live word count, indented block quotations all included); anything else still needs the same Page X of Y + title/date footer built into whatever script makes it
+title:       Every Word (.docx) document built for a reader carries a footer -- a structured export runs tools/create_word_doc.py (footer, section page breaks, A4, 1.3 line spacing, live word count, indented block quotations and bullet lists all included); anything else still needs the same Page X of Y + title/date footer built into whatever script makes it
 tier:        on-demand
 severity:    default
 applies_to:  ["tools/create_word_doc.py"]
@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2; revised again the same day at his own request, so a contents page looks like one"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -60,6 +60,14 @@ Page <n> of <total>
 CONFIDENTIAL - DRAFT BOOK: <SHORT NAME> - <date>
 ```
 
+**The footer is set in a sans-serif face, a touch smaller than the
+body** -- Arial, 10 point against the body's 12 -- so it reads as page
+furniture, set apart from the serif text. It lives in Word's own
+**Footer** style, which every footer paragraph carries, so it is one
+style to change. A Word document built by hand calls `style_footer(doc)`
+(passing a smaller size when its body is smaller than 12 point) and adds
+each footer paragraph with `style="Footer"`.
+
 `<n>`/`<total>` are live Word PAGE/NUMPAGES fields, not a computed
 count, so they stay correct after Word repaginates. `<SHORT NAME>`
 defaults to a `book-*/` ancestor directory's name (this tool's own
@@ -92,12 +100,18 @@ sections are better read flowing on than one to a page.
 
 **A running header is optional: `--header-image PATH`**
 (`header_image=` to `build_doc()`). It puts a small copy of the image --
-a logo, 0.4 inch tall -- centered in the header of every page but the
+a logo, 0.6 inch tall -- centered in the header of every page but the
 first, which carries the cover and so gets Word's "different first page"
 with an empty header and a copy of the footer (without the copy, page one
 would lose its "Page X of Y"). A Word document built by hand gets the
 same header from `add_header_image(section, path)`, called once its
 footer is written.
+
+**Heading 1 stands clearly between the title and Heading 2**: 20
+point, where Word's stock 14 point sat barely above Heading 2's 13 and
+the title is 26. `style_heading_1(doc)` sets it; `build_doc()` calls it,
+and a document built by hand with its own sizes keeps the same order --
+title, then Heading 1 well below it, then Heading 2 well below that.
 
 **Page is A4, default line spacing is 1.3x**, set once on the `Normal`
 style and the section's page size rather than per paragraph, so every
@@ -122,6 +136,20 @@ letter, a speech -- as a `> ` block in the source, never as a quoted
 paragraph of body text: the block is what tells the export it is an
 excerpt.
 
+**A bullet list sits half an inch in from the margin**, never flush
+with it: the bullet at half an inch, the item's text a quarter inch past
+the bullet, and every wrapped line of an item lined up under its own
+text. Word's stock **List Bullet** style puts the bullet right on the
+margin, which reads as a mistake, most of all beside block quotations
+indented half an inch. `style_list_bullet(doc)` moves it, in the style
+and in the bullet's numbering level both, so every List Bullet paragraph
+follows; `build_doc()` calls it, and a Word document built by hand calls
+it once, after creating the document. A builder that sets a list's
+indents itself -- a numbered list written with literal numbers, a list
+nested inside another -- takes them from `LIST_INDENT` and `LIST_HANG`
+in the same script, so every list in every document sits in the same
+place.
+
 **A contents page is optional: `--contents`** (`contents=True` to
 `build_doc()`; off by default). It puts Word's own table of contents on a
 page of its own before the first Part -- a "Contents" line in Word's
@@ -129,7 +157,14 @@ table of contents (TOC) heading style, **TOC Heading**, which stays out of the c
 Pane, then a table-of-contents field listing the Parts and chapters
 (Heading 1 and 2).
 The field is written already filled in: each title is a link that jumps
-to its heading. It carries no page numbers, since only Word knows where
+to its heading. **It looks like a contents page**, in Word's own **TOC 1**
+and **TOC 2** styles: each Part bold, with a little space above it, its
+chapters indented under it, and the whole list single-spaced, never in
+the body's 1.3 spacing. Both styles carry a dotted tab at the right
+margin, so the page numbers Word adds on **Update Field** land at the end
+of a dot leader, and Word keeps the styles when it rewrites the list. A
+document that builds its own contents list by hand calls
+`style_contents(doc)` and sets each entry in those styles. It carries no page numbers, since only Word knows where
 its pages break and the file must not ask Word to work them out on
 opening (below); a reader who wants them right-clicks the list and picks
 **Update Field**. Ask for it when the reader will move around a long
@@ -147,6 +182,25 @@ result (the contents list, the word count). This holds for a hand-built
 one-off as much as for this script's output, and the check below fails
 on any script under `tools/` that writes the setting.
 
+**No asterisk that marks emphasis ever reaches a Word document's text.**
+A `*phrase*` in the source is italic in Word, a `**phrase**` is bold, and
+`***phrase***` is both -- the asterisks themselves are gone. That holds
+when one sits inside the other (`**a long bold sentence with a *phrase*
+in italics**`, the commonest way authors stress a word inside a stressed
+sentence) and when an italic title wraps from one source line onto the
+next. Word can show both at once (bold italic), so it does. **Where it
+cannot -- the marks cross, as in `**a *b** c*`, or an inner one is never
+closed -- the outer one wins**: the text takes the outer mark's form, and the
+inner mark's asterisks are left out. [`tools/create_word_doc.py`](../tools/create_word_doc.py)
+reads emphasis the way Markdown does, applies the outer-wins rule, and warns
+on stderr, quoting the passage, about any asterisk placed like emphasis that
+nothing pairs, which it leaves out of the text; an escaped `\*` and a spaced
+`5 * 3` stay plain characters and are not reported. A warning is a typo to
+fix in the source before the file goes to anyone. A hand-built
+one-off carries the same promise: whatever script builds it confirms, after
+building, that no `*` (and no other Markdown or HTML markup) is left in the
+document's text, and fails if one is.
+
 The generated `.docx` is a deliverable, not a source file: the script
 never writes into the repo, and nothing about this practice implies
 committing the output.
@@ -156,7 +210,11 @@ The parser handles a working subset of Markdown: `#`/`##`/`###` headings
 (even when not followed by a blank line -- some manuscripts' own section
 headers have none, and an earlier draft of this script merged the
 heading into the following paragraph and leaked the `#` characters into
-the body text as a result), `**bold**` and `*italic*` inline spans, `[links](...)` printed as their
+the body text as a result), `**bold**`, `*italic*` and `***both***` inline
+spans -- nested either way round and carried across a wrapped line, matched
+the way Markdown matches them rather than with one flat pattern, which could
+not see an italic inside a bold and printed its asterisks as text --
+`[links](...)` printed as their
 text (the target is a path in the source's repository, which means
 nothing in a Word file), `- ` bullet blocks whose items may wrap onto
 indented continuation lines, `> ` block quotations (a block counts as one only when
@@ -316,3 +374,27 @@ the page numbers. He asked that a downloaded document never do this. The
 setting is gone; the contents list is written finished, as links to the
 headings, without page numbers; and the check now fails on any script
 that writes the setting.
+
+Same day, later: Morgan opened the Word files and found every bullet
+sitting flush against the left margin -- "That looks a bit funny." The
+line-up of each item's own wrapped lines was right; only the bullets
+were out. He asked for them about half an inch in, in every Word file
+and in this practice. `style_list_bullet()` landed here and in the
+script, so the next build of every document picks it up.
+
+Same day, evening: Morgan asked for three more defaults. The footer, in
+the body's serif face and size, did not stand apart from the text; he
+wanted it sans-serif and a touch smaller. The logo in the running header
+was "a bit too small", so it went from 0.4 inch to 0.6. And Heading 1, at
+Word's stock 14 point against Heading 2's 13, hardly looked like a level
+above it; he wanted it bigger, though not as big as the title. All three
+went into the script and this Rule, so every document built from it picks
+them up.
+
+Same evening: Morgan opened the rebuilt manuscript and found the
+contents page "unrecognizable". Every entry was a body-text paragraph --
+same weight, 1.3 spacing, chapters set off only by a small indent -- so
+forty lines ran down two pages looking like more text. He asked that a
+contents page always look like one. The entries now carry Word's contents
+styles: Parts bold, chapters indented, single-spaced, with a dot-leader
+tab ready for page numbers.

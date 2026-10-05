@@ -164,13 +164,21 @@ assert breaks(sys.argv[1]) == ["two"], f"page breaks after: {breaks(sys.argv[1])
 assert "See the notes.\nNext line." in texts, texts
 bullets = [p.text for p in d.paragraphs if p.style.name == "List Bullet"]
 assert bullets == ["one item that wraps", "two"], bullets
+# A bullet sits half an inch in, its text a quarter inch past it (Morgan,
+# 2026-10-05: the stock List Bullet put the bullets flush with the margin),
+# in the style and in the numbering level Word draws the bullet from.
+pf = d.styles["List Bullet"].paragraph_format
+assert (round(pf.left_indent.inches, 2), round(pf.first_line_indent.inches, 2)) == (0.75, -0.25), \
+    (pf.left_indent, pf.first_line_indent)
+num_xml = d.part.numbering_part.element.xml
+assert 'w:left="1080" w:hanging="360"' in num_xml, "the bullet's numbering level is still at the margin"
 assert breaks(sys.argv[2]) == [], f"--no-section-breaks still broke after: {breaks(sys.argv[2])}"
 PY
 )"; then
   echo "FAIL: title page, links, wrapped bullets or --no-section-breaks: $OUT" >&2
   exit 1
 fi
-echo "ok: a heading after the title shares its page; links, wrapped bullets, comments, --no-section-breaks"
+echo "ok: a heading after the title shares its page; links, wrapped and indented bullets, comments, --no-section-breaks"
 
 # 6. --header-image: the image in the header of every page but the first,
 #    whose own header stays empty and whose footer still carries Page X of Y.
@@ -239,3 +247,89 @@ if ! grep -q "one_off_docx.py writes Word's updateFields" <<<"$OUT"; then
 fi
 rm "$SCRATCH/tools/one_off_docx.py"
 echo "ok: the check fails on a script that makes a document ask to update its fields"
+
+# 9. Emphasis nests and spans lines the way Markdown reads it, and no
+#    asterisk that marks emphasis ever reaches the text (Morgan, 2026-10-05:
+#    "**... a *deeply realistic* view ...**" printed as italic text wrapped
+#    in literal asterisks). Italic inside bold, bold inside italic, ***both***,
+#    an italic phrase wrapped over two lines, in a bullet and a quotation;
+#    an escaped \* and a lone "5 * 3" stay plain characters; a stray
+#    asterisk is reported on stderr, never passed silently.
+cat > "$SCRATCH/book-sample/MANUSCRIPT.md" <<'MD'
+# Sample
+
+**Bold with a *nested italic* inside.**
+
+*Italic with **nested bold** inside.* And ***both*** at once.
+
+A title *wrapped over
+two lines*, then more.
+
+- **Item with *italic* in bold**
+
+> **Quoted *nested* emphasis.**
+
+Escaped \*stars\* and 5 * 3 stay.
+MD
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Nested.docx" --date 2026-01-01 --soft-wraps > /dev/null 2>"$SCRATCH/nested.err"
+if ! OUT="$(python3 - "$SCRATCH/out/Nested.docx" <<'PY' 2>&1
+import sys
+import docx
+paras = docx.Document(sys.argv[1]).paragraphs[1:]
+def runs(p):
+    return [(r.text, bool(r.bold), bool(r.italic)) for r in p.runs if r.text]
+assert runs(paras[0]) == [("Bold with a ", True, False), ("nested italic", True, True),
+                          (" inside.", True, False)], runs(paras[0])
+assert runs(paras[1]) == [("Italic with ", False, True), ("nested bold", True, True),
+                          (" inside.", False, True), (" And ", False, False),
+                          ("both", True, True), (" at once.", False, False)], runs(paras[1])
+assert runs(paras[2]) == [("A title ", False, False), ("wrapped over two lines", False, True),
+                          (", then more.", False, False)], runs(paras[2])
+assert runs(paras[3]) == [("Item with ", True, False), ("italic", True, True),
+                          (" in bold", True, False)], runs(paras[3])
+assert runs(paras[4]) == [("Quoted ", True, False), ("nested", True, True),
+                          (" emphasis.", True, False)], runs(paras[4])
+assert paras[5].text == "Escaped *stars* and 5 * 3 stay.", paras[5].text
+assert not any("*" in p.text for p in paras[:5]), "an emphasis asterisk reached the text"
+PY
+)"; then
+  echo "FAIL: nested or wrapped emphasis did not render as Markdown reads it: $OUT" >&2
+  exit 1
+fi
+printf '# Sample\n\nA *stray asterisk.\n' > "$SCRATCH/book-sample/MANUSCRIPT.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Stray.docx" --date 2026-01-01 > /dev/null 2>"$SCRATCH/stray.err"
+if ! grep -q "asterisk" "$SCRATCH/stray.err" || ! grep -q "stray asterisk" "$SCRATCH/stray.err"; then
+  echo "FAIL: a stray asterisk was not reported on stderr: $(cat "$SCRATCH/stray.err")" >&2
+  exit 1
+fi
+if grep -q "asterisk" "$SCRATCH/nested.err"; then
+  echo "FAIL: escaped or spaced asterisks were reported as stray: $(cat "$SCRATCH/nested.err")" >&2
+  exit 1
+fi
+echo "ok: emphasis nests and spans wrapped lines; no emphasis asterisk reaches the text; a stray one is reported"
+
+# 10. When marks cross, the outer one wins (Morgan, 2026-10-05: "it should
+#     always take the form of the OUTER one"), and the inner marks' asterisks
+#     never reach the text; a stray asterisk is left out and reported.
+if ! OUT="$(cd "$SET_ROOT/tools" && python3 - <<'PY' 2>&1
+import create_word_doc as c
+cases = {
+    "**a *b** c*": [("a b", True, False), (" c", False, False)],
+    "*a **b* c**": [("a b", False, True), (" c", False, False)],
+    "**bold *never closed**": [("bold never closed", True, False)],
+    "A *stray asterisk.": [("A stray asterisk.", False, False)],
+    "5 * 3 stays": [("5 * 3 stays", False, False)],
+}
+for text, want in cases.items():
+    c.STRAY_ASTERISKS.clear()
+    got = c.parse_inline(text)
+    assert got == want, (text, got)
+    assert bool(c.STRAY_ASTERISKS) == (text != "5 * 3 stays"), (text, c.STRAY_ASTERISKS)
+PY
+)"; then
+  echo "FAIL: crossed emphasis did not take the outer form, or a stray asterisk reached the text: $OUT" >&2
+  exit 1
+fi
+echo "ok: crossed emphasis takes the outer form; a stray asterisk is left out and reported"

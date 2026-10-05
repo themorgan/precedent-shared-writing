@@ -5,7 +5,8 @@ with a confidential-draft footer stamped on every page.
 # practice: create-word-doc
 
 Parses the manuscript's plain Markdown (headings up to ###, **bold**,
-*italic*, [links](...) printed as their text, "- " bullet lists whose
+*italic* and ***both***, nested either way and carried across a wrapped
+line, as Markdown reads them, [links](...) printed as their text, "- " bullet lists whose
 items may wrap onto indented lines, "> " block quotations, and
 multi-line blocks such as song lyrics where each physical line is a hard
 break within one paragraph; HTML comments are dropped) and
@@ -18,7 +19,14 @@ Every page's footer carries two centered lines:
   Page <n> of <total>
   CONFIDENTIAL - DRAFT BOOK: <SHORT NAME> - <date>
 using live PAGE/NUMPAGES fields so the count stays correct after Word
-repaginates the content.
+repaginates the content. The footer is set in a sans-serif face (Arial),
+a touch smaller than the body (10 point against 12), so it reads as page
+furniture against the serif text. style_footer() does the same for a
+document built by hand.
+
+Heading 1 is 20 point, between the title's 26 and Heading 2's 13: Word's
+stock 14 point barely stood out from Heading 2. style_heading_1() does
+the same for a document built by hand.
 
 Every Part (##) and chapter (###) heading starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
@@ -32,8 +40,8 @@ shorter document (notes, a brainstorm) whose sections should flow on.
 does: a paragraph's lines join with a space, and only a line ending in a
 backslash or two spaces breaks.
 
-`--header-image PATH` puts a small copy of an image (a logo) centered in
-the header of every page but the first, which already carries the
+`--header-image PATH` puts a small copy of an image (a logo), 0.6 inch
+tall, centered in the header of every page but the first, which already carries the
 cover. add_header_image() does the same for a document built by hand.
 
 A "> " block -- a long excerpt quoted from another text -- becomes a
@@ -44,6 +52,13 @@ starts a new paragraph of the same quotation. It uses Word's own "Quote"
 style, restyled upright (the stock one is italic, which tires the eye
 over a long passage), so the excerpts are findable and restylable in
 Word's Styles pane all at once.
+
+A "- " bullet list sits half an inch in from the margin, the way a
+book indents one: the bullet at half an inch, each item's text a quarter
+inch further, and an item's wrapped lines lined up under its own text.
+Word's stock List Bullet puts the bullet flush against the margin, which
+looks like a mistake beside indented block quotations. style_list_bullet()
+does the same for a document built by hand.
 
 Default page is A4, default line spacing is 1.3x. A "Words: <count>"
 line (with an optional trailing parenthetical, e.g. "(PART 1)") is
@@ -132,7 +147,15 @@ from docx.shared import Inches, Mm, Pt  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import precedent_time  # noqa: E402  (practice: timestamps-carry-offset)
 
-INLINE_RE = re.compile(r"(\*\*[^*]+?\*\*|\*[^*]+?\*)")
+# practice: create-word-doc -- emphasis is matched the way Markdown matches
+# it, not with one flat pattern: a run of asterisks opens when text follows
+# it and closes when text precedes it, and the nearest compatible opener
+# wins. A flat pattern could not see *italic* inside **bold**, so
+# "**a *b* c**" reached Word as literal asterisks around italic text
+# (Morgan, 2026-10-05, the Joseph manuscript's Introduction).
+STAR_RUN_RE = re.compile(r"\\\*|\*+")
+# Where build_doc's last run left an emphasis-like asterisk unmatched.
+STRAY_ASTERISKS = []
 # practice: create-word-doc -- a Markdown link prints as its text: the
 # target is usually a path inside the source's repository, which means
 # nothing to someone reading the Word file.
@@ -149,6 +172,97 @@ WORDS_LINE_RE = re.compile(r"^Words:\s*[\d,]+\s*(\(.*\))?\s*$", re.IGNORECASE)
 QUOTE_LINE_RE = re.compile(r"^\s*>\s?")
 
 
+# practice: create-word-doc -- the footer's face and size. A sans-serif
+# footer a touch smaller than the body reads as page furniture, set apart
+# from the serif text (Morgan, 2026-10-05).
+FOOTER_FONT = "Arial"
+FOOTER_SIZE = 10
+# practice: create-word-doc -- Heading 1 sits clearly between the title
+# (26 point) and Heading 2 (13): Word's stock 14 point barely stood out
+# from Heading 2 (Morgan, 2026-10-05).
+HEADING_1_SIZE = 20
+# practice: create-word-doc -- the running header's logo, in inches tall.
+# It was 0.4 until Morgan asked for it about half as big again (2026-10-05).
+HEADER_IMAGE_HEIGHT = 0.6
+
+
+def set_style_font(style, name):
+    """Set a style's typeface in every slot Word reads (Latin, East Asian,
+    complex script) and drop any theme font, which would otherwise win over
+    the name in some viewers."""
+    style.font.name = name
+    rfonts = style.element.get_or_add_rPr().get_or_add_rFonts()
+    for slot in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+        rfonts.set(qn(slot), name)
+    for attr in ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme"):
+        if rfonts.get(qn(attr)) is not None:
+            del rfonts.attrib[qn(attr)]
+
+
+def style_footer(doc, size=None):
+    """Set Word's built-in "Footer" style in FOOTER_FONT, a touch smaller
+    than the body (FOOTER_SIZE, or `size` points for a document whose body
+    is smaller than 12). Every footer paragraph must carry the style --
+    python-docx gives one to the footer's first paragraph only, so add the
+    others with style="Footer". Returns the style."""
+    style = doc.styles["Footer"]
+    set_style_font(style, FOOTER_FONT)
+    style.font.size = Pt(size or FOOTER_SIZE)
+    return style
+
+
+def style_heading_1(doc, size=None):
+    """Make Heading 1 HEADING_1_SIZE points (or `size`), clearly bigger than
+    Heading 2 and still smaller than the title. Returns the style."""
+    style = doc.styles["Heading 1"]
+    style.font.size = Pt(size or HEADING_1_SIZE)
+    return style
+
+
+def style_contents(doc, section=None):
+    """Word's own contents styles, "TOC 1" for a Part and "TOC 2" for a
+    chapter, set so the list reads as a contents page at a glance
+    (practice: create-word-doc, the contents page): a Part bold with a
+    little space above it, its chapters indented under it, everything
+    single-spaced -- body text's 1.3 line spacing turned a contents list
+    into an unbroken column nobody recognized (Morgan, 2026-10-05). Both
+    carry a dotted right-aligned tab at the text's right edge, so when a
+    reader picks Update Field in Word, the page numbers it adds sit at the
+    end of a dot leader, the way a printed book's do. Word rewrites the
+    list with these same styles on that update, so it keeps the look.
+    Returns (toc1, toc2)."""
+    from docx.enum.style import WD_STYLE_TYPE
+    from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+    section = section or doc.sections[0]
+    width = section.page_width - section.left_margin - section.right_margin
+    out = []
+    for level in (1, 2):
+        # Word knows its contents styles by the id "TOC1" and the internal
+        # name "toc 1", and only a built-in style -- not a custom one of the
+        # same look -- is what Update Field rewrites the list with.
+        style = next((st for st in doc.styles
+                      if st.style_id == f"TOC{level}"), None)
+        if style is None:
+            style = doc.styles.add_style(f"TOC {level}", WD_STYLE_TYPE.PARAGRAPH)
+            style.base_style = doc.styles["Normal"]
+            style.element.style_id = f"TOC{level}"
+            style.element.name_val = f"toc {level}"
+            style.element.attrib.pop(qn("w:customStyle"), None)
+        style.next_paragraph_style = style
+        pf = style.paragraph_format
+        pf.line_spacing = 1.0
+        pf.left_indent = Inches(0 if level == 1 else 0.3)
+        pf.space_before = Pt(8 if level == 1 else 0)
+        pf.space_after = Pt(2)
+        style.font.bold = level == 1
+        pf.tab_stops.add_tab_stop(width, WD_TAB_ALIGNMENT.RIGHT,
+                                  WD_TAB_LEADER.DOTS)
+        out.append(style)
+    # A Part's first chapter line stays on the Part's page.
+    out[0].paragraph_format.keep_with_next = True
+    return tuple(out)
+
+
 def style_block_quote(doc):
     """Restyle Word's built-in "Quote" style as a book's block quotation:
     indented both sides, upright, a point smaller than the body, a little
@@ -163,6 +277,49 @@ def style_block_quote(doc):
     pf.first_line_indent = Inches(0)
     pf.line_spacing = 1.15
     pf.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    return style
+
+
+# practice: create-word-doc -- where a list's bullet (or number) sits, and how
+# far past it the item's text starts. A builder that sets list indents by
+# hand reads these rather than its own numbers, so every list matches.
+LIST_INDENT = 0.5
+LIST_HANG = 0.25
+
+
+def style_list_bullet(doc):
+    """Move Word's built-in "List Bullet" half an inch in from the margin:
+    the bullet at LIST_INDENT, the text (and every wrapped line under it) at
+    LIST_INDENT + LIST_HANG. The stock style puts the bullet flush with the
+    margin. The indent is set in both places Word reads it from -- the
+    style's own paragraph settings and the bullet's numbering level, plus
+    the tab stop after the bullet -- so no viewer is left with the old
+    position from whichever one it happens to prefer. Returns the style."""
+    style = doc.styles["List Bullet"]
+    pf = style.paragraph_format
+    pf.left_indent = Inches(LIST_INDENT + LIST_HANG)
+    pf.first_line_indent = Inches(-LIST_HANG)
+    num_pr = style.element.pPr.numPr if style.element.pPr is not None else None
+    if num_pr is None or num_pr.numId is None:
+        return style
+    numbering = doc.part.numbering_part.element
+    abstract_id = numbering.num_having_numId(num_pr.numId.val).abstractNumId.val
+    twips = lambda inches: str(round(inches * 1440))  # noqa: E731
+    for lvl in numbering.xpath(
+            f'./w:abstractNum[@w:abstractNumId="{abstract_id}"]/w:lvl[@w:ilvl="0"]'):
+        ppr = lvl.find(qn("w:pPr"))
+        if ppr is None:
+            ppr = OxmlElement("w:pPr")
+            lvl.append(ppr)
+        for tab in ppr.iter(qn("w:tab")):
+            if tab.get(qn("w:val")) == "num":
+                tab.set(qn("w:pos"), twips(LIST_INDENT + LIST_HANG))
+        ind = ppr.find(qn("w:ind"))
+        if ind is None:
+            ind = OxmlElement("w:ind")
+            ppr.append(ind)
+        ind.set(qn("w:left"), twips(LIST_INDENT + LIST_HANG))
+        ind.set(qn("w:hanging"), twips(LIST_HANG))
     return style
 
 
@@ -184,28 +341,131 @@ def quote_paragraphs(block):
 
 
 def parse_inline(text):
-    """Split a line into (text, bold, italic) runs on **bold**/*italic*.
-    A link becomes its text, and a trailing backslash -- Markdown's hard
-    line break, which the caller already makes a real one -- is dropped."""
+    """Split text into (text, bold, italic) runs on **bold**, *italic* and
+    ***both***, nested either way round -- "**a *b* c**" gives a bold run
+    with an italic-and-bold middle. A link becomes its text, a trailing
+    backslash -- Markdown's hard line break, which the caller already makes
+    a real one -- is dropped, and an escaped \\* or a spaced "5 * 3" is a
+    plain asterisk. When marks cross ("**a *b** c*") the outer one wins.
+    An asterisk placed like emphasis that nothing pairs never reaches the
+    text: it is left out and noted in STRAY_ASTERISKS for a warning.
+    The text may hold "\\n" (a line break inside the paragraph); emphasis
+    carries across it, so an italic title wrapped over two source lines
+    still comes out italic."""
     text = LINK_RE.sub(r"\1", text)
     if text.endswith("\\"):
         text = text[:-1].rstrip()
-    runs = []
+
+    # Pieces: plain text (str) or a delimiter run (dict).
+    pieces = []
     last = 0
-    for m in INLINE_RE.finditer(text):
+    for m in STAR_RUN_RE.finditer(text):
         if m.start() > last:
-            runs.append((text[last : m.start()], False, False))
-        token = m.group(0)
-        if token.startswith("**"):
-            runs.append((token[2:-2], True, False))
+            pieces.append(text[last:m.start()])
+        if m.group(0) == "\\*":
+            pieces.append("*")
         else:
-            runs.append((token[1:-1], False, True))
+            before = text[m.start() - 1] if m.start() > 0 else " "
+            after = text[m.end()] if m.end() < len(text) else " "
+            pieces.append(dict(n=len(m.group(0)), left=0, opens=[], closes=[],
+                               can_open=not after.isspace(),
+                               can_close=not before.isspace()))
         last = m.end()
     if last < len(text):
-        runs.append((text[last:], False, False))
+        pieces.append(text[last:])
+
+    # Match closers to the nearest opener still holding asterisks, two at a
+    # time (bold) when both sides have two, else one (italic). When marks
+    # cross -- "**a *b** c*" -- the outer one wins (Morgan, 2026-10-05: "it
+    # should always take the form of the OUTER one"): a closer that cannot
+    # pair with the nearest opener's kind, but can with one further out,
+    # closes that outer one, and the inner openers it skips are dropped.
+    def fits(opener_left, closer_left):
+        return opener_left >= 2 if closer_left >= 2 else opener_left in (1, 3)
+
+    stack = []
+    for piece in pieces:
+        if isinstance(piece, str):
+            continue
+        piece["left"] = piece["n"]
+        if piece["can_close"]:
+            while piece["left"] and stack:
+                if not fits(stack[-1]["left"], piece["left"]):
+                    outer = next((i for i in range(len(stack) - 2, -1, -1)
+                                  if fits(stack[i]["left"], piece["left"])), None)
+                    if outer is not None:
+                        del stack[outer + 1:]
+                opener = stack[-1]
+                use = 2 if opener["left"] >= 2 and piece["left"] >= 2 else 1
+                kind = "bold" if use == 2 else "italic"
+                opener["left"] -= use
+                piece["left"] -= use
+                opener["opens"].append(kind)
+                piece["closes"].append(kind)
+                if not opener["left"]:
+                    stack.pop()
+        if piece["can_open"] and piece["left"]:
+            stack.append(piece)
+
+    runs = []
+    depth = {"bold": 0, "italic": 0}
+
+    def emit(chunk):
+        if not chunk:
+            return
+        style = (depth["bold"] > 0, depth["italic"] > 0)
+        if runs and runs[-1][1:] == style:
+            runs[-1] = (runs[-1][0] + chunk,) + style
+        else:
+            runs.append((chunk,) + style)
+
+    plain = "".join(x if isinstance(x, str) else "*" * x["n"] for x in pieces)
+    at = 0
+    for piece in pieces:
+        if isinstance(piece, str):
+            emit(piece)
+            at += len(piece)
+            continue
+        # An asterisk placed like emphasis that nothing paired -- a crossed
+        # inner mark the outer one won over, or a typo -- never reaches the
+        # page; it is reported instead, so the source gets fixed.
+        if piece["left"] and (piece["can_open"] or piece["can_close"]):
+            STRAY_ASTERISKS.append(plain[max(0, at - 40):at + 40])
+        elif piece["left"]:
+            emit("*" * piece["left"])  # spaced on both sides: "5 * 3"
+        at += piece["n"]
+        for kind in piece["closes"]:
+            depth[kind] -= 1
+        for kind in piece["opens"]:
+            depth[kind] += 1
     if not runs:
         runs.append(("", False, False))
     return runs
+
+
+def add_inline(paragraph, lines, soft_wraps):
+    """Add one paragraph's lines as runs, parsing emphasis across the whole
+    paragraph so a *phrase* wrapped over two source lines stays one italic
+    phrase. Lines end as line_end() says: a space when soft_wraps joins
+    them, otherwise a line break."""
+    joined = []
+    for idx, line in enumerate(lines):
+        body = line.strip()
+        if body.endswith("\\"):
+            body = body[:-1].rstrip()
+        joined.append(body)
+        if idx < len(lines) - 1:
+            hard = (not soft_wraps or line.rstrip().endswith("\\")
+                    or line.endswith("  "))
+            joined.append("\n" if hard else " ")
+    for run_text, bold, italic in parse_inline("".join(joined)):
+        for n, chunk in enumerate(run_text.split("\n")):
+            if n:
+                paragraph.add_run().add_break(WD_BREAK.LINE)
+            if chunk:
+                r = paragraph.add_run(chunk)
+                r.bold = bold
+                r.italic = italic
 
 
 def line_end(paragraph, line, soft_wraps):
@@ -246,8 +506,9 @@ def bullet_items(block):
 
 
 def add_header_image(section, image_path, height=None):
-    """A small copy of an image (a logo) centered in the header of every
-    page but the first (practice: create-word-doc, the running header).
+    """A small copy of an image (a logo), HEADER_IMAGE_HEIGHT inches tall
+    unless `height` says otherwise, centered in the header of every page
+    but the first (practice: create-word-doc, the running header).
 
     The first page gets a header and footer of its own -- Word's "different
     first page" -- so the header there is left empty, under the cover, and
@@ -262,7 +523,7 @@ def add_header_image(section, image_path, height=None):
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.line_spacing = 1.0  # a 1.3 line would pad the image
-    p.add_run().add_picture(str(image_path), height=height or Inches(0.4))
+    p.add_run().add_picture(str(image_path), height=height or Inches(HEADER_IMAGE_HEIGHT))
 
     section.first_page_header.is_linked_to_previous = False
     first_footer = section.first_page_footer
@@ -334,7 +595,8 @@ def add_contents(doc):
     Heading 1 but stays out of the contents and the Navigation Pane, where a
     Heading 1 would list itself. Then a TOC field (TOC \\o "1-2" \\h \\z \\u)
     whose cached result is the finished list: each Heading 1 and Heading 2,
-    as a link that jumps to a bookmark on the heading itself.
+    as a link that jumps to a bookmark on the heading itself, in Word's own
+    "TOC 1" and "TOC 2" styles as style_contents() sets them.
 
     The document never asks Word to update its fields when it opens (no
     updateFields setting): that is the "This document contains fields that
@@ -379,11 +641,11 @@ def add_contents(doc):
 
     # The field opens in the first entry's paragraph and closes in the last,
     # so its cached result is the list of headings itself.
+    toc1, toc2 = style_contents(doc)
     paras = []
     for h, name in zip(headings, names):
-        p = first_part.insert_paragraph_before()
-        p.paragraph_format.left_indent = Inches(
-            0.3 if h.style.name == "Heading 2" else 0)
+        p = first_part.insert_paragraph_before(
+            style=toc2 if h.style.name == "Heading 2" else toc1)
         paras.append((p, h.text, name))
     first = paras[0][0]
     field_char(first, "begin")
@@ -410,6 +672,7 @@ def add_contents(doc):
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
               section_breaks=True, header_image=None, soft_wraps=False):
     text = strip_comments(manuscript_path.read_text(encoding="utf-8"))
+    STRAY_ASTERISKS.clear()
     lines = text.split("\n")
     blocks = group_blocks(lines)
 
@@ -426,6 +689,9 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
     word_count_cache = str(len(text.split()))
     quote_style = style_block_quote(doc)  # practice: create-word-doc
+    style_footer(doc)  # practice: create-word-doc
+    style_heading_1(doc)  # practice: create-word-doc
+    style_list_bullet(doc)  # practice: create-word-doc
 
     saw_title = False
     last_para = None  # practice: create-word-doc (chapter page breaks)
@@ -476,13 +742,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             paras = quote_paragraphs(block)
             for lines_ in paras:
                 p = doc.add_paragraph(style=quote_style)
-                for idx, l in enumerate(lines_):
-                    for run_text, bold, italic in parse_inline(l):
-                        r = p.add_run(run_text)
-                        r.bold = bold
-                        r.italic = italic
-                    if idx < len(lines_) - 1:
-                        line_end(p, l, soft_wraps)
+                add_inline(p, lines_, soft_wraps)
                 last_para = p
             if paras:
                 last_was_heading = False
@@ -492,27 +752,29 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         if items is not None:
             for item in items:
                 p = doc.add_paragraph(style="List Bullet")
-                for run_text, bold, italic in parse_inline(item):
-                    r = p.add_run(run_text)
-                    r.bold = bold
-                    r.italic = italic
+                add_inline(p, [item], soft_wraps)
             last_para = p
             last_was_heading = False
             continue
 
         p = doc.add_paragraph()
+        # Text lines go in together, so emphasis can span them; a word-count
+        # line splits the paragraph's text where it sits.
+        pending = []
         for idx, l in enumerate(block):
-            stripped = l.strip()
-            if WORDS_LINE_RE.match(stripped):
+            if WORDS_LINE_RE.match(l.strip()):
+                if pending:
+                    add_inline(p, pending, soft_wraps)
+                    line_end(p, pending[-1], soft_wraps)
+                    pending = []
                 p.add_run("Words: ")
                 add_field(p, "NUMWORDS", cached_text=word_count_cache)
+                if idx < len(block) - 1:
+                    line_end(p, l, soft_wraps)
             else:
-                for run_text, bold, italic in parse_inline(stripped):
-                    r = p.add_run(run_text)
-                    r.bold = bold
-                    r.italic = italic
-            if idx < len(block) - 1:
-                line_end(p, l, soft_wraps)
+                pending.append(l)
+        if pending:
+            add_inline(p, pending, soft_wraps)
         last_para = p
         last_was_heading = False
 
@@ -521,13 +783,14 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         footer.is_linked_to_previous = False
 
         page_para = footer.paragraphs[0]
+        page_para.style = doc.styles["Footer"]
         page_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         page_para.add_run("Page ")
         add_field(page_para, "PAGE")
         page_para.add_run(" of ")
         add_field(page_para, "NUMPAGES")
 
-        conf_para = footer.add_paragraph()
+        conf_para = footer.add_paragraph(style="Footer")
         conf_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         conf_para.add_run(
             f"CONFIDENTIAL - DRAFT BOOK: {short_name.upper()} - {date_str}"
@@ -538,6 +801,14 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
     if contents:
         add_contents(doc)
+
+    # practice: create-word-doc -- an asterisk placed like emphasis that
+    # nothing closed is almost always a typo in the source; say where, never
+    # pass it silently. An escaped \\* or a spaced "5 * 3" is not reported.
+    for where in STRAY_ASTERISKS:
+        print(f"create_word_doc WARNING: a stray asterisk was left out of the "
+              f"text -- fix the source: "
+              f"...{where}...", file=sys.stderr)
 
     return doc
 
