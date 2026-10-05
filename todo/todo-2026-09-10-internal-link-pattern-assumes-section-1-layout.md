@@ -17,7 +17,7 @@ closed:            null
 ## What
 
 2. <a id="internal-link-pattern-assumes-section-1-layout"></a>**`INTERNAL_LINK` in the deliverables check names §1's paths.**
-   [`check_deliverables_carry_no_process.py`](tools/checks/check_deliverables_carry_no_process.py)
+   [`check_deliverables_carry_no_process.py`](../tools/checks/check_deliverables_carry_no_process.py)
    reports a link *out of* a reader-facing document *into* the practice
    layer, and recognises that layer by the literal path segments
    `practices/`, `process/` and `tools/checks/`. The first survives every
