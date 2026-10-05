@@ -5,7 +5,8 @@ with a confidential-draft footer stamped on every page.
 # practice: create-word-doc
 
 Parses the manuscript's plain Markdown (headings up to ###, **bold**,
-*italic*, [links](...) printed as their text, "- " bullet lists whose
+*italic* and ***both***, nested either way and carried across a wrapped
+line, as Markdown reads them, [links](...) printed as their text, "- " bullet lists whose
 items may wrap onto indented lines, "> " block quotations, and
 multi-line blocks such as song lyrics where each physical line is a hard
 break within one paragraph; HTML comments are dropped) and
@@ -44,6 +45,13 @@ starts a new paragraph of the same quotation. It uses Word's own "Quote"
 style, restyled upright (the stock one is italic, which tires the eye
 over a long passage), so the excerpts are findable and restylable in
 Word's Styles pane all at once.
+
+A "- " bullet list sits half an inch in from the margin, the way a
+book indents one: the bullet at half an inch, each item's text a quarter
+inch further, and an item's wrapped lines lined up under its own text.
+Word's stock List Bullet puts the bullet flush against the margin, which
+looks like a mistake beside indented block quotations. style_list_bullet()
+does the same for a document built by hand.
 
 Default page is A4, default line spacing is 1.3x. A "Words: <count>"
 line (with an optional trailing parenthetical, e.g. "(PART 1)") is
@@ -132,7 +140,15 @@ from docx.shared import Inches, Mm, Pt  # noqa: E402
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import precedent_time  # noqa: E402  (practice: timestamps-carry-offset)
 
-INLINE_RE = re.compile(r"(\*\*[^*]+?\*\*|\*[^*]+?\*)")
+# practice: create-word-doc -- emphasis is matched the way Markdown matches
+# it, not with one flat pattern: a run of asterisks opens when text follows
+# it and closes when text precedes it, and the nearest compatible opener
+# wins. A flat pattern could not see *italic* inside **bold**, so
+# "**a *b* c**" reached Word as literal asterisks around italic text
+# (Morgan, 2026-10-05, the Joseph manuscript's Introduction).
+STAR_RUN_RE = re.compile(r"\\\*|\*+")
+# Where build_doc's last run left an emphasis-like asterisk unmatched.
+STRAY_ASTERISKS = []
 # practice: create-word-doc -- a Markdown link prints as its text: the
 # target is usually a path inside the source's repository, which means
 # nothing to someone reading the Word file.
@@ -166,6 +182,49 @@ def style_block_quote(doc):
     return style
 
 
+# practice: create-word-doc -- where a list's bullet (or number) sits, and how
+# far past it the item's text starts. A builder that sets list indents by
+# hand reads these rather than its own numbers, so every list matches.
+LIST_INDENT = 0.5
+LIST_HANG = 0.25
+
+
+def style_list_bullet(doc):
+    """Move Word's built-in "List Bullet" half an inch in from the margin:
+    the bullet at LIST_INDENT, the text (and every wrapped line under it) at
+    LIST_INDENT + LIST_HANG. The stock style puts the bullet flush with the
+    margin. The indent is set in both places Word reads it from -- the
+    style's own paragraph settings and the bullet's numbering level, plus
+    the tab stop after the bullet -- so no viewer is left with the old
+    position from whichever one it happens to prefer. Returns the style."""
+    style = doc.styles["List Bullet"]
+    pf = style.paragraph_format
+    pf.left_indent = Inches(LIST_INDENT + LIST_HANG)
+    pf.first_line_indent = Inches(-LIST_HANG)
+    num_pr = style.element.pPr.numPr if style.element.pPr is not None else None
+    if num_pr is None or num_pr.numId is None:
+        return style
+    numbering = doc.part.numbering_part.element
+    abstract_id = numbering.num_having_numId(num_pr.numId.val).abstractNumId.val
+    twips = lambda inches: str(round(inches * 1440))  # noqa: E731
+    for lvl in numbering.xpath(
+            f'./w:abstractNum[@w:abstractNumId="{abstract_id}"]/w:lvl[@w:ilvl="0"]'):
+        ppr = lvl.find(qn("w:pPr"))
+        if ppr is None:
+            ppr = OxmlElement("w:pPr")
+            lvl.append(ppr)
+        for tab in ppr.iter(qn("w:tab")):
+            if tab.get(qn("w:val")) == "num":
+                tab.set(qn("w:pos"), twips(LIST_INDENT + LIST_HANG))
+        ind = ppr.find(qn("w:ind"))
+        if ind is None:
+            ind = OxmlElement("w:ind")
+            ppr.append(ind)
+        ind.set(qn("w:left"), twips(LIST_INDENT + LIST_HANG))
+        ind.set(qn("w:hanging"), twips(LIST_HANG))
+    return style
+
+
 def quote_paragraphs(block):
     """Split a "> " block into its paragraphs: a bare ">" line separates
     them, and the other lines lose their ">" marker."""
@@ -184,28 +243,117 @@ def quote_paragraphs(block):
 
 
 def parse_inline(text):
-    """Split a line into (text, bold, italic) runs on **bold**/*italic*.
-    A link becomes its text, and a trailing backslash -- Markdown's hard
-    line break, which the caller already makes a real one -- is dropped."""
+    """Split text into (text, bold, italic) runs on **bold**, *italic* and
+    ***both***, nested either way round -- "**a *b* c**" gives a bold run
+    with an italic-and-bold middle. A link becomes its text, a trailing
+    backslash -- Markdown's hard line break, which the caller already makes
+    a real one -- is dropped, and an escaped \\* is a plain asterisk. An
+    asterisk nothing closes stays a plain character, as in Markdown.
+    The text may hold "\\n" (a line break inside the paragraph); emphasis
+    carries across it, so an italic title wrapped over two source lines
+    still comes out italic."""
     text = LINK_RE.sub(r"\1", text)
     if text.endswith("\\"):
         text = text[:-1].rstrip()
-    runs = []
+
+    # Pieces: plain text (str) or a delimiter run (dict).
+    pieces = []
     last = 0
-    for m in INLINE_RE.finditer(text):
+    for m in STAR_RUN_RE.finditer(text):
         if m.start() > last:
-            runs.append((text[last : m.start()], False, False))
-        token = m.group(0)
-        if token.startswith("**"):
-            runs.append((token[2:-2], True, False))
+            pieces.append(text[last:m.start()])
+        if m.group(0) == "\\*":
+            pieces.append("*")
         else:
-            runs.append((token[1:-1], False, True))
+            before = text[m.start() - 1] if m.start() > 0 else " "
+            after = text[m.end()] if m.end() < len(text) else " "
+            pieces.append(dict(n=len(m.group(0)), left=0, opens=[], closes=[],
+                               can_open=not after.isspace(),
+                               can_close=not before.isspace()))
         last = m.end()
     if last < len(text):
-        runs.append((text[last:], False, False))
+        pieces.append(text[last:])
+
+    # Match closers to the nearest opener still holding asterisks, two at a
+    # time (bold) when both sides have two, else one (italic). Openers
+    # skipped over by a match can no longer close anything: they stay plain.
+    stack = []
+    for piece in pieces:
+        if isinstance(piece, str):
+            continue
+        piece["left"] = piece["n"]
+        if piece["can_close"]:
+            while piece["left"] and stack:
+                opener = stack[-1]
+                use = 2 if opener["left"] >= 2 and piece["left"] >= 2 else 1
+                kind = "bold" if use == 2 else "italic"
+                opener["left"] -= use
+                piece["left"] -= use
+                opener["opens"].append(kind)
+                piece["closes"].append(kind)
+                if not opener["left"]:
+                    stack.pop()
+        if piece["can_open"] and piece["left"]:
+            stack.append(piece)
+
+    runs = []
+    depth = {"bold": 0, "italic": 0}
+
+    def emit(chunk):
+        if not chunk:
+            return
+        style = (depth["bold"] > 0, depth["italic"] > 0)
+        if runs and runs[-1][1:] == style:
+            runs[-1] = (runs[-1][0] + chunk,) + style
+        else:
+            runs.append((chunk,) + style)
+
+    plain = "".join(x if isinstance(x, str) else "*" * x["n"] for x in pieces)
+    at = 0
+    for piece in pieces:
+        if isinstance(piece, str):
+            emit(piece)
+            at += len(piece)
+            continue
+        if piece["left"] and (piece["can_open"] or piece["can_close"]):
+            STRAY_ASTERISKS.append(plain[max(0, at - 40):at + 40])
+        at += piece["n"]
+        for kind in piece["closes"]:
+            depth[kind] -= 1
+        if piece["opens"]:
+            emit("*" * piece["left"])  # unmatched, outside the emphasis
+            for kind in piece["opens"]:
+                depth[kind] += 1
+        else:
+            emit("*" * piece["left"])
     if not runs:
         runs.append(("", False, False))
     return runs
+
+
+def add_inline(paragraph, lines, soft_wraps):
+    """Add one paragraph's lines as runs, parsing emphasis across the whole
+    paragraph so a *phrase* wrapped over two source lines stays one italic
+    phrase. Lines end as line_end() says: a space when soft_wraps joins
+    them, otherwise a line break."""
+    joined = []
+    for idx, line in enumerate(lines):
+        body = line.strip()
+        if body.endswith("\\"):
+            body = body[:-1].rstrip()
+        joined.append(body)
+        if idx < len(lines) - 1:
+            hard = (not soft_wraps or line.rstrip().endswith("\\")
+                    or line.endswith("  "))
+            joined.append("\n" if hard else " ")
+    for run_text, bold, italic in parse_inline("".join(joined)):
+        for n, chunk in enumerate(run_text.split("\n")):
+            if n:
+                paragraph.add_run().add_break(WD_BREAK.LINE)
+            if chunk:
+                r = paragraph.add_run(chunk)
+                r.bold = bold
+                r.italic = italic
 
 
 def line_end(paragraph, line, soft_wraps):
@@ -410,6 +558,7 @@ def add_contents(doc):
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
               section_breaks=True, header_image=None, soft_wraps=False):
     text = strip_comments(manuscript_path.read_text(encoding="utf-8"))
+    STRAY_ASTERISKS.clear()
     lines = text.split("\n")
     blocks = group_blocks(lines)
 
@@ -426,6 +575,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
     word_count_cache = str(len(text.split()))
     quote_style = style_block_quote(doc)  # practice: create-word-doc
+    style_list_bullet(doc)  # practice: create-word-doc
 
     saw_title = False
     last_para = None  # practice: create-word-doc (chapter page breaks)
@@ -476,13 +626,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             paras = quote_paragraphs(block)
             for lines_ in paras:
                 p = doc.add_paragraph(style=quote_style)
-                for idx, l in enumerate(lines_):
-                    for run_text, bold, italic in parse_inline(l):
-                        r = p.add_run(run_text)
-                        r.bold = bold
-                        r.italic = italic
-                    if idx < len(lines_) - 1:
-                        line_end(p, l, soft_wraps)
+                add_inline(p, lines_, soft_wraps)
                 last_para = p
             if paras:
                 last_was_heading = False
@@ -492,27 +636,29 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         if items is not None:
             for item in items:
                 p = doc.add_paragraph(style="List Bullet")
-                for run_text, bold, italic in parse_inline(item):
-                    r = p.add_run(run_text)
-                    r.bold = bold
-                    r.italic = italic
+                add_inline(p, [item], soft_wraps)
             last_para = p
             last_was_heading = False
             continue
 
         p = doc.add_paragraph()
+        # Text lines go in together, so emphasis can span them; a word-count
+        # line splits the paragraph's text where it sits.
+        pending = []
         for idx, l in enumerate(block):
-            stripped = l.strip()
-            if WORDS_LINE_RE.match(stripped):
+            if WORDS_LINE_RE.match(l.strip()):
+                if pending:
+                    add_inline(p, pending, soft_wraps)
+                    line_end(p, pending[-1], soft_wraps)
+                    pending = []
                 p.add_run("Words: ")
                 add_field(p, "NUMWORDS", cached_text=word_count_cache)
+                if idx < len(block) - 1:
+                    line_end(p, l, soft_wraps)
             else:
-                for run_text, bold, italic in parse_inline(stripped):
-                    r = p.add_run(run_text)
-                    r.bold = bold
-                    r.italic = italic
-            if idx < len(block) - 1:
-                line_end(p, l, soft_wraps)
+                pending.append(l)
+        if pending:
+            add_inline(p, pending, soft_wraps)
         last_para = p
         last_was_heading = False
 
@@ -538,6 +684,13 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
     if contents:
         add_contents(doc)
+
+    # practice: create-word-doc -- an asterisk placed like emphasis that
+    # nothing closed is almost always a typo in the source; say where, never
+    # pass it silently. An escaped \\* or a spaced "5 * 3" is not reported.
+    for where in STRAY_ASTERISKS:
+        print(f"create_word_doc WARNING: a stray asterisk reached the text: "
+              f"...{where}...", file=sys.stderr)
 
     return doc
 
