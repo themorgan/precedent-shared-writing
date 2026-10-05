@@ -3,7 +3,8 @@ slug:        dated-download-names
 title:       A document handed to someone to download carries its date at the end of its name, just before the extension
 tier:        on-demand
 severity:    default
-applies_to:  ["tools/dated_name.py", ".claude/settings.json"]
+applies_to:  ["**"]
+applies_to_why: "No locus: the moment is a hand-over, a SendUserFile call or an attachment, and nothing about it is written to the tree. Reached through the occasion index, and enforced at the call itself by the hook. Decided: 2026-10-05, when the practice landed."
 occasion:    "handing a person a document to download -- a Word file, a PDF, a spreadsheet, a deck"
 gates:       []
 index_clause: "the date goes at the end of its name: Name-2026-12-31.docx"
