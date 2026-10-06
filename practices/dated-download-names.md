@@ -75,7 +75,7 @@ changing an entry already there) as:
   "command": "python3 $CLAUDE_PROJECT_DIR/tools/dated_name.py --hook"}]}
 ```
 
-Declining `tools/dated_name.py` under `declined_ships` declines the hook too.
+Declining [`tools/dated_name.py`](../tools/dated_name.py) under `declined_ships` declines the hook too.
 
 ## Why
 A downloads folder fills with copies of the same document from different
