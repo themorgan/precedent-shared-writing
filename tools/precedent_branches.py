@@ -67,7 +67,7 @@ test on the pull request into main (plan, hole 3). It rebuilds the
 generated files main's work left stale, runs the FULL push check on that
 tree once, and only if it passes moves staging AND pre-staging to that same
 commit in one atomic push. A failure or a conflict in hand-written text
-moves neither: the tree goes to a promote-fix-DATE branch, to be fixed
+moves neither: the tree goes to a local promote-fix-DATE branch, to be fixed
 there and promoted with --work (spec/LADDER_OPT_IN_PLAN.md D10; see the
 comment above _promote_unlocked). It pushes by itself, so it runs the check
 by itself: no push gate sees a push made from inside a script.
@@ -520,6 +520,13 @@ def merge_refusal(root, bases, heads, user_config=None):
         allowed |= _promotion_heads(root, b)
     if set(heads or ()) & allowed:
         return None
+    stale = sorted(h for h in heads or () if str(h).startswith('to-main-'))
+    if MAIN in bases and stale:
+        return (f'{stale[0]} is a copy of {staging_branch(root)} that is out of '
+                f'date: {staging_branch(root)} has moved since it was made. '
+                f'Close this pull request, promote {staging_branch(root)} into '
+                f'{MAIN} again for a fresh copy, and open the pull request '
+                f'from that. Never retarget it.')
     return (f'a pull request into {" or ".join(sorted(bases))} is merged only '
             f'from {" or ".join(sorted(allowed))} here -- {PROMOTE_ONLY_SETTING} '
             f'is on in {where}. Retarget it at {PRE_STAGING}, merge it there, '
@@ -1976,12 +1983,76 @@ def promotion_step(root, to=None, work=None):
     return None, f'{PRE_STAGING}, {staging} and {MAIN} carry the same work'
 
 
+def produce_waiting_hold(root, gh=None):
+    """-> why a move from pre-staging into staging waits, or None: a pull
+    request into main from a `to-main-` copy of staging is still open, and
+    moving staging now leaves that copy behind, so the merge check refuses
+    it and the Produce starts over. Seen 2026-10-06: a second Debut ran
+    while a Produce pull request waited on its GitHub test, and the pull
+    request had to be closed and made again. None when GitHub cannot be
+    asked -- the merge check still refuses a stale copy."""
+    gh = gh or _sibling('github_budget')
+    slug = _slug(root)
+    if gh is None or not slug:
+        return None
+    got, _err = gh.call(f'repos/{slug}/pulls?state=open&base={MAIN}', cache=False)
+    if not isinstance(got, list):
+        return None
+    waiting = [f'#{p.get("number")}' for p in got
+               if str((p.get('head') or {}).get('ref') or '').startswith('to-main-')]
+    if not waiting:
+        return None
+    return (f'NOT PROMOTED: {" and ".join(waiting)} into {MAIN} is still open, '
+            f'made from a copy of {staging_branch(root)}. Moving '
+            f'{staging_branch(root)} now would leave that copy out of date and '
+            f'the merge check would refuse it. Finish it first -- wait for its '
+            f'GitHub test (--wait-main-test) and merge it -- or close it, then '
+            f'promote again.')
+
+
+def retired_set_hold(root, env=None):
+    """-> why a Promote in a practice set that says it is retired does
+    nothing, or None. Morgan, 2026-10-06 (strength: decided), the same day
+    a session promoted toward main in every set at once: "I just told you a
+    few minutes ago to not edit nor promote nor touch repo maintenance or
+    working style, unless it is essential to their graceful deprecation."
+    Practice: retired-set-takes-only-its-retirement (temporary). The
+    person's own words in PRECEDENT_RETIRED_SET_EDIT let one Promote run."""
+    env = os.environ if env is None else env
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import precedent_vendor_engine as ve
+    except ImportError:
+        return None
+    finally:
+        sys.path.pop(0)
+    judge = (getattr(ve, 'retirement_on_any_tier', None)
+             or getattr(ve, 'source_retirement', None))
+    retirement = judge(root) if judge else None
+    if retirement is None:
+        return None
+    asked = (env.get('PRECEDENT_RETIRED_SET_EDIT') or '').strip()
+    if asked:
+        print(f'promoting a retired set, because the person asked: {asked!r}',
+              flush=True)
+        return None
+    return ('NOT PROMOTED: this set says it is retired, and a retired set is '
+            'not promoted unless the person asks for that exact move as '
+            'essential to retiring it gracefully (practice: '
+            'retired-set-takes-only-its-retirement). If they have, run again '
+            'with PRECEDENT_RETIRED_SET_EDIT="<their words>".')
+
+
 def promote(root, say=print, to=None, work=None):
     """Pick the step (promotion_step), SAY it, then run it, one window at a
     time. -> 0 promoted, nothing to promote, or another window already
     promoting; 1 refused (a failing check, a conflict, a race);
     PROMOTE_MAIN_NOT_MOVED when staging into main is ready for its pull
     request and main has not moved yet."""
+    held = retired_set_hold(root)
+    if held:
+        say(held)
+        return 1
     if not repo_has_tiers(root) and not _git(
             root, 'rev-parse', '--verify', '--quiet',
             f'refs/remotes/origin/{staging_branch(root)}'):
@@ -2010,6 +2081,11 @@ def promote(root, say=print, to=None, work=None):
         run = _promote_unlocked
     else:
         source, dest = (PRE_STAGING, staging) if step == STAGING else (staging, MAIN)
+        if step == STAGING:
+            waits = produce_waiting_hold(root)
+            if waits:
+                say(waits)
+                return 1
         # The one line a person reads first: which move this is, in these words.
         say(f'Now promoting from {source} to {dest} ({why}).')
         run = _promote_unlocked if step == STAGING else _promote_to_main
@@ -2314,7 +2390,8 @@ def _promote_to_main(root, say=print):
 # pre-staging's -- rebuilds what main left stale, runs the full check on it
 # once, and only then moves staging AND pre-staging to that same commit.
 #
-# A failure moves neither. The tree is pushed to a fix branch, and the
+# A failure moves neither. The tree is put on a LOCAL fix branch (pushed
+# only with a fix, 2026-10-06; see _not_finished), and the
 # session fixes it there in the same turn, whoever's commit broke it ("if
 # it fails because of a problem on main (caused by someone not using this
 # process) -- then you have to fix it as part of this process"), and runs
@@ -2333,7 +2410,9 @@ def _fix_branch(root):
     finally:
         sys.path.pop(0)
     base = f'{FIX_PREFIX}{day}'
-    return base if not _remote_tip(root, base) else f'{FIX_PREFIX}{moment}'
+    taken = _remote_tip(root, base) or _run(
+        root, 'rev-parse', '--verify', '-q', f'refs/heads/{base}').returncode == 0
+    return base if not taken else f'{FIX_PREFIX}{moment}'
 
 
 def _branches_page(root, name):
@@ -2527,18 +2606,28 @@ def _where_it_fails(root, stip, above, staging):
 
 
 def _not_finished(root, say, sha, staging, what, todo):
-    """Push the composition `sha` to a fresh fix branch, say what stopped it
-    and how the session finishes it, and -> 1. Neither tier has moved."""
+    """Put the composition `sha` on a fresh LOCAL fix branch, say what stopped
+    it and how the session finishes it, and -> 1. Neither tier has moved.
+
+    LOCAL, NOT PUSHED (2026-10-06). It used to be pushed at once, so every
+    refused Promote left a branch on origin -- one consumer had four by the
+    next day, all already contained in staging, each for a person to delete
+    by hand -- including the many refusals that are fixed on pre-staging and
+    never touch the fix branch at all. The composition can always be made
+    again, so nothing is lost if the container goes; it reaches origin only
+    when the session pushes a fix to it."""
     fix = _fix_branch(root)
-    p = _run(root, 'push', '-q', 'origin', f'{sha}:refs/heads/{fix}')
-    if p.returncode != 0:
+    b = _run(root, 'branch', fix, sha)
+    if b.returncode != 0:
         say(f'PROMOTE NOT FINISHED, and neither {staging} nor {PRE_STAGING} '
-            f'moved: {what}\n\nThe composition could not be pushed to a fix '
-            f'branch either ({p.stderr.strip()[:200]}); run the Promote again.')
+            f'moved: {what}\n\nThe composition could not be put on a fix '
+            f'branch either ({b.stderr.strip()[:200]}); run the Promote again.')
         return 1
     say(f'PROMOTE NOT FINISHED, and neither {staging} nor {PRE_STAGING} moved: '
-        f'{what}\n\nThe composition is on {fix} ({sha[:12]}). Finish it in this '
-        f'same turn: on {fix}, {todo}; push it to {fix}; then\n'
+        f'{what}\n\nThe composition is on the local branch {fix} ({sha[:12]}), '
+        f'not pushed: a fix made on {PRE_STAGING} instead leaves nothing behind '
+        f'on origin. Finish it in this same turn: on {fix}, {todo}; push it '
+        f'with `git push -u origin {fix}`; then\n'
         f'  python3 tools/precedent_branches.py --promote --to staging --work {fix}\n'
         f'which takes the fix in first and moves both tiers together.')
     return 1

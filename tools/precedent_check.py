@@ -905,6 +905,134 @@ def _rule_was_rewritten(old_sections, new_sections):
             and changed / len(before) >= _RULE_REWRITE_MIN_SHARE)
 
 
+@check('no-duplication', 'tree',
+       'a practice set carries no active copy of a practice its declared '
+       'universal source also has active: it adds to that rule in a practice '
+       'of its own, holding only what it adds',
+       'a rule restated under a different slug, or a set copy of another '
+       'set\'s rule; a universal source not cloned on this machine is passed '
+       'over (could not be read is not a duplicate). A set that says it is '
+       'retired is passed over: its copies leave with it.',
+       binds_publishers=True, selects_on=('practices/*.md',))
+def _no_duplication(ctx):
+    """Morgan, 2026-10-06 (strength: decided): "rules should not be repeated,
+    but supporting repos can have additions for them". Four practices lived
+    as full copies in universal and in the ladder set, the set's copy
+    overriding universal's to change a few ladder sentences, and every edit
+    had to be made twice; the same day three of them were missed on the
+    first pass. universal-change-reaches-overrides only named the copies, in
+    universal, after the fact. This refuses the copy where it lives."""
+    try:
+        src = json.loads((ROOT / 'precedent-source.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise NotApplicable('this repo is not a practice source (no precedent-source.json)')
+    if not isinstance(src, dict) or src.get('level') == 'universal':
+        raise NotApplicable('universal is where the one full copy lives')
+    if src.get('retired'):
+        raise NotApplicable('this set says it is retired; its copies leave with it')
+    try:
+        import precedent_resolve as _pr
+        sources = _pr.load_config(str(ROOT))
+    except Exception as e:                                   # noqa: BLE001
+        raise NotApplicable(f'the declared sources could not be read ({e})')
+    uni = [pathlib.Path(s['path']) for s in sources if s.get('level') == 'universal']
+    uni = [u for u in uni if (u / 'practices').is_dir()]
+    if not uni:
+        raise NotApplicable('no universal source is cloned here to compare with')
+
+    def active(text):
+        m = re.search(r'^status:\s*(\S+)', text or '', re.M)
+        return bool(m) and m.group(1).strip('"\'') == 'active'
+    out = []
+    for f in sorted((ROOT / 'practices').glob('*.md')):
+        try:
+            mine = f.read_text(encoding='utf-8')
+        except OSError:
+            continue
+        if not active(mine):
+            continue
+        for u in uni:
+            try:
+                theirs = (u / 'practices' / f.name).read_text(encoding='utf-8')
+            except OSError:
+                continue
+            if active(theirs):
+                out.append(Finding(
+                    f'practices/{f.name}',
+                    f'universal has its own active {f.stem}; this set repeats it '
+                    f'instead of adding to it. Keep only what this set adds, in a '
+                    f'practice of its own (e.g. {f.stem}-on-<this set>) that names '
+                    f'{f.stem}, and mark this copy deduplicated'))
+                break
+    return out
+
+
+@check('universal-change-reaches-overrides', 'change',
+       'a change to a universal practice names each shared set that carries its '
+       'own active copy of the same slug -- that copy overrides this one for '
+       'everyone who declares or brings the set, so the change does not reach '
+       'them until it is made there too',
+       'whether the change belongs in the copy at all: a copy differs from '
+       'universal on purpose, so the finding names it and a person judges. A set '
+       'not cloned on this machine is passed over. It fires only in the '
+       'universal source itself, and only on a change below the frontmatter.',
+       advisory=True, practice_backed=False,
+       advisory_term={'term': 'permanent',
+                      'why': 'whether a universal change applies to a set\'s '
+                             'deliberately different copy is a judgment, and the '
+                             'set may be one this session cannot push to'},
+       selects_on=('practices/*.md',))
+def _universal_change_reaches_overrides(ctx):
+    """2026-10-05: the ladder set's copies of the-boildown and
+    vendor-update-runbook override universal's for everyone who brings the
+    ladder, and fell behind within three days -- four of universal's changes
+    never reached them, one of them made by a session that had just edited
+    universal's copy itself. Universal's own Story said "edit both"; a
+    sentence in a Story is read by nobody at the moment of the edit. This
+    says it at the push that makes the change (BestPractice's very deep
+    check, 2026-10-05, pass 3)."""
+    try:
+        src = json.loads((ROOT / 'precedent-source.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(src, dict) or src.get('level') != 'universal':
+        return []
+    changed = []
+    for f in ctx.changed_matching(r'^practices/[^/]+\.md$'):
+        old = ctx.read_base(f)
+        body = ctx.read(f).split('\n---\n', 1)[-1]
+        if old is not None and old.split('\n---\n', 1)[-1] == body:
+            continue                    # a frontmatter-only edit
+        changed.append(f)
+    if not changed:
+        return []
+    try:
+        import precedent_resolve as _pr
+        sources = _pr.load_config(str(ROOT))
+    except Exception as e:                                   # noqa: BLE001
+        raise NotApplicable(f'the declared sets could not be read ({e})')
+    out = []
+    for f in changed:
+        slug = pathlib.PurePosixPath(f).stem
+        for s in sources:
+            if s.get('level') in ('universal', 'repo-local'):
+                continue
+            copy = pathlib.Path(s['path']) / 'practices' / f'{slug}.md'
+            try:
+                text = copy.read_text(encoding='utf-8')
+            except OSError:
+                continue
+            m = re.search(r'^status:\s*(\S+)', text, re.M)
+            if not m or m.group(1).strip('"\'') != 'active':
+                continue
+            out.append(Finding(
+                f, f"{s['name']} carries its own active {slug}, which overrides "
+                   f"this one for everyone who {'brings' if s.get('brought') else 'declares'} "
+                   f"that set: make the same change there "
+                   f"({s['name']}/practices/{slug}.md), or say why it does not apply"))
+    return out
+
+
 @check('cite-the-incident', 'change',
        'a practice file whose Rule is new or changed must carry a non-empty '
        '## Story',
@@ -1274,8 +1402,15 @@ _SPEC_SHAPE_RE = re.compile(r'^## The Shape\n.*?^```\n---\n(.*?)\n---\n', re.S |
        'with no field the spec does not list; where the spec is present, its '
        'own example lists exactly that order',
        'whether a field\'s VALUE is right, and a practice another source owns '
-       '(a materialized copy is fixed where it is authored). A hard check '
-       'since 2026-10-05 -- see the function\'s own note.',
+       '(a materialized copy is fixed where it is authored). A warning, '
+       'never a refusal: an old practice is tidied, never stopped '
+       '(practice: format-rules-grandfather).',
+       advisory=True,
+       advisory_term={'term': 'permanent',
+                      'why': 'field order is a shape rule: a practice out '
+                             'of order loads and works exactly the same, so '
+                             'it is tidied by the commit hook and Update '
+                             'Vendors, never refused (Morgan, 2026-10-05)'},
        practice_backed=False, binds_publishers=True,
        selects_on=('practices/*.md', 'spec/PRACTICE_FORMAT.md',
                    'tools/frontmatter_yaml.py'))
@@ -1300,9 +1435,15 @@ def _frontmatter_field_order(ctx):
     owned. On 2026-10-05 the sets were tidied (14, 7, 4 and 1 files, whole
     fields moved and nothing else) and the engine's commit hook now runs
     the fixer on staged practice files in every practice source, so the
-    order is kept rather than checked after the fact. This is a hard check
-    from then on (practice: upstream-fix;
-    spec/PRACTICE_STANDING_AND_RECHECK_PLAN.md).
+    order is kept rather than checked after the fact. It was made a hard
+    check that day, and within hours a consuming repository had to stop and
+    reorder its own practices before it could push -- an old practice that
+    loads and works exactly the same, refused over its shape. Morgan, the
+    same evening: be flexible and graceful in grandfathering in old
+    practices, updating them as needed but not stopping them from being
+    used. So it is a permanent warning: the commit hook and Update Vendors
+    keep the order, and nothing is ever refused over it (practice:
+    format-rules-grandfather).
     """
     try:
         import frontmatter_yaml as fy
@@ -1348,12 +1489,16 @@ def _frontmatter_field_order(ctx):
                         f'changes nothing else' if fixable else
                         'the fixer leaves a repeated key alone; keep the copy '
                         'that is meant and delete the other')))
-        for key in fy.unlisted_fields(text):
+        own = fy.own_fields(ROOT) if hasattr(fy, 'own_fields') else ()
+        for key in (fy.unlisted_fields(text, own) if own else fy.unlisted_fields(text)):
             out.append(Finding(
                 rel, f'carries `{key}:`, a field spec/PRACTICE_FORMAT.md does '
-                     f'not list -- remove it, or add it to the spec and to '
-                     f'FIELD_ORDER in tools/frontmatter_yaml.py upstream in '
-                     f'BestPractice, where the order is defined'))
+                     f'not list; this engine ignores it and the practice '
+                     f'works as before -- remove it, or, if this '
+                     f'repository\'s own tooling reads it, declare it in '
+                     f'precedent.json\'s `own_frontmatter_fields`; a field '
+                     f'every repository should have goes in the spec and in '
+                     f'FIELD_ORDER upstream in BestPractice'))
     return out
 
 # ---- practice-links-travel -------------------------------------------------
@@ -3396,10 +3541,19 @@ def _practice_is_reachable(ctx):
     try:
         import build_views as _bv
         hook = ROOT / '.claude' / 'hooks' / 'session-start.sh'
+        # The hook may run the tool itself, or run tools/bootstrap.sh, which
+        # runs it -- the shipped consumer hook does the second and nothing
+        # else, so reading only the hook called every fresh install's
+        # session channel unwired (very deep check, 2026-10-05).
+        hook_text = (hook.read_text(encoding='utf-8', errors='ignore')
+                     if hook.is_file() else '')
+        boot = ROOT / 'tools' / 'bootstrap.sh'
+        runs_it = 'precedent_session_practices' in hook_text or (
+            'bootstrap.sh' in hook_text and boot.is_file()
+            and 'precedent_session_practices' in boot.read_text(
+                encoding='utf-8', errors='ignore'))
         wired = ((ROOT / 'tools' / 'precedent_session_practices.py').is_file()
-                 and hook.is_file()
-                 and 'precedent_session_practices' in hook.read_text(
-                     encoding='utf-8', errors='ignore'))
+                 and runs_it)
         if wired and _bv.repo_is_public(ROOT):
             session_channel_levels = _bv.PRIVATE_LEVELS
     except Exception:                                        # noqa: BLE001
@@ -5312,6 +5466,14 @@ _ENGINE_REF_RE = re.compile(
 # somewhere else is how a real gap gets waved through later. Keep this
 # short: the default answer to "this file isn't here" is to vendor it.
 _ENGINE_REF_ABSENT_OK = {
+    # A PRESENCE PROBE, like precedent_session_practices.py below. The
+    # layered-practice-packs check follows a session hook that runs
+    # tools/bootstrap.sh into it, to see whether it renders the session
+    # file (2026-10-05). A consuming repo has the script; a practice SET
+    # does not, and the reference is `.is_file()`-guarded, so its absence
+    # means only "this hook does not reach the tool that way". Found the
+    # same night, when a Debut's harness ran the check in a bare source set.
+    'bootstrap.sh',
     # A repo's OWN declared ceilings for what a session loads
     # (session-load-budget). Engine-read, never engine-owned: an adopter's
     # ceilings are theirs, so vendoring this repo's copy into their tools/
@@ -8894,6 +9056,75 @@ _GITHUB_REPO_RE = re.compile(
 _UPSTREAM_OWNER_REPO = 'alex137/BestPractice'
 
 
+# The placeholder precedent_move.py and precedent_land.py write into a
+# practice moved or landed in universal, before anyone has approved it.
+PENDING_APPROVAL_RE = re.compile(r'pending PR review', re.I)
+
+
+@check('pending-approval-outlives-its-merge', 'tree',
+       "no practice already on the base branch still says approved_by "
+       "'pending PR review' -- the placeholder precedent_move.py and "
+       "precedent_land.py write into a practice moved or landed in universal, "
+       "meant to last only until its pull request merges",
+       "a practice the change itself adds: its pull request is the review "
+       "still pending, so it passes until it is on the base branch. Whether "
+       "the approval written in its place is true -- only that the "
+       "placeholder is gone. A repository with no base branch to compare "
+       "against (no origin, or a base not fetched) skips.",
+       practice_backed=False,
+       selects_on=('practices/*.md',))
+def _pending_approval_outlives_its_merge(ctx):
+    """2026-10-05: 18 universal practices said approved_by "pending PR
+    review" long after their pull requests had merged. precedent_move.py
+    writes that text for a move into universal and precedent_land.py a
+    shorter one for a landing there; nothing rewrote either after the merge,
+    and a person reading the rule saw it as never approved. The very deep
+    check fixed the text by hand (todo-2026-10-05-very-deep-check-pass-2-
+    findings).
+
+    WHEN IT JUDGES. The placeholder is right while the pull request that
+    brings the practice is open, so a practice the base branch does not
+    have yet is never a finding: the pull request that introduces a moved
+    practice passes. Once the practice is on the base branch its review is
+    over, and every later run that sees the placeholder in this checkout
+    refuses it -- so the fix is one edit, on any branch."""
+    practices_dir = ctx.root / 'practices'
+    if not practices_dir.is_dir():
+        raise NotApplicable('no practices/ directory')
+    if ctx.range:
+        base = ctx.range.split('...')[0].split('..')[0]
+    else:
+        base = _published_default_branch()
+    if not base:
+        raise NotApplicable('no base branch to compare against: no origin, '
+                            'or none of its branches is the declared base')
+    listed = _git('ls-tree', '-r', '--name-only', base, '--', 'practices/',
+                  cwd=ctx.root)
+    if listed.returncode != 0:
+        raise NotApplicable(f'the base branch {base} could not be read: '
+                            f'{listed.stderr.strip()[:200]}')
+    on_base = set(listed.stdout.split())
+    out = []
+    for f in sorted(practices_dir.glob('*.md')):
+        rel = f'practices/{f.name}'
+        if rel not in on_base:
+            continue
+        head = f.read_text(encoding='utf-8', errors='replace').split('\n---\n', 1)[0]
+        m = re.search(r'^approved_by:\s*(.*)$', head, re.M)
+        if not (m and PENDING_APPROVAL_RE.search(m.group(1))):
+            continue
+        out.append(Finding(
+            rel, f'approved_by still says {m.group(1).strip()[:160]}, but the '
+                 f'practice is already on {base}, so its pull request merged. '
+                 f'Write who approved it and where, in the shape the merged '
+                 f'ones use: "<Name>, drafted <date>, moved from the <level> '
+                 f'set <name>; merged in PR #<n> on <date>". `git log '
+                 f'--diff-filter=A {base} -- {rel}` names the commit that '
+                 f'added it; its pull request is the one that carried that '
+                 f'commit'))
+    return out
+
+
 @check('practice-file-shape', 'tree',
        'each practice file in the engine\'s own catalogue is well-formed on '
        'its own: its slug is its filename and no other file has it; a '
@@ -10097,8 +10328,16 @@ _DISPOSITION_FM_RE = re.compile(r'\A---\n(.*?)\n---', re.S)
 _DISPOSITION_FM_FIELD_RE = re.compile(r'^(status|disposition):[ \t]*(.*?)[ \t]*$', re.M)
 
 
-def _item_disposition_findings(rel, text):
+def _item_disposition_findings(rel, text, copies=False):
     """Findings for one todo/todo-*.md item's frontmatter `disposition:`.
+
+    `copies=False` (the open-item-disposition check, which refuses): a value
+    that is not a disposition at all. `copies=True` (the
+    open-item-disposition-copies check, which only warns): a park with no
+    dated, named body line, and a body line the frontmatter disagrees with.
+    Those two arrived on 2026-10-05 and every item written before then
+    predates them, so they are tidied, never refused (practice:
+    format-rules-grandfather).
 
     Only an OPEN item is judged: a done or dropped item's disposition no
     longer governs anything, and several closed items carry `done` there,
@@ -10114,6 +10353,17 @@ def _item_disposition_findings(rel, text):
     where = f'{rel}:{line_no}'
     body = list(DISPOSITION_RE.finditer(text, fm.end()))
     out = []
+    if not copies:
+        if fields.get('status', '').lower() in DISPOSITION_ITEM_CLOSED:
+            return out
+        if not (value is None or value in ('null', '~', '')
+                or value in DISPOSITION_VALUES):
+            out.append(Finding(where,
+                f'open item has disposition {value!r}, which is not one '
+                f'of {", ".join(DISPOSITION_VALUES)} (or null, meaning '
+                f'wait) -- a session reading it cannot tell whether it '
+                f'may raise the item'))
+        return out
     # A park is a record of who said "Drop it" and when, whatever the item's
     # status: the frontmatter says THAT it is parked, the body line says by
     # whom. One item reached 2026-10-05 with the first and neither of the
@@ -10130,11 +10380,7 @@ def _item_disposition_findings(rel, text):
     if fields.get('status', '').lower() in DISPOSITION_ITEM_CLOSED:
         return out
     if not (value is None or value in ('null', '~', '') or value in DISPOSITION_VALUES):
-        return out + [Finding(where,
-                    f'open item has disposition {value!r}, which is not one '
-                    f'of {", ".join(DISPOSITION_VALUES)} (or null, meaning '
-                    f'wait) -- a session reading it cannot tell whether it '
-                    f'may raise the item')]
+        return out
     # The two copies must agree, and the frontmatter is the one that counts:
     # it is what build_todo_index.py and every reader acts on. Only checked
     # where a body line exists -- most items carry the frontmatter alone,
@@ -10153,6 +10399,20 @@ def _item_disposition_findings(rel, text):
                        'on, so make the two agree')
             out.append(Finding(where, why))
     return out
+
+
+def _disposition_items():
+    """Every per-item todo/todo-*.md file this repository holds."""
+    items = []
+    for p in sorted(ROOT.rglob(DISPOSITION_ITEM_GLOB.split('/')[-1])):
+        if p.parent.name != 'todo' or not p.is_file():
+            continue
+        rel = p.relative_to(ROOT).as_posix()
+        if rel.split('/')[0] == '.git' or rel.startswith(_mirrored(ROOT)) \
+                or rel.startswith(AGENT_WORKTREES):
+            continue
+        items.append(rel)
+    return items
 
 
 @check('open-item-disposition', 'tree',
@@ -10188,15 +10448,7 @@ def _open_item_disposition(ctx):
                 continue
             if rel not in files:
                 files.append(rel)
-    items = []
-    for p in sorted(ROOT.rglob(DISPOSITION_ITEM_GLOB.split('/')[-1])):
-        if p.parent.name != 'todo' or not p.is_file():
-            continue
-        rel = p.relative_to(ROOT).as_posix()
-        if rel.split('/')[0] == '.git' or rel.startswith(_mirrored(ROOT)) \
-                or rel.startswith(AGENT_WORKTREES):
-            continue
-        items.append(rel)
+    items = _disposition_items()
     if not files and not items:
         raise NotApplicable('this repository has no TODO file to check')
 
@@ -10232,6 +10484,36 @@ def _open_item_disposition(ctx):
             if not DISPOSITION_STAMP_RE.match(stamp.strip()):
                 out.append(Finding(where, f'{value!r} stamp {stamp.strip()!r} is not '
                                           f'"YYYY-MM-DD, who"'))
+    return out
+
+
+@check('open-item-disposition-copies', 'tree',
+       'every todo/todo-*.md item parked in its frontmatter also carries a '
+       'dated, named `**Disposition:** parked` line, and an item whose body '
+       'carries a disposition line agrees with its frontmatter',
+       'whether the park was what the person meant. A warning, never a '
+       'refusal: items written before 2026-10-05 predate the two-copy rule '
+       'and are tidied with tools/todo_disposition.py, never stopped '
+       '(practice: format-rules-grandfather).',
+       advisory=True,
+       advisory_term={'term': 'permanent',
+                      'why': 'a shape rule over records written before it '
+                             'existed: the item still works, and the tool '
+                             'that writes parks fixes it in one command '
+                             '(Morgan, 2026-10-05)'},
+       practice_backed=False,
+       selects_on=('todo/todo-*.md', 'tools/todo_disposition.py'))
+def _open_item_disposition_copies(ctx):
+    items = _disposition_items()
+    if not items:
+        raise NotApplicable('this repository has no todo/todo-*.md items')
+    out = []
+    for rel in items:
+        try:
+            text = (ROOT / rel).read_text(encoding='utf-8')
+        except (UnicodeDecodeError, OSError):
+            continue                 # open-item-disposition reports it
+        out.extend(_item_disposition_findings(rel, text, copies=True))
     return out
 
 

@@ -5,7 +5,7 @@ tier:        on-demand
 severity:    default
 applies_to:  ["**"]
 applies_to_why: "No locus: the moment is a hand-over, a SendUserFile call or an attachment, and nothing about it is written to the tree. Reached through the occasion index, and enforced at the call itself by the hook. Decided: 2026-10-05, when the practice landed."
-occasion:    "handing a person a document to download -- a Word file, a PDF, a spreadsheet, a deck"
+occasion:    "handing a person a document to download"
 gates:       []
 index_clause: "the date goes at the end of its name: Name-2026-12-31.docx"
 checked_by:  tools/checks/check_dated_download_names.py
@@ -15,7 +15,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-10-05
-approved_by: "Morgan F, 2026-10-05, at his own request, in his words: \"whenever it gives the user a doc to download, always put the date in the filename in the format of \\\"-2026-12-31\\\" or \\\" - 2026-12-31\\\" at the end of the filename before the extension. Add a Practice for this or add it to the relevant practice - and add a check for this.\" (strength: decided). Revised the same day at his own request, so a document the repository keeps is dated too: \"Yes, so it's consistent and has the same file name, and also so it's super clear which vesion/when is it from.\" (strength: decided)"
+approved_by: "Morgan F, 2026-10-05, at his own request, in his words: \"whenever it gives the user a doc to download, always put the date in the filename in the format of \\\"-2026-12-31\\\" or \\\" - 2026-12-31\\\" at the end of the filename before the extension. Add a Practice for this or add it to the relevant practice - and add a check for this.\" (strength: decided). Revised the same day at his own request, so a document the repository keeps is dated too: \"Yes, so it's consistent and has the same file name, and also so it's super clear which vesion/when is it from.\" (strength: decided); occasion shortened 2026-10-06 (Morgan F, \"yes act\" to trimming one trigger line, strength: decided) to its first clause -- the four kinds it listed were already covered by \"a document\" -- to bring the session file of precedent-individual under its 4,000-token target"
 ---
 ## Rule
 **Every document you hand someone to download has the date at the end of
