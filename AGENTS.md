@@ -30,7 +30,7 @@ When a standing constraint on one file gets stated a second time:
   doc-recipe — present-tense rules for one file, in doc-recipes/<name>.recipe.md
 When about to commit a document that characterizes a real, identifiable person:
   sensitive-characterization-scrub — soften or ask before committing a blunt description of a real person
-When handing a person a document to download -- a Word file, a PDF, a spreadsheet, a deck:
+When handing a person a document to download:
   dated-download-names — the date goes at the end of its name: Name-2026-12-31.docx
 When leaving a placeholder or fill-in-later note mid-draft:
   draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️, bold and all caps
