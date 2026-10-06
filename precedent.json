@@ -46,11 +46,6 @@
       "level": "universal",
       "name": "precedent",
       "path": "../BestPractice"
-    },
-    {
-      "level": "shared",
-      "name": "precedent-shared-repo-maintenance",
-      "path": "../precedent-shared-repo-maintenance"
     }
   ],
   "_commit_author_check_comment": [
