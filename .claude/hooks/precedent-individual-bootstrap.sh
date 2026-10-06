@@ -35,12 +35,31 @@
 # normally.
 set -uo pipefail
 
-ENGINE="${CLAUDE_PROJECT_DIR:-.}/process/upstream/tools/precedent_source_bootstrap.py"
-if [ ! -f "$ENGINE" ]; then
-  # Precedent checking itself, or a repo-root install with no
-  # process/upstream/ vendor tree of its own.
-  ENGINE="${CLAUDE_PROJECT_DIR:-.}/tools/precedent_source_bootstrap.py"
-fi
+# The repo's own vendored engine. No install still has the catalogue
+# copy's tools/: the update that ships this hook moves the engine there
+# (2026-09-30), and a fallback to it named a path the consumer's own check
+# then refused as a stale reference (2026-10-01).
+#
+# WHICH REPO THIS IS, when nothing says. The harness sets CLAUDE_PROJECT_DIR
+# for a hook; a session running this by hand from its own shell does not,
+# and neither variable is set there. The engine reads the project dir to
+# find a copy of the set the attach tool already cloned beside it
+# (attach_workspace), so without one it cloned a SECOND copy at
+# $HOME/precedent-individual -- measured 2026-10-02 against a sandbox with
+# the set attached first: linked with the variable set, a second full clone
+# without it, which is what a consumer's session got running this hook by
+# hand. The repo is the one holding this file: git says which, and
+# two levels up is the answer where git cannot (this file sits at
+# <repo>/.claude/hooks/ in a consumer). The individual set runs its own copy
+# from <set>/bootstrap/, one level down, where two levels up named the
+# directory above the set (2026-10-04). That answer is exported for the
+# engine.
+_here_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+_here_repo="$(git -C "${_here_dir:-.}" rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$_here_repo" ] || _here_repo="$(cd "${_here_dir:-.}/../.." 2>/dev/null && pwd)"
+PRECEDENT_PROJECT_DIR="${PRECEDENT_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-${_here_repo:-.}}}"
+export PRECEDENT_PROJECT_DIR
+ENGINE="${CLAUDE_PROJECT_DIR:-$PRECEDENT_PROJECT_DIR}/tools/precedent_source_bootstrap.py"
 
 # WHOSE individual set. An individual set belongs to ONE person, but this
 # hook is committed to a SHARED project -- so the account baked in at
@@ -116,8 +135,13 @@ fi
 # own value.
 DEFAULT_REPO_URL=""
 if [ "yes" != "yes" ]; then
-  # Still a raw template: the placeholder above is a literal, not a URL.
-  DEFAULT_REPO_URL=""
+  # Still a raw template: the placeholder above is a literal, not a URL, and
+  # the set's name below is one too. Running on derived a URL from the
+  # environment and cloned and linked a path named after the placeholder: a
+  # test run of this raw file left one in a real home directory (found
+  # 2026-10-01). Nothing here is set up until the file is instantiated.
+  echo "individual-source bootstrap: no repository URL -- this is the raw template, never instantiated, so there is nothing to set up." >&2
+  exit 0
 fi
 
 # LAST RESORT, and the reason a public repo need bake in no account at all.
@@ -144,6 +168,14 @@ fi
 # Caught by verify_harness.py's existing assertion that this hook exits 0
 # when it cannot reach the individual set.
 _pbase="${PRECEDENT_SOURCE_BASE_URL:-}"
+# Unset, the engine works it out: the value kept in the user config, else the
+# account the token belongs to (precedent_source_credentials.py --base-url).
+if [ -z "$_pbase" ] && [ -z "${DEFAULT_REPO_URL:-}" ] && command -v python3 >/dev/null 2>&1; then
+  for _pc in "${CLAUDE_PROJECT_DIR:-$PRECEDENT_PROJECT_DIR}/tools/precedent_source_credentials.py"; do
+    if [ -f "$_pc" ]; then _pbase="$(python3 "$_pc" --base-url 2>/dev/null || true)"; break; fi
+  done
+  unset _pc
+fi
 if [ -z "${DEFAULT_REPO_URL:-}" ] && [ -n "$_pbase" ]; then
   DEFAULT_REPO_URL="${_pbase%/}/precedent-individual"
 fi
@@ -152,7 +184,7 @@ unset _pbase
 REPO_URL="${PRECEDENT_INDIVIDUAL_REPO:-${CFG_URL:-$DEFAULT_REPO_URL}}"
 
 if [ -z "$REPO_URL" ]; then
-  echo "individual-source bootstrap: no repository URL. Set PRECEDENT_SOURCE_BASE_URL in the environment (preferred -- it locates the shared sets too, and keeps the account out of every tracked file), or individual.repo_url in $CFG, or PRECEDENT_INDIVIDUAL_REPO. Individual practices will not be in force this session; team and universal still resolve normally." >&2
+  echo "individual-source bootstrap: no repository URL, and the account the token belongs to could not be read. Set PRECEDENT_GIT_TOKEN (the account it belongs to locates your sets), or PRECEDENT_SOURCE_BASE_URL for sets another account owns, or individual.repo_url in $CFG, or PRECEDENT_INDIVIDUAL_REPO (the full URL, which overrides the rest). Individual practices will not be in force this session; team and universal still resolve normally." >&2
   exit 0
 fi
 
