@@ -56,6 +56,12 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+# The harness's own bot addresses: a commit authored as one of these is
+# nobody's. ONE list, read here (rows 3 and 3b) and imported by
+# tools/checks/check_commit_author.py's bot-author half, which refuses such
+# a commit even where no person is declared -- the CI state, where five of
+# them reached main through a merged pull request on 2026-10-02. Both files
+# are in every kind of repo's engine (precedent_vendor_engine.ENGINE_FILES).
 BOT_EMAILS = {'noreply@anthropic.com'}
 
 
@@ -879,6 +885,36 @@ def _landing_row():
     return (name, True, f'{branch} -- {why}' if why else branch)
 
 
+def _charge_brought_share(n):
+    """-> (n less the share of the sets this person brings, note, over-or-
+    None) for the session file, the same split precedent_check's
+    session-load-budget makes (`_charge_brought_share` there). A set a
+    person brings is theirs, rendered into their file only, so its cost is
+    held to the `brought_sets_tokens` budget in their individual set, never
+    to the ceiling the repository set for everyone -- often before that set
+    existed. Reported from a consumer, 2026-10-06: its ceiling, set
+    2026-09-19, was passed on 2026-10-02 when the ladder started arriving by
+    `brings`, and every session start since reported a failed guarantee.
+    With no budget declared the share stays charged to the repository, as
+    the full check does."""
+    try:
+        import precedent_session_practices as psp
+        share, names = psp.brought_share(ROOT)
+        budget, _ind = psp.brought_budget(ROOT)
+    except Exception:                                        # noqa: BLE001
+        return n, '', None
+    if not share or budget is None:
+        return n, '', None
+    note = (f" (plus ~{share:,} from {', '.join(names)}, which you bring, "
+            f"of your {budget:,})")
+    over = None
+    if share > budget:
+        over = (f"the set(s) you bring ({', '.join(names)}) add ~{share:,} "
+                f"tokens, over the {budget:,}-token `brought_sets_tokens` "
+                f"budget in your individual set")
+    return n - share, note, over
+
+
 def _session_load_rows():
     """What this person's session loads before any work, against the
     ceilings this repository declares. The session file is rendered per
@@ -898,7 +934,13 @@ def _session_load_rows():
             continue
         n = slt.approx_tokens(slt.as_measured(
             rel, f.read_text(encoding='utf-8', errors='replace')))
-        measured.append(f'{rel} ~{n:,} of {cap:,}')
+        if rel == '.precedent/SESSION_PRACTICES.md':
+            n, note, brought_over = _charge_brought_share(n)
+            if brought_over:
+                over.append(brought_over)
+            measured.append(f'{rel} ~{n:,} of {cap:,}{note}')
+        else:
+            measured.append(f'{rel} ~{n:,} of {cap:,}')
         if n > cap:
             over.append(f'{rel} is ~{n:,} tokens, over its ceiling of {cap:,}')
     if not measured:
