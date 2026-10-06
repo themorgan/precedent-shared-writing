@@ -26,7 +26,7 @@ A code-oriented repo doesn't get this recommendation at all -- its root-level cl
 Left alone, both kinds of root-level file pile up together, and enough deliverable content reads as cluttered even when the navigation layer is doing exactly what it should.
 
 ## Story
-**Retired 2026-09-29** (Morgan: *"Let's eliminate that one also"*, of this rule, beside the retired `content-directory`). Replaced by `organize-scattered-content` in the working-style set: recommend grouping about four or more scattered end-user files, with a named directory and file list, rather than a fixed rule about three documents in the root.
+**Retired 2026-09-29** (Morgan: *"Let's eliminate that one also"*, of this rule, beside the retired `content-directory`). Replaced by `organize-scattered-content` (universal): recommend grouping about four or more scattered end-user files, with a named directory and file list, rather than a fixed rule about three documents in the root.
 
 Migrated here from RepoPersonalPreferences by the phase-3 private-set
 migration; the Story is backfilled from that pack's own text.
