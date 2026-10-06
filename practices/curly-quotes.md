@@ -57,10 +57,12 @@ time.
 
 ## Story
 Raised by Morgan, 2026-09-18, in a private repo, in the
-same thread that produced `hebrew-term-parenthetical` and `fix-typos-
-keep-ambiguity`, asking for a third standing practice specifically about
-converting straight quotes to curly ones. Writing the mechanical check
-per `checkable-gets-checked` surfaced that essentially the entire
+same thread that produced two practices local to that repo (on glossing
+Hebrew terms, and on fixing typos without resolving an ambiguity), asking
+for a third standing practice specifically about converting straight
+quotes to curly ones. Only this one moved to a shared set; the other two
+are in no shared or universal source, so neither is cited as a rule here.
+Writing the mechanical check per `checkable-gets-checked` surfaced that essentially the entire
 existing outward-facing corpus predated the convention -- all 23 outward
 files that repo had at the time carried at least one straight quote in
 prose scope -- so the check was wired in with that full list
