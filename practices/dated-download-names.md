@@ -10,12 +10,13 @@ gates:       []
 index_clause: "the date goes at the end of its name: Name-2026-12-31.docx"
 checked_by:  tools/checks/check_dated_download_names.py
 ships:       ["tools/dated_name.py"]
+hooks:       [{"event": "PreToolUse", "matcher": "SendUserFile", "run": "tools/dated_name.py", "args": ["--hook"]}]
 defines:     []
 status:      active
 supersedes:  []
 overrides:   null
 added:       2026-10-05
-approved_by: "Morgan F, 2026-10-05, at his own request, in his words: \"whenever it gives the user a doc to download, always put the date in the filename in the format of \\\"-2026-12-31\\\" or \\\" - 2026-12-31\\\" at the end of the filename before the extension. Add a Practice for this or add it to the relevant practice - and add a check for this.\" (strength: decided). Revised the same day at his own request, so a document the repository keeps is dated too: \"Yes, so it's consistent and has the same file name, and also so it's super clear which vesion/when is it from.\" (strength: decided); occasion shortened 2026-10-06 (Morgan F, \"yes act\" to trimming one trigger line, strength: decided) to its first clause -- the four kinds it listed were already covered by \"a document\" -- to bring the session file of precedent-individual under its 4,000-token target"
+approved_by: "Morgan F, 2026-10-05, at his own request, in his words: \"whenever it gives the user a doc to download, always put the date in the filename in the format of \\\"-2026-12-31\\\" or \\\" - 2026-12-31\\\" at the end of the filename before the extension. Add a Practice for this or add it to the relevant practice - and add a check for this.\" (strength: decided). Revised the same day at his own request, so a document the repository keeps is dated too: \"Yes, so it's consistent and has the same file name, and also so it's super clear which vesion/when is it from.\" (strength: decided); occasion shortened 2026-10-06 (Morgan F, \"yes act\" to trimming one trigger line, strength: decided) to its first clause -- the four kinds it listed were already covered by \"a document\" -- to bring the session file of precedent-individual under its 4,000-token target. Amended 2026-10-06, Morgan (decided): \"Please fix all of these at their roots. Act\" -- the hook is declared in `hooks:` and wired by the sync, not by hand."
 ---
 ## Rule
 **Every document you hand someone to download has the date at the end of
@@ -65,13 +66,16 @@ A builder that keeps a document in the repository calls
 `dated_name.replace(base, date)` for where the rebuild goes and which older
 copies to delete, where `base` is the name without a date.
 
-The hook is wired by hand in each repository's `.claude/settings.json`,
-because a practice set ships files and not harness wiring:
+The hook is declared in this practice's `hooks:` field, and a consuming
+repository's sync adds it to its `.claude/settings.json` (added only, never
+changing an entry already there) as:
 
 ```
 {"matcher": "SendUserFile", "hooks": [{"type": "command",
   "command": "python3 $CLAUDE_PROJECT_DIR/tools/dated_name.py --hook"}]}
 ```
+
+Declining [`tools/dated_name.py`](../tools/dated_name.py) under `declined_ships` declines the hook too.
 
 ## Why
 A downloads folder fills with copies of the same document from different
@@ -87,6 +91,11 @@ committed copies under fixed names and dated only the copy sent. He asked
 the same day for the committed copies to carry the date too, "so it's
 consistent and has the same file name, and also so it's super clear which
 version/when is it from."
+
+2026-10-06: until this day the hook was "wired by hand", and nothing did it.
+A consumer failed this practice's check right after a clean sync, on a file
+the harness refuses a session to hand-edit. The practice now declares the
+hook in `hooks:`, and the engine's sync adds it.
 
 ## Install
 [`tools/checks/check_dated_download_names.py`](../tools/checks/check_dated_download_names.py) confirms, wherever
