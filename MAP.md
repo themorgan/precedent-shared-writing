@@ -18,7 +18,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
 | [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
 | [curly-quotes](practices/curly-quotes.md) | on-demand | writing a document an outside reader will see (a declared output path) |
-| [dated-download-names](practices/dated-download-names.md) | on-demand | handing a person a document to download -- a Word file, a PDF, a spreadsheet, a deck |
+| [dated-download-names](practices/dated-download-names.md) | on-demand | handing a person a document to download |
 | [default-register](practices/default-register.md) | resident | writing any reply to the person you are working with |
 | [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing a document an outside reader will see (a declared output path) |
 | [doc-recipe](practices/doc-recipe.md) | on-demand | a standing constraint on one file gets stated a second time |
