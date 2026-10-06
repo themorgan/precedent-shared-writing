@@ -51,11 +51,6 @@
       "level": "shared",
       "name": "precedent-shared-repo-maintenance",
       "path": "../precedent-shared-repo-maintenance"
-    },
-    {
-      "level": "shared",
-      "name": "precedent-shared-working-style",
-      "path": "../precedent-shared-working-style"
     }
   ],
   "_commit_author_check_comment": [
