@@ -677,6 +677,135 @@ def publish_pass(root, rec):
           f'other checkouts ({why}); they will run the suite themselves.')
 
 
+def _branch_name_refusal(root, argv):
+    """-> why a push that CREATES a session branch with a hand-made name is
+    refused, or None. Only a branch origin does not have yet is judged, so
+    a branch already pushed, a tier branch and every other name pass; an
+    engine copy without the naming tool refuses nothing (Morgan,
+    2026-10-06: always use the new format for temporary branches)."""
+    if '--push-command' not in argv:
+        return None
+    i = argv.index('--push-command')
+    cmd = argv[i + 1] if i + 1 < len(argv) else ''
+    sys.path.insert(0, str(HERE))
+    try:
+        import precedent_branches
+        import precedent_branch_name
+    except ImportError:
+        return None
+    finally:
+        sys.path.pop(0)
+    judge = getattr(precedent_branch_name, 'name_refusal', None)
+    if judge is None:
+        return None
+    for name in precedent_branches.push_targets(root, cmd) or []:
+        if subprocess.run(['git', '-C', str(root), 'rev-parse', '--verify', '-q',
+                           f'refs/remotes/origin/{name}'],
+                          capture_output=True).returncode == 0:
+            continue
+        why = judge(name)
+        if why:
+            return why
+    return None
+
+
+# A RETIRED SET TAKES ONLY ITS RETIREMENT (Morgan, 2026-10-06, strength:
+# decided: "We are deprecating repo maintenance and working style ... you
+# should not make edits to them unless the edits relate to their
+# deprecation or graceful deprecation ... We keep on going back to editing
+# these files."). The same day a session rewrote a rule and its check in
+# the retiring repo-maintenance set while fixing very deep check findings.
+# What a retirement edits: it deletes, it says so in the README and the
+# set's own precedent-source.json, it moves a rule off `status: active`,
+# and it regenerates the views and the todo index. Anything else is refused.
+# Practice: retired-set-takes-only-its-retirement, a TEMPORARY rule -- its
+# `expires:` says when, and its Detail what to delete then.
+RETIREMENT_PATHS = {'README.md', 'precedent-source.json', 'AGENTS.md',
+                    'CLAUDE.md', 'MAP.md', 'GLOSSARY.md',
+                    'WHERE_THINGS_ARE.md'}
+RETIREMENT_DIRS = ('todo/',)
+RETIRED_SET_OVERRIDE = 'PRECEDENT_RETIRED_SET_EDIT'
+
+
+def _status_of(text):
+    m = re.search(r'^status:\s*(\S+)', text or '', re.M)
+    return m.group(1) if m else None
+
+
+def _retired_set_findings(root, retirement):
+    """-> [str], one per file a push to a retired set changes that is not
+    part of retiring it. Judged over the commits no origin branch has yet;
+    a merge commit is skipped, since what it brings is already on origin."""
+    revs = subprocess.run(['git', '-C', str(root), 'rev-list', '--no-merges',
+                           'HEAD', '--not', '--remotes=origin'],
+                          capture_output=True, text=True)
+    if revs.returncode != 0:
+        return []
+    bad = {}
+    for rev in revs.stdout.split():
+        diff = subprocess.run(['git', '-C', str(root), 'diff-tree', '-r',
+                               '--no-commit-id', '--name-status', '--root', rev],
+                              capture_output=True, text=True)
+        for line in diff.stdout.splitlines():
+            parts = line.split('\t')
+            if len(parts) < 2:
+                continue
+            kind, path = parts[0], parts[-1]
+            if kind.startswith('D'):
+                continue
+            if path in RETIREMENT_PATHS or path.startswith(RETIREMENT_DIRS):
+                continue
+            if path.startswith('practices/') and path.endswith('.md'):
+                shown = subprocess.run(['git', '-C', str(root), 'show',
+                                        f'{rev}:{path}'], capture_output=True,
+                                       text=True)
+                if _status_of(shown.stdout) not in (None, 'active'):
+                    continue
+                bad.setdefault(path, f'{path} (still `status: active`, '
+                                     f'changed in {rev[:8]})')
+                continue
+            bad.setdefault(path, f'{path} (changed in {rev[:8]})')
+    return list(bad.values())
+
+
+def _retired_set_refusal(root, env=None):
+    """-> why a push to a set that declares itself retired is refused, or
+    None. Only the set's own `retired` key in precedent-source.json makes it
+    retired; every other repository passes. PRECEDENT_RETIRED_SET_EDIT, set
+    to the person's own words asking for the edit, lets one through and is
+    printed."""
+    env = os.environ if env is None else env
+    sys.path.insert(0, str(HERE))
+    try:
+        import precedent_vendor_engine as ve
+    except ImportError:
+        return None
+    finally:
+        sys.path.pop(0)
+    judge = (getattr(ve, 'retirement_on_any_tier', None)
+             or getattr(ve, 'source_retirement', None))
+    retirement = judge(root) if judge else None
+    if retirement is None:
+        return None
+    bad = _retired_set_findings(root, retirement)
+    if not bad:
+        return None
+    asked = (env.get(RETIRED_SET_OVERRIDE) or '').strip()
+    if asked:
+        print(f'precedent_push_check: a retired set takes an edit beyond its '
+              f'retirement, because the person asked: {asked!r} -- '
+              f'{"; ".join(bad)}', flush=True)
+        return None
+    went = ', '.join(retirement.get('folded_into') or []) or 'elsewhere'
+    return (f'this set is retired (folded into {went}), and a retired set '
+            f'takes only the edits that retire it: deletions, its README '
+            f'and precedent-source.json, a rule moved off `status: active`, '
+            f'regenerated views and todo/. This push changes: '
+            f'{"; ".join(bad)}. Make the change where the rule lives now. If '
+            f'the person asked for this exact edit, run again with '
+            f'{RETIRED_SET_OVERRIDE}="<their words>" (Morgan, 2026-10-06).')
+
+
 def _promote_only_refusal(root, argv):
     """-> why the named push is refused before any check runs, or None.
     Only a person who turned promote_only on is ever refused here
@@ -1441,6 +1570,18 @@ def run(root, checks, landed=None, reported=None):
             if marker and marker in p.stdout + p.stderr:
                 print(f'      {note} ({took:.0f}s)', flush=True)
                 continue
+            # An identity check passes with a WARNING for a bot-authored
+            # commit -- an emergency fallback, never refused (Morgan,
+            # 2026-10-06) -- and the warning is shown, not swallowed.
+            warned = [ln for ln in p.stdout.splitlines()
+                      if ln.startswith('WARNING:')] \
+                if name in {c[0] for c in IDENTITY_CHECKS} else []
+            if warned:
+                print(f'      passed in {took:.0f}s, WITH A WARNING -- tell '
+                      f'the person, and record an open item:', flush=True)
+                for line in warned:
+                    print(f'      | {line}')
+                continue
             print(f'      passed in {took:.0f}s', flush=True)
             continue
         if (p.returncode == 2 and name in SKIP_IS_FINE_WITHOUT_IDENTITY
@@ -1563,6 +1704,14 @@ def main(argv):
     if refused:
         print(f'precedent_push_check: REFUSED -- {refused}', file=sys.stderr)
         return 1
+    refused = _branch_name_refusal(root, argv)
+    if refused:
+        print(f'precedent_push_check: REFUSED -- {refused}', file=sys.stderr)
+        return 1
+    refused = _retired_set_refusal(root)
+    if refused:
+        print(f'precedent_push_check: REFUSED -- {refused}', file=sys.stderr)
+        return 1
     if '--tier' in argv:
         i = argv.index('--tier')
         value = argv[i + 1] if i + 1 < len(argv) else ''
@@ -1668,9 +1817,16 @@ def main(argv):
         subprocess.run(['git', '-C', str(root), 'fetch', '-q', '--unshallow'],
                        capture_output=True, text=True)
         if git(root, 'rev-parse', '--is-shallow-repository') == 'true':
-            print('precedent_push_check: FAILED -- the clone is still shallow '
-                  '(the fetch did not complete), so the history checks '
-                  'cannot run. Run `git fetch --unshallow` and try again.')
+            # A second --unshallow cannot help when the clone stays shallow
+            # only because .git/shallow still names commits of branches
+            # deleted upstream; the gotcha carries the safe recovery.
+            print('precedent_push_check: FAILED -- the clone is still shallow, '
+                  'so the history checks cannot run. If `git fetch '
+                  '--unshallow` has not finished, run it again; if it '
+                  'completes and the clone still says shallow, .git/shallow '
+                  'names commits of deleted branches -- follow gotchas/'
+                  'gotcha-2026-09-28-stale-shallow-entries-for-deleted-'
+                  'branches-survive-unshallow.md.')
             return 1
 
     ok_pkgs, note = ensure_gate_packages()
