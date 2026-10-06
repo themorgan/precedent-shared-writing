@@ -18,7 +18,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
 | [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
 | [curly-quotes](practices/curly-quotes.md) | on-demand | writing a document an outside reader will see (a declared output path) |
-| [dated-download-names](practices/dated-download-names.md) | on-demand | handing a person a document to download -- a Word file, a PDF, a spreadsheet, a deck |
+| [dated-download-names](practices/dated-download-names.md) | on-demand | handing a person a document to download |
 | [default-register](practices/default-register.md) | resident | writing any reply to the person you are working with |
 | [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing a document an outside reader will see (a declared output path) |
 | [doc-recipe](practices/doc-recipe.md) | on-demand | a standing constraint on one file gets stated a second time |
@@ -57,6 +57,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/build_todo_index.py](tools/build_todo_index.py) | todo/TODO.md and todo/CLOSED.md, generated from todo/*.md's frontmatter |
 | [tools/build_views.py](tools/build_views.py) | This file, GLOSSARY.md, and AGENTS.md's loader block — generated views |
 | [tools/ci_fleet_audit.py](tools/ci_fleet_audit.py) | Every GitHub Actions workflow on every branch of every reachable repo, asked of GitHub: approval, triggers, schedules, 30 days of runs |
+| [tools/doc_lifecycle.py](tools/doc_lifecycle.py) | The document status header — kind, status, supersession — checked across spec/ and record/ |
 | [tools/doc_lint.py](tools/doc_lint.py) | Markdown hygiene checks — strikethrough, links, acronyms |
 | [tools/frontmatter_yaml.py](tools/frontmatter_yaml.py) | The real-YAML frontmatter parser doc_lint.py and verify_harness.py both check against, shared so the two never drift |
 | [tools/full_practice_audit.py](tools/full_practice_audit.py) | The full practice audit — on-demand, whole-catalogue sweep across every source |

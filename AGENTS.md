@@ -30,7 +30,7 @@ When a standing constraint on one file gets stated a second time:
   doc-recipe — present-tense rules for one file, in doc-recipes/<name>.recipe.md
 When about to commit a document that characterizes a real, identifiable person:
   sensitive-characterization-scrub — soften or ask before committing a blunt description of a real person
-When handing a person a document to download -- a Word file, a PDF, a spreadsheet, a deck:
+When handing a person a document to download:
   dated-download-names — the date goes at the end of its name: Name-2026-12-31.docx
 When leaving a placeholder or fill-in-later note mid-draft:
   draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️, bold and all caps
@@ -49,7 +49,7 @@ When writing a document an outside reader will see (a declared output path):
 
 ## Standing instruction
 
-Before starting work of a kind named in the occasion index above, run `python3 tools/precedent_show.py SLUG` for each listed slug to load its Rule. When editing a file, `python3 tools/precedent_paths.py FILE` prints any on-demand practice whose `applies_to` matches it, without needing the index at all. At a named moment — before pushing, ending a turn and writing the reply — run `python3 tools/precedent_gate.py push|reply`: some practices fire at a moment rather than in a file, and no path glob reaches those. If `.precedent/SESSION_PRACTICES.md` exists, read it too: it carries the practices in force from the other sources this repo declares, which are NOT in this block and bind work here exactly as these do. It is regenerated at session start and is deliberately untracked — never commit it or quote it into a pull request.
+Before starting work of a kind named in the occasion index above, run `python3 tools/precedent_show.py SLUG` for each listed slug to load its Rule. When editing a file, `python3 tools/precedent_paths.py FILE` prints any on-demand practice whose `applies_to` matches it, without needing the index at all. At a named moment — before pushing, ending a turn and writing the reply — run `python3 tools/precedent_gate.py push|reply`: some practices fire at a moment rather than in a file, and no path glob reaches those. If .precedent/SESSION_PRACTICES.md exists, read it too: it carries the practices in force from the other sources this repo declares, which are NOT in this block and bind work here exactly as these do. It is regenerated at session start and is deliberately untracked — never commit it or quote it into a pull request.
 
 <!-- END GENERATED -->
 

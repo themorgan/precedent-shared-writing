@@ -593,6 +593,16 @@ def _unlanded_work(root, siblings=True):
                 if running:
                     out.append(f"{name}: {PROMOTE_RUNNING_MARK} ({running})")
                     pending = None
+            if pending and getattr(pb, 'retired_set_hold', None):
+                # A retired set is not promoted unless the person asks, so a
+                # line inviting a Promote there tells the session to do what
+                # it must not (Morgan, 2026-10-06: "not edit nor promote nor
+                # touch"; practice retired-set-takes-only-its-retirement).
+                try:
+                    if pb.retired_set_hold(repo, env={}):
+                        pending = None
+                except Exception:                             # noqa: BLE001
+                    pass
             if pending:
                 # Said gently, on purpose. A pre-staging batch waiting on a
                 # Promote is the normal state of the tiers, not a problem, and
@@ -820,9 +830,10 @@ def _print_hard_requirements(root):
         if r.get('require_quiet_while_background_runs'):
             print(f"- [{src}] when a background job wakes a turn and another "
                   f"background command is still running -- or the wake is a "
-                  f"Monitor's progress event -- the reply says NOTHING: no "
-                  f"status line, no Boildown. Report once, when the last job "
-                  f"ends or one fails. A wake that reports a failure may speak.")
+                  f"Monitor's progress event -- the reply is at most ONE short "
+                  f"line, such as \"(Waiting on <what>.)\": no status report, "
+                  f"no Boildown. Report once, when the last job ends or one "
+                  f"fails. A wake that reports a failure may speak.")
         for pair in (r.get('require_paired_with') or []):
             if pair.get('if_matches') and pair.get('must_also_match'):
                 print(f"- [{src}] a reply matching /{pair['if_matches']}/ "
