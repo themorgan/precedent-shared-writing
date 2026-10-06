@@ -23,9 +23,7 @@ never appears in the prose of a document under a repo's own declared
 [`deliverables-carry-no-process`](deliverables-carry-no-process.md) already reads, so "outward" never drifts
 between the two rules. Convert it to the matching typographic curly form
 -- `"` / `"` for double quotes, `'` / `'` for a single quote or an
-apostrophe -- the same conversion already applied when incorporating
-pasted text under `fix-typos-keep-ambiguity`, where that practice is in
-force.
+apostrophe.
 
 ## Detail
 - Applies to prose, not to code: a straight quote inside a fenced or
