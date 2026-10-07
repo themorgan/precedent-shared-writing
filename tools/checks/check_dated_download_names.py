@@ -13,10 +13,17 @@ on that tool call is in place rather than looking for files:
      cases, run in-process);
   2. where the repository has a Claude Code .claude/settings.json, a
      PreToolUse hook on SendUserFile runs `dated_name.py --hook`, so an
-     undated document is refused at the moment it would be sent;
-  3. every document the repository itself keeps (a committed .docx, .pdf,
-     spreadsheet...) is named with its date, the same way -- the file a
-     reader downloads from the repository is as clearly dated as one sent.
+     undated document is refused at the moment it would be sent. Wired in
+     settings.json itself, or -- since 2026-10-07, when the engine stopped
+     adding hooks there -- listed in process/practice_hooks.json, which the
+     settings' fixed precedent-hooks.sh PreToolUse entry runs;
+  3. every document the repository keeps FOR DOWNLOAD (a committed .docx,
+     .pdf, spreadsheet...) is named with its date, the same way -- the file
+     a reader downloads from the repository is as clearly dated as one sent.
+     Kept for download means under a folder precedent.json's `output_paths`
+     declares, where it declares any; where it declares none, anything
+     outside a `sources/` folder. A book kept in content/sources/ to search
+     is an input, not a download (a consuming repository, 2026-10-07).
 
 SKIPPED (exit 2) where tools/dated_name.py is not vendored. Whether a file
 handed over some other way -- an attachment to an email, a link into the
@@ -43,6 +50,8 @@ ROOT = pathlib.Path(os.environ.get("PRECEDENT_CHECK_ROOT") or SOURCE_ROOT)
 PRACTICE_FILE = SOURCE_ROOT / "practices" / "dated-download-names.md"
 SCRIPT = ROOT / "tools" / "dated_name.py"
 SETTINGS = ROOT / ".claude" / "settings.json"
+PRACTICE_HOOKS = ROOT / "process" / "practice_hooks.json"
+INPUT_DIRS = ("sources",)
 
 CASES = {
     "Joseph Manuscript-2026-12-31.docx": True,
@@ -75,6 +84,62 @@ def hook_wired(settings: dict) -> bool:
             if "dated_name.py" in cmd and "--hook" in cmd:
                 return True
     return False
+
+
+def registered_hook(settings: dict) -> bool:
+    """True when process/practice_hooks.json lists the hand-over hook and
+    settings.json runs the list at PreToolUse (precedent-hooks.sh)."""
+    try:
+        listed = json.loads(PRACTICE_HOOKS.read_text(encoding="utf-8")).get("hooks") or []
+    except (OSError, ValueError, AttributeError):
+        return False
+    on_list = any(isinstance(h, dict) and h.get("event") == "PreToolUse"
+                  and "dated_name.py" in str(h.get("command") or "")
+                  and "--hook" in str(h.get("command") or "")
+                  and _matches(h.get("matcher") or "") for h in listed)
+    runs_list = any("precedent-hooks.sh PreToolUse" in (h.get("command") or "")
+                    for entry in (settings.get("hooks") or {}).get("PreToolUse") or []
+                    for h in entry.get("hooks") or [])
+    return on_list and runs_list
+
+
+NOTES = []
+
+
+def engine_wires_hooks() -> bool:
+    """True when this repository's engine wires a practice's declared
+    hooks at sync: tools/precedent_hooks.py (the per-event list, since
+    2026-10-07), or add_practice_hooks in the vendored engine (since
+    2026-10-06). An older engine cannot, so the missing hook is its to
+    bring, not a finding against the repository."""
+    if (ROOT / "tools" / "precedent_hooks.py").is_file():
+        return True
+    try:
+        return "def add_practice_hooks" in (ROOT / "tools" / "precedent_vendor_engine.py").read_text(
+            encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+
+
+def _matches(matcher: str) -> bool:
+    try:
+        return bool(re.fullmatch(matcher, "SendUserFile"))
+    except re.error:
+        return False
+
+
+def for_download(paths: list) -> list:
+    """The kept files that are downloads: under precedent.json's declared
+    output_paths where it declares any, else anything not in a sources/
+    folder."""
+    try:
+        outs = json.loads((ROOT / "precedent.json").read_text(encoding="utf-8")).get("output_paths") or []
+    except (OSError, ValueError, AttributeError):
+        outs = []
+    outs = [str(o).strip("/") for o in outs if str(o).strip("/")]
+    if outs:
+        return [p for p in paths if any(p == o or p.startswith(o + "/") for o in outs)]
+    return [p for p in paths if not set(pathlib.PurePosixPath(p).parts[:-1]) & set(INPUT_DIRS)]
 
 
 def kept_files() -> list:
@@ -111,7 +176,7 @@ def find_violations() -> list:
                     f"{'dated' if not want else 'undated'}; it should be the opposite"
                 )
 
-        for name in mod.undated(kept_files()):
+        for name in mod.undated(for_download(kept_files())):
             findings.append(
                 f"{name} is a document kept for download with no date in its "
                 "name -- its builder should save it as <name>-YYYY-MM-DD"
@@ -127,7 +192,17 @@ def find_violations() -> list:
         except ValueError as e:
             findings.append(f"{SETTINGS.relative_to(ROOT)} is not valid JSON: {e}")
         else:
-            if not hook_wired(settings):
+            if not (hook_wired(settings) or registered_hook(settings)):
+                if not engine_wires_hooks():
+                    # An engine older than wiring a practice's `hooks:` cannot
+                    # satisfy this, and the repo may not be allowed to edit
+                    # its own settings by hand: a note, never a refusal
+                    # (2026-10-07, an unrelated merge refused in a consumer).
+                    NOTES.append(
+                        f"{SETTINGS.relative_to(ROOT)} does not run the hand-over "
+                        "hook yet, and this repository's engine predates wiring "
+                        "a practice's hooks: run Update Vendors, which wires it")
+                    return findings
                 findings.append(
                     f"{SETTINGS.relative_to(ROOT)} has no PreToolUse hook on "
                     "SendUserFile running dated_name.py --hook, so an undated "
@@ -143,6 +218,8 @@ if __name__ == "__main__":
         print(f"SKIPPED: {SCRIPT.relative_to(ROOT)} is not vendored in this repo")
         sys.exit(2)
     findings = find_violations()
+    for note in NOTES:
+        print(f"NOTE: {note}")
     if findings:
         print("VIOLATION: dated-download-names")
         for f in findings:
