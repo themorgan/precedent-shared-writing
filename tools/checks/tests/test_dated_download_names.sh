@@ -32,6 +32,16 @@ echo "ok: SKIPPED when tools/dated_name.py isn't vendored"
 mkdir -p "$SCRATCH/tools" "$SCRATCH/.claude"
 cp "$TOOL" "$SCRATCH/tools/dated_name.py"
 echo '{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": []}]}}' > "$SCRATCH/.claude/settings.json"
+# An engine too old to wire a practice's hooks: a note naming Update
+# Vendors, never a refusal (2026-10-07, an unrelated merge in a consumer).
+set +e
+OUT="$(python3 "$CHECK")"; CODE=$?
+set -e
+if [[ $CODE -ne 0 ]] || ! grep -q "^NOTE: .*run Update Vendors" <<<"$OUT"; then
+  echo "FAIL: an engine that cannot wire hooks should get a note, exit 0; got $CODE" >&2; echo "$OUT" >&2; exit 1
+fi
+echo "ok: a note, not a refusal, where the engine cannot wire the hook"
+: > "$SCRATCH/tools/precedent_hooks.py"
 OUT="$(python3 "$CHECK" || true)"
 if ! grep -q "no PreToolUse hook on SendUserFile" <<<"$OUT"; then
   echo "FAIL: did not flag the missing SendUserFile hook" >&2; echo "$OUT" >&2; exit 1
