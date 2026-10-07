@@ -323,6 +323,33 @@ def upstream_branch_problem(repo):
 # followed_branch(that repo) instead.
 FOLLOWED_BRANCH = followed_branch(ROOT)
 
+# Every real hook script, by the name its stub in .claude/hooks/ carries.
+# Moved out of templates/harness/claude-code/hooks/ on 2026-10-07; see the
+# note at their entry in ENGINE_FILES below.
+HOOK_SCRIPT_FILES = [
+    'artifact-publish-gate.sh',
+    'commit-identity-once.sh',
+    'commit-identity-push-gate.sh',
+    'commit-identity.sh',
+    'doc-lint-gate.sh',
+    'freshness-guard.sh',
+    # The logic behind the individual set's own startup hook, whose
+    # instantiated .template is a stub holding only the person's values.
+    'individual-source-bootstrap.sh',
+    'merge-check-gate.sh',
+    'precedent-hooks.sh',
+    'precedent-paths.sh',
+    'precedent-universal-catalogue.sh',
+    'push-check-gate.sh',
+    'reply-gate.sh',
+    'seeded-prompt-gate.sh',
+    'session-start.sh',
+    'stop-git-check.sh',
+    'stop-reply-check.sh',
+    'wait-loop-gate.sh',
+    'workflow-write-gate.sh',
+]
+
 ENGINE_FILES = [
     'build_views.py',
     # The one place this engine asks GitHub anything, and the counter behind
@@ -681,6 +708,10 @@ ENGINE_FILES = [
     # precedent_gate.py's push/merge moments precisely because a reminder
     # is what already failed.
     'precedent_engine_freshness.py',
+    # The fix to a vendored file goes upstream, set up in one command
+    # (2026-10-06): doc_lint.py's open-item check names it, so every kind
+    # that carries doc_lint.py needs it.
+    'upstream_fix.py',
     # ...and what takes the notice at a merge (2026-10-02, Alex: "Can we
     # set up a system so merge also does vendor updates?"): behind, it runs
     # Update Vendors from the source clone and commits the result on its
@@ -787,6 +818,19 @@ ENGINE_FILES = [
     # source-only because a consumer's push check names nothing it needs,
     # and a person in a consumer can still run it by hand on a source clone.
     'precedent_consumer_shape.py',
+    # THE REAL HOOK SCRIPTS (2026-10-07). .claude/hooks/<name>.sh in every
+    # repository is one permanent stub that runs tools/<name>.sh, so a change
+    # to what a hook does travels here, with the engine, and never touches
+    # .claude/ -- where Claude Code's auto mode held every such commit for
+    # the person's yes (templates/harness/claude-code/hooks/README.md).
+    # HOOK_SCRIPT_FILES lists them; every kind gets all of them, and a
+    # script nothing wires is inert (the stub is what wiring reaches).
+    *HOOK_SCRIPT_FILES,
+    # What .claude/hooks/precedent-hooks.sh runs, and the list it reads: the
+    # engine's hooks added from 2026-10-07 on reach a repository here, never
+    # through a new settings.json entry (precedent_hooks.py says why).
+    'precedent_hooks.py',
+    'hook_wiring.json',
     'precedent_vendor_engine.py',
 ]
 
@@ -1084,6 +1128,18 @@ MERGE_GATE_MATCHER = 'Bash|mcp__.*__merge_pull_request'
 # The workflow-write gate fires on the tools that write a file straight onto
 # GitHub, the one route a push gate never sees (ci-workflow-approved).
 WORKFLOW_WRITE_MATCHER = 'mcp__.*__(create_or_update_file|push_files)'
+# THE LAST ENTRIES THIS LIST TAKES (2026-10-07). One per hook event, every
+# tool, all running .claude/hooks/precedent-hooks.sh with the event's name,
+# which runs whatever tools/hook_wiring.json and process/practice_hooks.json
+# list for it. A hook added from now on goes in tools/hook_wiring.json, never
+# here: an entry here is a change to .claude/settings.json in every
+# repository, which Claude Code's auto mode holds for the person's yes, and
+# Morgan's call that day was that Update Vendors should no longer ask.
+# verify_harness's check_hook_wiring_takes_no_new_hook holds the list to it.
+DISPATCH_EVENTS = ('SessionStart', 'UserPromptSubmit', 'PreToolUse',
+                   'PostToolUse', 'Stop')
+DISPATCH_WIRING = tuple((ev, None, 'precedent-hooks.sh', ev)
+                        for ev in DISPATCH_EVENTS)
 HOOK_WIRING = {
     'consumer': (
         ('SessionStart', None, 'session-start.sh', ''),
@@ -1121,6 +1177,7 @@ HOOK_WIRING = {
         ('PreToolUse', 'Artifact', 'artifact-publish-gate.sh', ''),
         ('Stop', None, 'stop-git-check.sh', ''),
         ('Stop', None, 'stop-reply-check.sh', ''),
+        *DISPATCH_WIRING,
     ),
     # precedent-individual-bootstrap.sh is not here: it is rendered from a
     # .template by precedent_bootstrap_source.py, not shipped as a *.sh this
@@ -1145,6 +1202,7 @@ HOOK_WIRING = {
         ('PreToolUse', MERGE_GATE_MATCHER, 'merge-check-gate.sh', ''),
         ('PostToolUse', MERGE_GATE_MATCHER, 'merge-check-gate.sh', ''),
         ('PreToolUse', WORKFLOW_WRITE_MATCHER, 'workflow-write-gate.sh', ''),
+        *DISPATCH_WIRING,
     ),
 }
 # A hook that needs more than the harness's default time gets its own
@@ -1153,7 +1211,9 @@ HOOK_WIRING = {
 # 840-second deadline inside this one, so an expiry refuses the push instead
 # of the harness killing the hook -- which it treats as a non-blocking error,
 # letting the push through unchecked.
-HOOK_TIMEOUTS = {'push-check-gate.sh': 900, 'merge-check-gate.sh': 900}
+HOOK_TIMEOUTS = {'push-check-gate.sh': 900, 'merge-check-gate.sh': 900,
+                 # Whatever it runs carries its own timeout, inside this one.
+                 'precedent-hooks.sh': 900}
 # Shipped in HOOK_SOURCE_DIR and on NO kind's list, each with the reason. A
 # repo that wires one itself still has it vendored and kept current -- the
 # wiring gate below still applies -- but no refresh adds it anywhere.
@@ -1407,52 +1467,89 @@ def _add_hook_entry(hooks, event, matcher, command, timeout=None):
     home['hooks'].append(entry)
 
 
-def add_practice_hooks(dest_root, entries):
-    """ADD each (event, matcher, command) to .claude/settings.json that no
-    command at that event already runs. -> [added commands]. Writes nothing,
-    and returns [], when the file does not exist: a repository without one
-    does not run Claude Code hooks from its tree, and creating the file is
-    the install's job, not a sync's.
+PRACTICE_HOOKS_FILE = 'process/practice_hooks.json'
 
-    What a practice's `hooks:` field declares (build_views.practice_hooks).
-    Satisfied the way _hook_wiring_plan is: any command at that event that
-    names the same script, from any path, already runs it."""
-    todo = missing_practice_hooks(dest_root, entries)
-    if not todo:
-        return []
+
+def _settings_commands(dest_root, event):
     settings_path = pathlib.Path(dest_root) / '.claude' / 'settings.json'
-    data = json.loads(settings_path.read_text(encoding='utf-8'),
-                      object_pairs_hook=collections.OrderedDict)
-    hooks = data.setdefault('hooks', collections.OrderedDict())
-    for event, matcher, command in todo:
-        _add_hook_entry(hooks, event, matcher, command)
-    settings_path.write_text(json.dumps(data, indent=2, ensure_ascii=False)
-                             + '\n', encoding='utf-8')
-    return [c for _e, _m, c in todo]
-
-
-def missing_practice_hooks(dest_root, entries):
-    """-> the (event, matcher, command) entries add_practice_hooks would add,
-    writing nothing: what `--check` reports."""
-    settings_path = pathlib.Path(dest_root) / '.claude' / 'settings.json'
-    if not settings_path.is_file():
-        return []
     try:
         hooks = json.loads(settings_path.read_text(encoding='utf-8')).get('hooks') or {}
     except (OSError, ValueError, AttributeError):
+        return None
+    return [str((h or {}).get('command') or '')
+            for g in (hooks.get(event) or []) if isinstance(g, dict)
+            for h in (g.get('hooks') or [])]
+
+
+def _registered_practice_hooks(dest_root):
+    try:
+        data = json.loads((pathlib.Path(dest_root) / PRACTICE_HOOKS_FILE)
+                          .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
         return []
+    return [(h.get('event'), h.get('matcher'), h.get('command'))
+            for h in (data.get('hooks') or []) if isinstance(h, dict)]
+
+
+def _practice_hooks_to_register(dest_root, entries):
+    """-> the declared (event, matcher, command) entries .claude/settings.json
+    does not already run (any command at that event naming the same script,
+    from any path), or None when the repo has no settings.json -- it runs no
+    Claude Code hooks from its tree."""
     out = []
     for event, matcher, command in entries:
-        # The script's file name: `python3 $CLAUDE_PROJECT_DIR/tools/x.py --hook`
-        # is satisfied by any command at the event that names x.py.
+        have = _settings_commands(dest_root, event)
+        if have is None:
+            return None
         words = command.split()
         script = (words[1] if len(words) > 1 else command).rsplit('/', 1)[-1]
-        have = [str((h or {}).get('command') or '')
-                for g in (hooks.get(event) or []) if isinstance(g, dict)
-                for h in (g.get('hooks') or [])]
         if not any(script in c for c in have):
             out.append((event, matcher, command))
     return out
+
+
+def add_practice_hooks(dest_root, entries):
+    """Write the hooks practices in force declare (build_views.practice_hooks)
+    into PRACTICE_HOOKS_FILE, which .claude/hooks/precedent-hooks.sh runs.
+    -> [commands it did not list before]. Writes nothing, and returns [],
+    when the repo has no .claude/settings.json.
+
+    NOT INTO .claude/settings.json (since 2026-10-07). Until then each was
+    added there, and Claude Code's auto mode holds a commit touching .claude/
+    for the person's yes, so a set adding a hook-declaring practice meant a
+    question in every repository that declares it (precedent_hooks.py). One
+    already wired in settings.json before that date stays there, and is left
+    out of this file so it never runs twice. The file is regenerated whole:
+    a practice that stops declaring a hook drops out of it."""
+    todo = _practice_hooks_to_register(dest_root, entries)
+    if todo is None:
+        return []
+    before = {c for _e, _m, c in _registered_practice_hooks(dest_root)}
+    path = pathlib.Path(dest_root) / PRACTICE_HOOKS_FILE
+    text = json.dumps({
+        '_comment': 'Generated by tools/precedent_sync_views.py from the '
+                    'hooks: fields of the practices in force; run by '
+                    '.claude/hooks/precedent-hooks.sh. Never edit by hand.',
+        'hooks': [collections.OrderedDict([('event', e), ('matcher', m),
+                                           ('command', c)]) for e, m, c in todo],
+    }, indent=2, ensure_ascii=False) + '\n'
+    if todo or path.is_file():
+        old = path.read_text(encoding='utf-8') if path.is_file() else None
+        if old != text:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding='utf-8')
+    return [c for _e, _m, c in todo if c not in before]
+
+
+def missing_practice_hooks(dest_root, entries):
+    """-> the (event, matcher, command) entries neither .claude/settings.json
+    nor PRACTICE_HOOKS_FILE runs yet, writing nothing: what `--check`
+    reports."""
+    todo = _practice_hooks_to_register(dest_root, entries)
+    if not todo:
+        return []
+    have = set(_registered_practice_hooks(dest_root))
+    return [t for t in todo if t not in have]
 
 
 def _apply_hook_wiring(dest_root, kind, hooks_src_dir):
@@ -3932,6 +4029,11 @@ def drop_retired_sources(dest_root, archived=(), apply=True):
 _GH_SLUG_RE = re.compile(r'github\.com[:/]([A-Za-z0-9][\w-]*)/([\w.-]+?)(?:\.git)?/?$')
 
 
+# What archived_declared_sources notes for a set this environment's proxy
+# would not let it ask about; retired_sources_step folds these into one line.
+PROXY_NOTE = 'not asked -- this environment\'s network proxy refuses GitHub\'s API'
+
+
 def archived_declared_sources(dest_root):
     """-> (archived {name}, notes [str]). Asks GitHub, one call per declared
     shared or individual source with a github.com origin, whether it is
@@ -3962,6 +4064,9 @@ def archived_declared_sources(dest_root):
         data, err = _gb.call(f'repos/{m.group(1)}/{m.group(2)}')
         if err or not isinstance(data, dict) or 'full_name' not in data:
             msg = err or str((data or {}).get('message') or 'no answer')
+            if getattr(_gb, 'is_proxy_refusal', lambda _t: False)(msg):
+                notes.append(f'{name}: {PROXY_NOTE}')
+                continue
             notes.append(f'{name}: GitHub could not say whether it is archived '
                          f'({msg}) -- left declared; "Not Found" can mean the '
                          f'access is gone, not the repository')
@@ -3969,6 +4074,118 @@ def archived_declared_sources(dest_root):
         if data.get('archived'):
             archived.add(name)
     return archived, notes
+
+
+def _edit_access_logins(dest_root):
+    """-> (logins, None) for the people GitHub lists as able to edit the
+    repository at `dest_root`'s origin -- push, maintain or admin, bots left
+    out -- or (None, why) when GitHub cannot say."""
+    url = _rev_text(dest_root, 'remote', 'get-url', 'origin')
+    m = _GH_SLUG_RE.search(url or '')
+    if not m:
+        return None, 'its origin is not on GitHub'
+    try:
+        import github_budget as _gb
+    except Exception:                                           # noqa: BLE001
+        return None, 'tools/github_budget.py did not import'
+    data, err = _gb.call(f'repos/{m.group(1)}/{m.group(2)}/collaborators'
+                         f'?affiliation=all&per_page=100', cache=False)
+    if err or not isinstance(data, list):
+        msg = err or str((data or {}).get('message') if isinstance(data, dict)
+                         else 'no answer')
+        if getattr(_gb, 'is_proxy_refusal', lambda _t: False)(msg):
+            return None, ('this environment\'s network proxy refuses GitHub\'s '
+                          'API, so GitHub could not list who can edit it')
+        return None, f'GitHub could not list who can edit it ({msg})'
+    logins = []
+    for c in data:
+        if not isinstance(c, dict) or not c.get('login'):
+            continue
+        if c.get('type') == 'Bot' or str(c['login']).endswith('[bot]'):
+            continue
+        perms = c.get('permissions') or {}
+        if perms.get('push') or perms.get('maintain') or perms.get('admin'):
+            logins.append(str(c['login']))
+    return (sorted(set(logins), key=str.lower), None) if logins else \
+        (None, 'GitHub lists nobody with edit access')
+
+
+def seed_maintainers(dest_root, logins=None, today=None):
+    """Name this repository's code owners in precedent.json's `maintainers`
+    when it names none yet: the people who can edit it on GitHub right now,
+    or, when GitHub cannot say, the person running this. -> (written, how):
+    written is the list of logins written, [] when nothing was (how says
+    why). An existing CODEOWNERS file, approvers.json or `maintainers` is
+    never touched -- this is a starting default, and the repository changes
+    it after.
+
+    Morgan, 2026-10-06 (strength: decided): "when a repo is setup, vendored
+    in, upgraded, migrated, etc, that it should define the CODEOWNERS as
+    those who have access to edit *at that moment*. That becomes the started
+    default." Written to `maintainers`, not a CODEOWNERS file, at his
+    agreement: a CODEOWNERS file makes GitHub request those people's review
+    on every pull request, and can hold a merge for it. Before this, a
+    repository that named nobody hid every code-owner practice from
+    everyone, its owner included -- all fifteen of his repos measured that
+    day."""
+    root = pathlib.Path(dest_root)
+    try:
+        import precedent_audience as _pa
+        if _pa.codeowners_file(root) is not None:
+            return [], 'it has a CODEOWNERS file'
+        found, where = _pa._registry_owners(root)
+        if found:
+            return [], f'it already names them in {where}'
+    except Exception:                                           # noqa: BLE001
+        pass
+    path = root / 'precedent.json'
+    try:
+        text = path.read_text(encoding='utf-8')
+        cfg = json.loads(text)
+    except (OSError, ValueError):
+        return [], 'it has no readable precedent.json'
+    if not isinstance(cfg, dict) or cfg.get('maintainers'):
+        return [], 'it already names them in precedent.json\'s maintainers'
+    how = 'everyone GitHub lists with edit access'
+    if logins is None:
+        logins, why = _edit_access_logins(root)
+        if not logins:
+            try:
+                import precedent_audience as _pa
+                gh, _email = _pa.viewer(root)
+            except Exception:                                   # noqa: BLE001
+                gh = ''
+            if not gh:
+                return [], (f'{why}, and no GitHub username is declared for '
+                            f'the person running this')
+            logins, how = [gh], f'the person running this ({why})'
+    if today is None:
+        try:
+            import precedent_time
+            today = precedent_time.today()
+        except Exception:                                       # noqa: BLE001
+            today = None    # never the machine's own clock (timestamps-carry-offset)
+    entry = json.dumps([{'github': l} for l in logins], ensure_ascii=False)
+    when = f' {today}' if today else ''
+    note = json.dumps([f'Written{when} at install or update: {how}. A '
+                       f'starting default -- change it here; the engine never '
+                       f'rewrites a list that is already set.'],
+                      ensure_ascii=False)
+    m = re.match(r'\s*\{', text)
+    rest = text[m.end():] if m else ''
+    sep = ',' if rest.strip() not in ('', '}') else ''
+    new_text = (text[:m.end()] + f'\n  "maintainers": {entry},\n'
+                f'  "_maintainers_comment": {note}{sep}' + rest) if m else ''
+    try:
+        ok = json.loads(new_text).get('maintainers') == [{'github': l} for l in logins]
+    except ValueError:
+        ok = False
+    if not ok:
+        cfg = {'maintainers': [{'github': l} for l in logins],
+               '_maintainers_comment': json.loads(note), **cfg}
+        new_text = json.dumps(cfg, indent=2, ensure_ascii=False) + '\n'
+    path.write_text(new_text, encoding='utf-8')
+    return logins, how
 
 
 def _rev_text(repo_dir, *args):
@@ -5482,6 +5699,106 @@ def _repin_kept(dest_root, item, template_sha, carried_sha):
           f"a change to a block it leaves out asks again.")
 
 
+# A link written round the same words, or a code span taken off them, is
+# formatting: the words a reader is given did not change.
+_MD_LINK_RE = re.compile(r'\[([^\]\n]*)\]\([^)\s]*\)')
+
+
+def _plain_words(text):
+    """`text` as the words it shows a reader: links become their text, code
+    spans and bold lose their marks, whitespace collapses."""
+    text = _MD_LINK_RE.sub(r'\1', text)
+    text = text.replace('`', '').replace('**', '')
+    return ' '.join(text.split())
+
+
+def _pinned_section_text(templates_dir, key, pinned_sha, subs):
+    """-> the template's text of section `key` that a kept entry's
+    template_sha256 was recorded against, from every version the template
+    has carried (_read_agents_md_sources' history); None when no version
+    hashes to it."""
+    try:
+        history = json.loads((templates_dir / _AGENTS_MD_HISTORY_NAME)
+                             .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    for raw in history.get(key) or []:
+        text = _instantiate(raw, subs)
+        if _sha_text(text) == pinned_sha:
+            return text
+    return None
+
+
+def _template_change(old, new):
+    """-> the lines upstream changed in a section, unified-diff style
+    without the file headers."""
+    import difflib
+    return [l for l in difflib.unified_diff(old.split('\n'), new.split('\n'),
+                                            lineterm='', n=0)
+            if not l.startswith(('---', '+++'))]
+
+
+def _repin_after_formatting(dest_root, item, template_sha, carried_sha):
+    """Re-record a kept entry against today's template text. Only called
+    when upstream's change to the section was formatting alone."""
+    path = dest_root / 'precedent.json'
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        entry = data[KEPT_DIVERGENCES_KEY][item]
+    except (OSError, ValueError, KeyError, TypeError):         # noqa: BLE001
+        return False
+    if not isinstance(entry, dict):
+        return False
+    entry['template_sha256'] = template_sha
+    entry['carried_sha256'] = carried_sha
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n',
+                    encoding='utf-8')
+    return True
+
+
+def _report_stale_kept(dest_root, templates_dir, key, item, what, section,
+                       template_sha, carried_sha, subs):
+    """A section kept on purpose whose template text changed since it was
+    recorded: -> True when handled here, False to fall back to the full
+    report.
+
+    2026-10-07, a consuming repository's Update Vendors: two kept sections
+    came back as long "lacks" lists -- every block each section has always
+    left out on purpose -- when upstream's only change to them was file
+    names in code spans becoming links. Finding that out took a git diff of
+    the template by hand. The question a stale pin asks is "what did
+    upstream change?", so that is what is shown: the template's own change
+    since the pinned text. When the change is formatting alone, the words
+    the decision was made on are the same, so the pin moves by itself."""
+    entry = kept_template_divergences(dest_root).get(item) or {}
+    old = _pinned_section_text(templates_dir, key, entry.get('template_sha256', ''), subs)
+    if old is None:
+        return False
+    reason = entry.get('reason', '')
+    if _plain_words(old) == _plain_words(section):
+        if _repin_after_formatting(dest_root, item, template_sha, carried_sha):
+            print(f"PIN UPDATED: {item} is kept on purpose (\"{reason}\"), and "
+                  f"upstream's only change to {what} since it was recorded is "
+                  f"formatting -- links and code spans round the same words -- "
+                  f"so the kept entry now records today's text.")
+            return True
+        return False
+    change = _template_change(old, section)
+    print(f"DIVERGED: {AGENTS_MD} \"{key}\" is kept on purpose (\"{reason}\"), "
+          f"and upstream has changed {what} since that was recorded. "
+          f"Upstream's change, from the recorded text to today's:")
+    for line in change[:60]:
+        print(f"    {line if len(line) <= 200 else line[:197] + '...'}")
+    if len(change) > 60:
+        print(f"    ... and {len(change) - 60} more line(s)")
+    print(f"    still kept? set its template_sha256 to {template_sha} and its "
+          f"carried_sha256 to {carried_sha} in precedent.json")
+    _left(f'{AGENTS_MD} "{key}"', f'kept on purpose, and upstream changed '
+          f'{what} since (its change is listed above) -- copy in what applies '
+          f'here, then re-pin the kept entry to today\'s text')
+    return True
+
+
 def _report_agents_md(dest_root, templates_dir, plan, reask_absent=False):
     """Print what refresh (or status) found in AGENTS.md's template
     sections, and put what needs a person on the Left-for-you list. Every
@@ -5544,8 +5861,13 @@ def _report_agents_md(dest_root, templates_dir, plan, reask_absent=False):
         template_sha = _sha_text(section)
         carried_sha = _carried_sha(section, lacks)
         _repin_kept(dest_root, item, template_sha, carried_sha)
-        if _kept_divergence(dest_root, item, template_sha, carried_sha)[0] == 'kept':
+        verdict = _kept_divergence(dest_root, item, template_sha, carried_sha)[0]
+        if verdict == 'kept':
             _report_kept(dest_root, item, what, template_sha, carried_sha)
+            continue
+        if verdict == 'stale' and _report_stale_kept(
+                dest_root, templates_dir, key, item, what, section,
+                template_sha, carried_sha, subs):
             continue
         print(f"DIVERGED: {AGENTS_MD} \"{key}\" (line {span[0] + 1}) has local "
               f"edits, so refresh leaves it alone (it never overwrites a line "
