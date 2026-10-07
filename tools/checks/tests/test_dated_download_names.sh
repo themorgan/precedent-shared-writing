@@ -88,6 +88,49 @@ if ! python3 "$CHECK" >/dev/null; then
 fi
 echo "ok: a kept document fires undated and is clean dated"
 
+# A source kept to read, not to download: a book in a sources/ folder.
+mkdir -p "$SCRATCH/content/sources"
+printf 'x' > "$SCRATCH/content/sources/a-book.pdf"
+if ! python3 "$CHECK" >/dev/null; then
+  echo "FAIL: flagged a document kept in a sources/ folder" >&2; python3 "$CHECK" >&2 || true; exit 1
+fi
+echo "ok: a document in a sources/ folder is an input, not judged"
+# Declared output folders: only those are judged.
+printf 'x' > "$SCRATCH/loose.docx"
+echo '{"output_paths": ["book/"]}' > "$SCRATCH/precedent.json"
+if ! python3 "$CHECK" >/dev/null; then
+  echo "FAIL: judged a file outside the declared output_paths" >&2; python3 "$CHECK" >&2 || true; exit 1
+fi
+printf 'x' > "$SCRATCH/book/Undated.docx"
+OUT="$(python3 "$CHECK" || true)"
+if ! grep -q "book/Undated.docx is a document kept for download" <<<"$OUT"; then
+  echo "FAIL: did not flag an undated document under a declared output path" >&2; echo "$OUT" >&2; exit 1
+fi
+echo "ok: with output_paths declared, only those folders are judged"
+rm -f "$SCRATCH/loose.docx" "$SCRATCH/book/Undated.docx" "$SCRATCH/precedent.json"
+rm -rf "$SCRATCH/content"
+
+# The hook listed in process/practice_hooks.json and run by the fixed
+# precedent-hooks.sh entry (the engine's route since 2026-10-07).
+cat > "$SCRATCH/.claude/settings.json" <<'JSON'
+{"hooks": {"PreToolUse": [{"hooks": [{"type": "command",
+  "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/precedent-hooks.sh PreToolUse"}]}]}}
+JSON
+mkdir -p "$SCRATCH/process"
+cat > "$SCRATCH/process/practice_hooks.json" <<'JSON'
+{"hooks": [{"event": "PreToolUse", "matcher": "SendUserFile",
+  "command": "python3 $CLAUDE_PROJECT_DIR/tools/dated_name.py --hook"}]}
+JSON
+if ! python3 "$CHECK" >/dev/null; then
+  echo "FAIL: not clean with the hook on the practice-hooks list" >&2; python3 "$CHECK" >&2 || true; exit 1
+fi
+echo '{"hooks": []}' > "$SCRATCH/process/practice_hooks.json"
+if python3 "$CHECK" >/dev/null; then
+  echo "FAIL: clean with the hook neither in settings nor on the list" >&2; exit 1
+fi
+echo "ok: the hook counts when listed in process/practice_hooks.json, and only then"
+rm -rf "$SCRATCH/process"
+
 printf 'x' > "$SCRATCH/book/output/Notes.docx"
 printf 'x' > "$SCRATCH/book/output/Notes Extra-2026-12-29.docx"
 GOT="$(cd "$SET_ROOT/tools" && python3 -c "
