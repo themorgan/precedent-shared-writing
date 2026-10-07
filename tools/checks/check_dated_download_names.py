@@ -103,6 +103,24 @@ def registered_hook(settings: dict) -> bool:
     return on_list and runs_list
 
 
+NOTES = []
+
+
+def engine_wires_hooks() -> bool:
+    """True when this repository's engine wires a practice's declared
+    hooks at sync: tools/precedent_hooks.py (the per-event list, since
+    2026-10-07), or add_practice_hooks in the vendored engine (since
+    2026-10-06). An older engine cannot, so the missing hook is its to
+    bring, not a finding against the repository."""
+    if (ROOT / "tools" / "precedent_hooks.py").is_file():
+        return True
+    try:
+        return "def add_practice_hooks" in (ROOT / "tools" / "precedent_vendor_engine.py").read_text(
+            encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+
+
 def _matches(matcher: str) -> bool:
     try:
         return bool(re.fullmatch(matcher, "SendUserFile"))
@@ -175,6 +193,16 @@ def find_violations() -> list:
             findings.append(f"{SETTINGS.relative_to(ROOT)} is not valid JSON: {e}")
         else:
             if not (hook_wired(settings) or registered_hook(settings)):
+                if not engine_wires_hooks():
+                    # An engine older than wiring a practice's `hooks:` cannot
+                    # satisfy this, and the repo may not be allowed to edit
+                    # its own settings by hand: a note, never a refusal
+                    # (2026-10-07, an unrelated merge refused in a consumer).
+                    NOTES.append(
+                        f"{SETTINGS.relative_to(ROOT)} does not run the hand-over "
+                        "hook yet, and this repository's engine predates wiring "
+                        "a practice's hooks: run Update Vendors, which wires it")
+                    return findings
                 findings.append(
                     f"{SETTINGS.relative_to(ROOT)} has no PreToolUse hook on "
                     "SendUserFile running dated_name.py --hook, so an undated "
@@ -190,6 +218,8 @@ if __name__ == "__main__":
         print(f"SKIPPED: {SCRIPT.relative_to(ROOT)} is not vendored in this repo")
         sys.exit(2)
     findings = find_violations()
+    for note in NOTES:
+        print(f"NOTE: {note}")
     if findings:
         print("VIOLATION: dated-download-names")
         for f in findings:
