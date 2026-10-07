@@ -71,7 +71,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_access_check.py](tools/precedent_access_check.py) | Probes, at session start, which repos in force this session can actually push to -- so work destined for one it cannot reach is discovered before it is done, not after |
 | [tools/precedent_audience.py](tools/precedent_audience.py) | precedent_audience.py -- whether the person in this session is one of the |
 | [tools/precedent_bootstrap_source.py](tools/precedent_bootstrap_source.py) | Instantiates a brand-new individual or shared practice set from a skeleton, for an adopter who has neither yet |
-| [tools/precedent_branch_name.py](tools/precedent_branch_name.py) | The name for a session's feature branch, built the same way every time -- `claude/<date>-<slug>-<id>`, the id being the end of the session's ID, or random characters when there is none |
+| [tools/precedent_branch_name.py](tools/precedent_branch_name.py) | The name for a session's feature branch, built the same way every time -- `<date>-<slug>-<id>`, the id being the end of the session's ID, or random characters when there is none |
 | [tools/precedent_branches.py](tools/precedent_branches.py) | Where a person's work lands here (spec/LADDER_OPT_IN_PLAN.md D3) and whether a push to a branch gets the basic or the full push check; the branch tiers and their moves for a person whose set provides them (spec/BRANCH_TIERS_PLAN.md) |
 | [tools/precedent_candidate.py](tools/precedent_candidate.py) | Stage 2 (phase 5) — raise, list and expire creation-pipeline candidates |
 | [tools/precedent_check.py](tools/precedent_check.py) | The ENFORCED loading channel — runs every practice's `checked_by` script |
@@ -115,5 +115,6 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/todo_disposition.py](tools/todo_disposition.py) | records "Drop it" on a todo item in both places a park lives, in one go |
 | [tools/todo_migrate.py](tools/todo_migrate.py) | One-time converter from the old TODO.md/gotchas-index format into spec/OPEN_ITEM_AND_GOTCHA_PLAN.md's per-item todo/gotchas files, dry-run by default |
 | [tools/todo_progress.py](tools/todo_progress.py) | which open items a change may have moved, and which name a file that is gone -- reports a resemblance, never a verdict |
+| [tools/upstream_fix.py](tools/upstream_fix.py) | Sets up the fix to a vendored file where it comes from -- names the source repository and the file's path there, and opens a branch in that source's clone off its landing branch; never edits the copy |
 | [tools/very_deep_check.py](tools/very_deep_check.py) | The very deep check — on-demand whole-repo coherence review, distinct from full-practice-audit |
 
