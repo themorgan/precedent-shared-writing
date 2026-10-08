@@ -16,7 +16,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-10-05
-approved_by: "Morgan F, 2026-10-05, at his own request, in his words: \"whenever it gives the user a doc to download, always put the date in the filename in the format of \\\"-2026-12-31\\\" or \\\" - 2026-12-31\\\" at the end of the filename before the extension. Add a Practice for this or add it to the relevant practice - and add a check for this.\" (strength: decided). Revised the same day at his own request, so a document the repository keeps is dated too: \"Yes, so it's consistent and has the same file name, and also so it's super clear which vesion/when is it from.\" (strength: decided); occasion shortened 2026-10-06 (Morgan F, \"yes act\" to trimming one trigger line, strength: decided) to its first clause -- the four kinds it listed were already covered by \"a document\" -- to bring the session file of precedent-individual under its 4,000-token target. Amended 2026-10-06, Morgan (decided): \"Please fix all of these at their roots. Act\" -- the hook is declared in `hooks:` and wired by the sync, not by hand. Amended 2026-10-07, Morgan (decided): \"implement it and also 1 3 4. Act\" -- only documents kept for download are judged, and the hook counts where the engine lists it.; the old-engine note, Morgan F, 2026-10-07 (decided)"
+approved_by: "Morgan F, 2026-10-05, at his own request, in his words: \"whenever it gives the user a doc to download, always put the date in the filename in the format of \\\"-2026-12-31\\\" or \\\" - 2026-12-31\\\" at the end of the filename before the extension. Add a Practice for this or add it to the relevant practice - and add a check for this.\" (strength: decided). Revised the same day at his own request, so a document the repository keeps is dated too: \"Yes, so it's consistent and has the same file name, and also so it's super clear which vesion/when is it from.\" (strength: decided); occasion shortened 2026-10-06 (Morgan F, \"yes act\" to trimming one trigger line, strength: decided) to its first clause -- the four kinds it listed were already covered by \"a document\" -- to bring the session file of precedent-individual under its 4,000-token target. Amended 2026-10-06, Morgan (decided): \"Please fix all of these at their roots. Act\" -- the hook is declared in `hooks:` and wired by the sync, not by hand. Amended 2026-10-07, Morgan (decided): \"implement it and also 1 3 4. Act\" -- only documents kept for download are judged, and the hook counts where the engine lists it.; the old-engine note, Morgan F, 2026-10-07 (decided); the outbox, from alex137/BestPractice#927, Morgan F, 2026-10-07 (decided)"
 ---
 ## Rule
 **Every document you hand someone to download has the date at the end of
@@ -35,17 +35,26 @@ This covers a Word file, a PDF, a spreadsheet, a CSV, a deck, an e-book --
 anything the reader saves and opens somewhere else. It does not cover an
 image, a web page shown in the side panel, or source code.
 
-**A document the repository keeps for download is dated the same way**,
+**A document the repository keeps for a reader is dated the same way**,
 with the day it was last built: `book/output/manuscript-2026-10-05.docx`.
 The copy in the repository and the copy you are sent then have the same
 name, and either one says when it is from. A rebuild that changes the
 document saves it under the new day's name and deletes the older copy, so
-the folder holds one copy of each document; a rebuild that changes nothing
-leaves the file and its date alone. Because the name moves, link to the
-folder (`book-joseph/output/`), never to the file. **A document kept to
-read, not to download, is not one of these**: a book kept in a `sources/`
-folder to search keeps its own name. Where `precedent.json` declares
-`output_paths`, those folders are what counts as kept for download.
+there is one copy of each document; a rebuild that changes nothing leaves
+the file and its date alone.
+
+**Which documents those are is the repository's outbox: `OUTBOX.md` at its
+root**, one table row per document a reader gets -- its name, a link to the
+file and what builds it. The file stays next to the work it belongs to; the
+outbox is where anyone finds the current copy to send, and `git log
+--follow` on a row's path lists every earlier version with its date. A
+rebuild that renames a document updates its row in the same commit, so
+link to the outbox row, never to the file; a row whose file has gone is a
+finding that names the last commit that had it. A document not in the
+outbox -- history, an as-filed record, someone else's source PDF, a book
+kept to search -- keeps the name it has. A repository with no `OUTBOX.md`
+is checked against its declared `output_paths`, minus `internal_paths`;
+with neither, no kept document is checked.
 
 A one-off built straight into the scratchpad is simply saved under its
 dated name. A file whose name you cannot change gets a dated copy to send:
@@ -118,12 +127,23 @@ Where the engine cannot wire the hook, the check now prints a note naming
 Update Vendors and passes; once the engine can, a missing hook is a finding
 again.
 
+2026-10-07, adopted from Alex Jacobson's
+[alex137/BestPractice#927](https://github.com/alex137/BestPractice/issues/927):
+in one consumer the check flagged about a hundred undated documents --
+an archive of old spreadsheets, as-filed records, other people's source
+PDFs -- none of them a download that repository produces, so it could not
+adopt the rule without exempting it. The repository now says which
+documents are for readers, in `OUTBOX.md`, and with no outbox and no
+declared `output_paths` nothing it keeps is judged. That replaced the
+same day's narrower fix, which judged everything outside a `sources/`
+folder.
+
 ## Install
 [`tools/checks/check_dated_download_names.py`](../tools/checks/check_dated_download_names.py) confirms, wherever
 [`tools/dated_name.py`](../tools/dated_name.py) is vendored, that the tool parses, cites this
 practice and still tells dated names from undated ones, that a
 repository with a `.claude/settings.json` wires the `SendUserFile` hook
 above (in settings.json or through `process/practice_hooks.json`), and that
-every document the repository keeps for download has a dated name. It is SKIPPED where the tool is not vendored. A document handed over
+every document the outbox lists (else under `output_paths`) exists and has a dated name. It is SKIPPED where the tool is not vendored. A document handed over
 any other way -- attached to an email, linked in the repository -- is
 session judgment.

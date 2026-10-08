@@ -86,39 +86,57 @@ fi
 echo "ok: --to copies under the dated name, both forms, source untouched"
 rm -rf "$SCRATCH/src" "$SCRATCH/send" "$SCRATCH/hook.err"
 
-mkdir -p "$SCRATCH/book/output"
+mkdir -p "$SCRATCH/book/output" "$SCRATCH/archive" "$SCRATCH/content/sources"
+printf 'x' > "$SCRATCH/archive/Ledger.xlsx"
+printf 'x' > "$SCRATCH/content/sources/a-book.pdf"
 printf 'x' > "$SCRATCH/book/output/Notes.docx"
+if ! python3 "$CHECK" >/dev/null; then
+  echo "FAIL: flagged a kept document with no OUTBOX.md and no output_paths" >&2
+  python3 "$CHECK" >&2 || true; exit 1
+fi
+echo "ok: with no outbox and no output_paths, no kept document is in scope"
+
+cat > "$SCRATCH/OUTBOX.md" <<'MD'
+# Outbox
+
+| Document | File | Built by |
+|---|---|---|
+| Notes | [book/output/Notes.docx](book/output/Notes.docx) | hand |
+MD
 OUT="$(python3 "$CHECK" || true)"
 if ! grep -q "book/output/Notes.docx is a document kept for download with no date" <<<"$OUT"; then
-  echo "FAIL: did not flag an undated kept document" >&2; echo "$OUT" >&2; exit 1
+  echo "FAIL: did not flag an undated document the outbox lists" >&2; echo "$OUT" >&2; exit 1
+fi
+if grep -qE "archive/Ledger.xlsx|a-book.pdf" <<<"$OUT"; then
+  echo "FAIL: flagged a document the outbox does not list" >&2; echo "$OUT" >&2; exit 1
 fi
 mv "$SCRATCH/book/output/Notes.docx" "$SCRATCH/book/output/Notes-2026-12-30.docx"
+sed -i 's#Notes.docx](book/output/Notes.docx)#Notes-2026-12-30.docx](book/output/Notes-2026-12-30.docx)#' "$SCRATCH/OUTBOX.md"
 if ! python3 "$CHECK" >/dev/null; then
-  echo "FAIL: flagged a dated kept document" >&2; python3 "$CHECK" >&2 || true; exit 1
+  echo "FAIL: flagged a dated document the outbox lists" >&2; python3 "$CHECK" >&2 || true; exit 1
 fi
-echo "ok: a kept document fires undated and is clean dated"
+echo "ok: the outbox decides: a listed document fires undated and is clean dated; an unlisted one is never read"
 
-# A source kept to read, not to download: a book in a sources/ folder.
-mkdir -p "$SCRATCH/content/sources"
-printf 'x' > "$SCRATCH/content/sources/a-book.pdf"
-if ! python3 "$CHECK" >/dev/null; then
-  echo "FAIL: flagged a document kept in a sources/ folder" >&2; python3 "$CHECK" >&2 || true; exit 1
-fi
-echo "ok: a document in a sources/ folder is an input, not judged"
-# Declared output folders: only those are judged.
-printf 'x' > "$SCRATCH/loose.docx"
-echo '{"output_paths": ["book/"]}' > "$SCRATCH/precedent.json"
-if ! python3 "$CHECK" >/dev/null; then
-  echo "FAIL: judged a file outside the declared output_paths" >&2; python3 "$CHECK" >&2 || true; exit 1
-fi
-printf 'x' > "$SCRATCH/book/Undated.docx"
+printf '| Gone | [book/output/Gone-2026-12-01.pdf](book/output/Gone-2026-12-01.pdf) | hand |\n' >> "$SCRATCH/OUTBOX.md"
 OUT="$(python3 "$CHECK" || true)"
-if ! grep -q "book/Undated.docx is a document kept for download" <<<"$OUT"; then
-  echo "FAIL: did not flag an undated document under a declared output path" >&2; echo "$OUT" >&2; exit 1
+if ! grep -q "OUTBOX.md lists book/output/Gone-2026-12-01.pdf, which is not in the tree" <<<"$OUT"; then
+  echo "FAIL: did not flag an outbox row whose file is missing" >&2; echo "$OUT" >&2; exit 1
 fi
-echo "ok: with output_paths declared, only those folders are judged"
-rm -f "$SCRATCH/loose.docx" "$SCRATCH/book/Undated.docx" "$SCRATCH/precedent.json"
-rm -rf "$SCRATCH/content"
+echo "ok: an outbox row whose file is gone is a finding"
+rm -f "$SCRATCH/OUTBOX.md"
+
+echo '{"output_paths": ["book/"], "internal_paths": ["book/drafts/"]}' > "$SCRATCH/precedent.json"
+mkdir -p "$SCRATCH/book/drafts"
+printf 'x' > "$SCRATCH/book/Undated.docx"
+printf 'x' > "$SCRATCH/book/drafts/Scratch.docx"
+OUT="$(python3 "$CHECK" || true)"
+if ! grep -q "book/Undated.docx is a document kept for download" <<<"$OUT" \
+    || grep -qE "archive/Ledger.xlsx|a-book.pdf|book/drafts/Scratch.docx" <<<"$OUT"; then
+  echo "FAIL: the output_paths fallback (minus internal_paths) did not scope the check" >&2; echo "$OUT" >&2; exit 1
+fi
+echo "ok: with no outbox, output_paths minus internal_paths decides"
+rm -f "$SCRATCH/book/Undated.docx" "$SCRATCH/precedent.json" "$SCRATCH/archive/Ledger.xlsx"
+rm -rf "$SCRATCH/content" "$SCRATCH/book/drafts"
 
 # The hook listed in process/practice_hooks.json and run by the fixed
 # precedent-hooks.sh entry (the engine's route since 2026-10-07).

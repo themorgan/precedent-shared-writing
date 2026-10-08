@@ -17,13 +17,19 @@ on that tool call is in place rather than looking for files:
      settings.json itself, or -- since 2026-10-07, when the engine stopped
      adding hooks there -- listed in process/practice_hooks.json, which the
      settings' fixed precedent-hooks.sh PreToolUse entry runs;
-  3. every document the repository keeps FOR DOWNLOAD (a committed .docx,
-     .pdf, spreadsheet...) is named with its date, the same way -- the file
-     a reader downloads from the repository is as clearly dated as one sent.
-     Kept for download means under a folder precedent.json's `output_paths`
-     declares, where it declares any; where it declares none, anything
-     outside a `sources/` folder. A book kept in content/sources/ to search
-     is an input, not a download (a consuming repository, 2026-10-07).
+  3. every document the repository keeps FOR A READER is named with its
+     date, the same way, so the file a reader downloads from the repository
+     is as clearly dated as one sent. Which documents those are is the
+     repository's outbox: OUTBOX.md at its root, one table row per document,
+     whose File column links the file. Each listed file must exist -- a row
+     whose file moved or vanished is a finding that names the last commit
+     that had it -- and be dated. A repository with no OUTBOX.md falls back
+     to its declared `output_paths` (precedent.json), minus `internal_paths`;
+     with neither, no kept document is in scope (parts 1 and 2 still run).
+     A document outside the outbox -- history, an as-filed record, someone
+     else's source PDF, a book kept to search -- is not a download the
+     repository produces, and keeps the name it has. (Alex Jacobson's
+     alex137/BestPractice#927, 2026-10-06, adopted 2026-10-07.)
 
 SKIPPED (exit 2) where tools/dated_name.py is not vendored. Whether a file
 handed over some other way -- an attachment to an email, a link into the
@@ -51,7 +57,6 @@ PRACTICE_FILE = SOURCE_ROOT / "practices" / "dated-download-names.md"
 SCRIPT = ROOT / "tools" / "dated_name.py"
 SETTINGS = ROOT / ".claude" / "settings.json"
 PRACTICE_HOOKS = ROOT / "process" / "practice_hooks.json"
-INPUT_DIRS = ("sources",)
 
 CASES = {
     "Joseph Manuscript-2026-12-31.docx": True,
@@ -128,18 +133,67 @@ def _matches(matcher: str) -> bool:
         return False
 
 
-def for_download(paths: list) -> list:
-    """The kept files that are downloads: under precedent.json's declared
-    output_paths where it declares any, else anything not in a sources/
-    folder."""
+OUTBOX = "OUTBOX.md"
+_LINK = re.compile(r"\]\(([^)\s]+)\)")
+
+
+def _declared(key: str) -> list:
     try:
-        outs = json.loads((ROOT / "precedent.json").read_text(encoding="utf-8")).get("output_paths") or []
+        got = json.loads((ROOT / "precedent.json").read_text(encoding="utf-8")).get(key) or []
     except (OSError, ValueError, AttributeError):
-        outs = []
-    outs = [str(o).strip("/") for o in outs if str(o).strip("/")]
-    if outs:
-        return [p for p in paths if any(p == o or p.startswith(o + "/") for o in outs)]
-    return [p for p in paths if not set(pathlib.PurePosixPath(p).parts[:-1]) & set(INPUT_DIRS)]
+        return []
+    return [str(x).strip("/") for x in got if str(x).strip("/")] if isinstance(got, list) else []
+
+
+def _under(rel: str, dirs: list) -> bool:
+    return any(rel == d or rel.startswith(d + "/") for d in dirs)
+
+
+def outbox_files():
+    """The files OUTBOX.md lists, repo-relative, or None when there is no
+    OUTBOX.md. A row is a markdown table row; its File column is the first
+    cell holding a relative link (a link with a scheme is skipped)."""
+    path = ROOT / OUTBOX
+    if not path.is_file():
+        return None
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.lstrip().startswith("|") or set(line.strip()) <= set("|-: "):
+            continue
+        for cell in line.strip().strip("|").split("|"):
+            m = _LINK.search(cell)
+            if m and "://" not in m.group(1) and not m.group(1).startswith("#"):
+                out.append(m.group(1).split("#", 1)[0])
+                break
+    return out
+
+
+def _last_commit(rel: str) -> str:
+    try:
+        r = subprocess.run(["git", "-C", str(ROOT), "log", "-1", "--format=%h %as",
+                            "HEAD", "--", rel], capture_output=True, text=True)
+        return r.stdout.strip()
+    except OSError:
+        return ""
+
+
+def kept_for_readers() -> tuple:
+    """-> (documents a reader is meant to get, findings about the outbox)."""
+    listed = outbox_files()
+    if listed is not None:
+        present = [rel for rel in listed if (ROOT / rel).is_file()]
+        findings = []
+        for rel in (r for r in listed if r not in present):
+            last = _last_commit(rel)
+            findings.append(f"{OUTBOX} lists {rel}, which is not in the tree"
+                            + (f" (last seen in commit {last}: `git show "
+                               f"{last.split()[0]}:{rel}`)" if last else "")
+                            + " -- point the row at where the document is now, or drop it")
+        return present, findings
+    outputs, internals = _declared("output_paths"), _declared("internal_paths")
+    if not outputs:
+        return [], []
+    return [p for p in kept_files() if _under(p, outputs) and not _under(p, internals)], []
 
 
 def kept_files() -> list:
@@ -176,7 +230,9 @@ def find_violations() -> list:
                     f"{'dated' if not want else 'undated'}; it should be the opposite"
                 )
 
-        for name in mod.undated(for_download(kept_files())):
+        kept, outbox_findings = kept_for_readers()
+        findings.extend(outbox_findings)
+        for name in mod.undated(kept):
             findings.append(
                 f"{name} is a document kept for download with no date in its "
                 "name -- its builder should save it as <name>-YYYY-MM-DD"
