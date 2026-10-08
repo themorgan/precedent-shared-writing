@@ -486,6 +486,49 @@ def _promotion_heads(root, base):
     return {PRE_STAGING}
 
 
+def _push_remote(root, args):
+    """-> the remote a `git push <args>` writes to: its first positional
+    argument, else the current branch's configured remote, else origin."""
+    if isinstance(args, str):
+        try:
+            args = shlex.split(args)
+        except ValueError:
+            return 'origin'
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a in _VALUED:
+            skip = True
+            continue
+        if not a.startswith('-'):
+            return a
+    branch = _run(root, 'rev-parse', '--abbrev-ref', 'HEAD').stdout.strip()
+    configured = _run(root, 'config', f'branch.{branch}.remote').stdout.strip()
+    return configured or 'origin'
+
+
+def _remote_is_empty(root, remote):
+    """True only when the remote answers and holds no branch at all: a
+    brand-new repository, whose first landing creates main.
+
+    Practice promote-only's first-install exception (Morgan, 2026-10-08:
+    "Why not install it straight to main?") lets that one push through, and
+    until 2026-10-08 this gate refused it like any other. Kept to an empty
+    remote on purpose: once anything is there, an existing main (even a
+    README-only one) or a missing staging beside it, the push is refused as
+    before. A remote that cannot be asked (no network, no such remote)
+    answers False, so the push stays refused."""
+    try:
+        r = subprocess.run(['git', '-C', str(root), 'ls-remote', '--heads',
+                            remote],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):  # practice: fail-gracefully
+        return False
+    return r.returncode == 0 and not r.stdout.strip()
+
+
 def direct_push_refusal(root, args, user_config=None):
     """-> None, or why a `git push <args>` is refused: promote_only is on
     and the push writes straight to staging or main. A push whose
@@ -495,6 +538,8 @@ def direct_push_refusal(root, args, user_config=None):
         return None
     targets = push_targets(root, args)
     hit = sorted(set(targets or ()) & full_branches(root))
+    if hit and _remote_is_empty(root, _push_remote(root, args)):
+        return None
     if not hit:
         return None
     return (f'{" and ".join(hit)} take{"s" if len(hit) == 1 else ""} work only '
@@ -505,13 +550,63 @@ def direct_push_refusal(root, args, user_config=None):
             f'`git reset --keep origin/{hit[0]}` once origin/{PRE_STAGING} has it.')
 
 
-def merge_refusal(root, bases, heads, user_config=None):
+# ONE DEFINITION OF A CURRENT COPY FOR MAIN (2026-10-08). Since 2026-10-07
+# Produce's copy is staging merged with main, so main's push test can skip
+# what the pull request already passed. The merge check went on allowing a
+# head into main only at staging's own tip, so it refused every such copy
+# as "out of date: staging has moved" while staging had not moved -- every
+# Produce, in every repository on that engine, found by a consumer on
+# 2026-10-08. Promote now makes its copy with this function's rule and the
+# merge check judges it by the same function, so the two cannot drift
+# apart again.
+def main_copy_tip(root, mtip, stip, message):
+    """-> the commit Produce's copy should be, given main's tip `mtip` and
+    staging's `stip`, made and checked out in `root` (a worktree at mtip),
+    or None when staging does not merge cleanly into main. Staging's own tip
+    when main is already in staging: GitHub's merge of it then has no
+    parent the tested head lacks. Otherwise staging merged into main, which
+    contains both."""
+    if _run(root, 'merge-base', '--is-ancestor', mtip, stip).returncode == 0:
+        _run(root, 'checkout', '-q', '--detach', stip)
+        return stip
+    m = _run(root, 'merge', '--no-ff', '-q', '-m', message, stip,
+             env=_merge_env(root))
+    if m.returncode != 0:
+        _run(root, 'merge', '--abort')
+        return None
+    return _run(root, 'rev-parse', 'HEAD').stdout.strip()
+
+
+def main_copy_current(root, head, stip, mtip):
+    """True when `head` is a copy main_copy_tip would make from staging's
+    current tip `stip`: staging's tip itself, or a merge of exactly
+    (a commit on main, stip) whose files are what that merge makes on its
+    own -- nothing added by hand. A copy made before staging moved has an
+    older staging parent and is not current."""
+    if not head or not stip:
+        return False
+    if head == stip:
+        return True
+    line = _run(root, 'rev-list', '--parents', '-n', '1', head).stdout.split()
+    if len(line) != 3 or line[2] != stip:
+        return False
+    first = line[1]
+    if not mtip or _run(root, 'merge-base', '--is-ancestor', first, mtip).returncode != 0:
+        return False
+    made = _run(root, 'merge-tree', '--write-tree', first, stip)
+    tree = _run(root, 'rev-parse', f'{head}^{{tree}}').stdout.strip()
+    return made.returncode == 0 and made.stdout.split()[:1] == [tree]
+
+
+def merge_refusal(root, bases, heads, user_config=None, head_sha=None):
     """-> None, or why merging a pull request is refused: promote_only is
     on, its base is staging or main, and its head is not the tier directly
     below. `bases` and `heads` are every branch at the base and head tips;
     when the base is ambiguous (two branches at one commit, one of them not
     protected) nothing is refused -- a wrong refusal of an ordinary pull
-    request into pre-staging would be the common case right after Promote."""
+    request into pre-staging would be the common case right after Promote.
+    `head_sha`, the head's commit, lets a Produce copy that is a merge of
+    staging and main through when main_copy_current says it is current."""
     on, where = promote_only(root, user_config)
     if not on or not bases:
         return None
@@ -524,6 +619,12 @@ def merge_refusal(root, bases, heads, user_config=None):
     if set(heads or ()) & allowed:
         return None
     stale = sorted(h for h in heads or () if is_main_copy(h))
+    if MAIN in bases and stale and head_sha:
+        staging = staging_branch(root)
+        _run(root, 'fetch', '-q', 'origin', staging, MAIN)
+        if main_copy_current(root, head_sha, _remote_tip(root, staging),
+                             _remote_tip(root, MAIN)):
+            return None
     if MAIN in bases and stale:
         return (f'{stale[0]} is a copy of {staging_branch(root)} that is out of '
                 f'date: {staging_branch(root)} has moved since it was made. '
@@ -1522,6 +1623,20 @@ REBUILT_BARE = ('tools/build_views.py', 'tools/build_gotcha_index.py',
                 'tools/build_todo_index.py', 'tools/doc_html.py')
 
 
+def _doc_html_in_use(wt):
+    """True where tools/doc_html.py is in force in worktree `wt` -- the one
+    rule precedent_push_check.doc_html_in_use() keeps for whether its
+    package is asked for. Present is not enough: a consumer that declined
+    sortable-table-renderer still receives the vendored file, and a Promote
+    there ran it over the composed tree and failed on a document only
+    BestPractice has (2026-10-08). Unanswerable (the module missing):
+    present counts, as before."""
+    ppc = _sibling('precedent_push_check')
+    if ppc is None or not hasattr(ppc, 'doc_html_in_use'):
+        return (pathlib.Path(wt) / 'tools' / 'doc_html.py').is_file()
+    return ppc.doc_html_in_use(wt)
+
+
 def _generator_of(wt, rel):
     """-> the repo-relative tool that writes `rel` in worktree `wt`, or None
     when `rel` is hand-written. Read from our side of a conflicted file
@@ -1536,7 +1651,7 @@ def _generator_of(wt, rel):
     m = _GENERATED_BY_RE.search(head)
     if m and m.group(1) in REBUILT_BARE and (pathlib.Path(wt) / m.group(1)).is_file():
         return m.group(1)
-    if rel.endswith('.html') and (pathlib.Path(wt) / 'tools' / 'doc_html.py').is_file():
+    if rel.endswith('.html') and _doc_html_in_use(wt):
         src = rel[:-len('.html')] + '.md'
         reg = (pathlib.Path(wt) / 'tools' / 'doc_html.py').read_text(encoding='utf-8')
         if re.search(r"\(\s*['\"]" + re.escape(src) + r"['\"]", reg):
@@ -1593,7 +1708,7 @@ def _drop_stamp_only_changes(wt):
 def _rebuild_generated(wt, say):
     """Run, over the composed sources in worktree `wt`, every generator it
     uses that rebuilds bare (REBUILT_BARE): the ones named in a
-    `generated_by:` header, and doc_html where it is present. -> the tracked
+    `generated_by:` header, and doc_html where it is in use. -> the tracked
     files that came out different, apart from build stamps; [] when every
     generated file was already current.
 
@@ -1605,7 +1720,7 @@ def _rebuild_generated(wt, say):
         m = _GENERATED_BY_RE.match(line)
         if m and m.group(1) in REBUILT_BARE and (pathlib.Path(wt) / m.group(1)).is_file():
             tools.add(m.group(1))
-    if (pathlib.Path(wt) / 'tools' / 'doc_html.py').is_file():
+    if _doc_html_in_use(wt):
         tools.add('tools/doc_html.py')
     # doc_html last: it renders documents the others may have just rewritten.
     for tool in sorted(tools, key=lambda t: (t == 'tools/doc_html.py', t)):
@@ -2475,11 +2590,10 @@ def _promote_to_main(root, say=print, work=None):
         say(f'nothing to promote: {MAIN} already has everything on {staging}.')
         return 0
     with _Worktree(root, mtip) as wt:
-        m = _run(wt, 'merge', '--no-ff', '-q', '-m',
-                 f'Promote {staging} into {MAIN} ({len(batch)} commit(s))',
-                 stip, env=_merge_env(root))
-        if m.returncode != 0:
-            _run(wt, 'merge', '--abort')
+        copy_tip = main_copy_tip(
+            wt, mtip, stip,
+            f'Promote {staging} into {MAIN} ({len(batch)} commit(s))')
+        if not copy_tip:
             say(f'{staging} does not merge cleanly into {MAIN}; nothing was pushed. '
                 f'{MAIN} has changes of its own on the same lines -- merge {MAIN} '
                 f'into {PRE_STAGING}, resolve it there, and Promote again.')
@@ -2493,7 +2607,8 @@ def _promote_to_main(root, say=print, work=None):
         # (todo-2026-10-07-main-push-test-reruns-a-tree-its-pull-request-passed).
         # This commit contains main, is exactly what the full check below
         # judges, and is what the pull request's GitHub test then runs.
-        copy_tip = _run(wt, 'rev-parse', 'HEAD').stdout.strip()
+        # Where main is already in staging it is staging's tip itself, and
+        # main_copy_current is what the merge check accepts (2026-10-08).
         say(f'checking {len(batch)} commit(s) from {staging} with the full push check...')
         t0 = time.monotonic()
         ok, out = _check(root, wt, FULL, dest=MAIN)
@@ -2525,8 +2640,10 @@ def _promote_to_main(root, say=print, work=None):
     say(f'{MAIN.upper()} HAS NOT MOVED YET: this Promote exits '
         f'{PROMOTE_MAIN_NOT_MOVED}, not 0, until the pull request below is merged.\n'
         f'READY FOR {MAIN.upper()}: {len(batch)} commit(s) from {staging} '
-        f'({stip[:12]}), merged with {MAIN} as {copy_tip[:12]} and pushed as '
-        f'{copy}:\n  ' + '\n  '.join(shown)
+        f'({stip[:12]}), '
+        + ('which already contains ' + MAIN if copy_tip == stip else
+           f'merged with {MAIN} as {copy_tip[:12]}')
+        + f' and pushed as {copy}:\n  ' + '\n  '.join(shown)
         + _other_work_note(others, work) + '\n\n'
         + (f'GitHub test: NONE -- no GitHub test runs on this pull request '
            f'(none is installed here, or its path filter does not reach this '

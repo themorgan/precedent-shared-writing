@@ -795,6 +795,106 @@ def source_provides(path):
     return {str(x) for x in got} if isinstance(got, list) else set()
 
 
+# SETS A PERSON HAS DELETED (Morgan, 2026-10-08, strength: decided). "remove
+# repo maintenance and repo working style from being opened in any repo of
+# mine ... I am about to delete them. They should no longer be cited or
+# mentioned." A set that marks itself `retired` is dropped by Update Vendors
+# only while its clone can still be read, and once its repository is
+# deleted nothing can read that mark: every repository declaring it would
+# try to clone it at every session start, forever. So the PERSON says it,
+# once, in their individual set's precedent-source.json:
+#
+#   "deleted_sets": [{"name": <slug>, "date": <ISO>, "reason": <text>}]
+#
+# and every session of theirs, in every repository, stops loading, cloning
+# and freshness-checking those sets at once; Update Vendors removes them from
+# each precedent.json it runs in (precedent_vendor_engine.retired_sources).
+# Only a shared set can be named: universal, the individual set itself and a
+# repo-local source are never dropped this way. An entry may add
+# "successors": [<slug>, ...], the shared sets its rules went to.
+DELETED_SETS_KEY = 'deleted_sets'
+
+# Where a retired or deleted set's rules went has two spellings: a deletion
+# record's `successors` (tools/deleted_sets.json, a person's deleted_sets)
+# and a set's own `retired` marker's `folded_into`. They mean the same thing
+# and have one reader. Universal, `precedent` and a repo-local source are
+# never a set a repository declares, so they are never a successor to ask
+# about (2026-10-08: Update Vendors dropped a set whose rules partly went to
+# precedent-shared-writing and never asked whether to declare it).
+NOT_A_DECLARABLE_SET = frozenset({'universal', 'precedent', 'local'})
+
+
+def successors_of(record):
+    """-> [slug] of the shared sets a retirement or deletion record says its
+    rules went to, from `successors` and `folded_into` alike, in order and
+    without repeats; universal and anything that is not a slug left out.
+    [] for a record that says nothing, or for anything not a dict."""
+    out = []
+    if not isinstance(record, dict):
+        return out
+    for key in ('successors', 'folded_into'):
+        names = record.get(key)
+        for n in names if isinstance(names, list) else []:
+            n = n.strip() if isinstance(n, str) else ''
+            if n and SLUG_RE.match(n) and n not in NOT_A_DECLARABLE_SET \
+                    and n not in out:
+                out.append(n)
+    return out
+
+
+def person_individual_path(user_config=None):
+    """-> the person's individual set path from the user-level config, or
+    None. Reads the file only: no self-heal, no clone."""
+    cfg_path = pathlib.Path(user_config) if user_config else pathlib.Path(
+        os.environ.get(USER_CONFIG_ENV, str(DEFAULT_USER_CONFIG))).expanduser()
+    try:
+        ind = json.loads(cfg_path.read_text(encoding='utf-8')).get('individual')
+    except (OSError, ValueError, AttributeError):
+        return None
+    if isinstance(ind, dict) and ind.get('path'):
+        return pathlib.Path(ind['path']).expanduser()
+    return None
+
+
+# The engine's own record, shipped beside this file to every repository: the
+# public sets whose repositories are deleted, for EVERY person, not only the
+# one who deleted them (Morgan, 2026-10-08: when another person runs Update
+# Vendors it should notice too, as a standing rule).
+ENGINE_DELETED_SETS = pathlib.Path(__file__).resolve().parent / 'deleted_sets.json'
+
+
+def deleted_sets(individual_path=None, user_config=None):
+    """-> {name: {"date", "reason", "successors", "from"}} for every shared set known to be
+    deleted: the engine's own record (ENGINE_DELETED_SETS) and the person's
+    (DELETED_SETS_KEY in their individual set's precedent-source.json); {}
+    when neither says anything or can be read."""
+    raw = []
+    try:
+        eng = json.loads(ENGINE_DELETED_SETS.read_text(encoding='utf-8'))
+        raw += [dict(e, _from='engine') for e in (eng.get('sets') or [])
+                if isinstance(e, dict)] if isinstance(eng, dict) else []
+    except (OSError, ValueError):
+        pass
+    path = (pathlib.Path(individual_path) if individual_path
+            else person_individual_path(user_config))
+    if path is not None:
+        try:
+            man = json.loads((path / SOURCE_MANIFEST).read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            man = None
+        mine = man.get(DELETED_SETS_KEY) if isinstance(man, dict) else None
+        raw += [dict(e, _from='person') for e in mine
+                if isinstance(e, dict)] if isinstance(mine, list) else []
+    out = {}
+    for e in raw if isinstance(raw, list) else []:
+        if isinstance(e, dict) and isinstance(e.get('name'), str) and e['name'].strip():
+            out[e['name'].strip()] = {'date': str(e.get('date') or ''),
+                                      'reason': str(e.get('reason') or ''),
+                                      'successors': successors_of(e),
+                                      'from': e.get('_from', 'person')}
+    return out
+
+
 # What a `brings` URL may look like. Anything else -- above all a string that
 # starts with "-", which git would read as an option to `git clone` rather
 # than a repository -- is skipped, never handed to git.
@@ -853,7 +953,8 @@ def brought_sources(individual_path, warn=True):
         out.append({'level': 'shared', 'name': name,
                     'path': str(home / name),
                     'repo': url.strip(), 'brought': True})
-    return out
+    gone = deleted_sets(individual_path)
+    return [b for b in out if b.get('name') not in gone]
 
 
 def declared_source_paths(repo, user_config=None):
@@ -874,11 +975,14 @@ def declared_source_paths(repo, user_config=None):
         cfg = json.loads((repo_root / REPO_CONFIG).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         cfg = {}
+    gone = deleted_sets(user_config=user_config)
     for entry in (cfg.get('sources') if isinstance(cfg, dict) else None) or []:
         if not isinstance(entry, dict) or not entry.get('path'):
             continue
         level = normalize_level(entry.get('level'))
         if level in ('repo-local', 'individual'):
+            continue
+        if level == 'shared' and entry.get('name') in gone:
             continue
         path = _declared_path(repo_root, entry['path'])
         if path == repo_root:
@@ -1113,6 +1217,12 @@ def load_config(repo, user_config=None):
                 if pathlib.Path(b['path']).resolve() == repo_root:
                     continue
                 sources.append(b)
+    gone = deleted_sets(entry['path'] if entry is not None else None,
+                        user_config=user_config)
+    if gone:
+        sources = [s for s in sources
+                   if not (normalize_level(s['level']) == 'shared'
+                           and s['name'] in gone)]
     if no_ladders():
         # D13: everything that provides the ladder leaves the session,
         # wherever it was declared.
@@ -1245,6 +1355,27 @@ def mirrored_prefixes(repo):
         pass
 
     return tuple(sorted(prefixes))
+
+
+def declared_record_paths(repo):
+    """-> precedent.json's `record_paths` entries ({"path", "reason"}), as
+    path strings; an entry ending in "/" covers a directory. A whole record
+    file names paths and practices as they were -- a migration record, a
+    dated audit -- and the repository declares it, with its reason. THE ONE
+    READER of that list: precedent_check's link and lineage checks and
+    precedent_practice_refs' citation scan all ask here. Never raises; a
+    missing or unreadable precedent.json declares nothing."""
+    try:
+        cfg = json.loads((pathlib.Path(repo) / 'precedent.json')
+                         .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for e in (cfg.get('record_paths') if isinstance(cfg, dict) else None) or []:
+        path = e.get('path') if isinstance(e, dict) else e
+        if isinstance(path, str) and path.strip():
+            out.append(path.strip())
+    return out
 
 
 class NotBindingError(Exception):

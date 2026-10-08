@@ -1760,6 +1760,16 @@ def _sibling_not_in_force(pdir, base):
             f'where that rule went -- settle that before linking it')
 
 
+def _shipped_link_branch():
+    """The branch a shipped link to this repo names: precedent.json's
+    base_branch, which practice-links-travel requires of practice files."""
+    try:
+        return json.loads((ROOT / 'precedent.json').read_text(
+            encoding='utf-8')).get('base_branch') or 'staging'
+    except (OSError, ValueError):
+        return 'staging'
+
+
 _MD_LINK_TARGET = re.compile(r'\]\(([^)\s#]+)(?:#[^)\s]*)?\)')
 
 
@@ -1778,6 +1788,10 @@ def _shipped_links_travel(ctx):
     # WHY (2026-10-01, from a consumer's update): seven links to
     # templates/harness/LEDGER.md, a file the copy leaves out, were broken
     # in every consumer, and the full set was 195 links in 65 files.
+    # 2026-10-08: judged by checkin.in_shipped_copy, the copy's own rule.
+    # This asked vendoring_rule(), which still counts tools/ as shipped
+    # though since 2026-09-30 a consumer's copy leaves tools/ at home, so
+    # 320 links into tools/ passed here and broke in every consumer.
     if (ROOT / 'tools' / 'ENGINE_MANIFEST.json').is_file():
         raise NotApplicable('a vendored engine: this repo receives the '
                             'catalogue copy, it does not ship one')
@@ -1805,14 +1819,16 @@ def _shipped_links_travel(ctx):
                 tgt = posixpath.normpath(posixpath.join(posixpath.dirname(rel), t))
                 if tgt.startswith('..'):
                     continue
-                stays = (checkin.vendoring_rule(tgt)
-                         or checkin.vendoring_rule(tgt.rstrip('/') + '/'))
-                if stays and stays[1] is False:
-                    out.append(Finding(
-                        f'{rel}:{i}', f'links to {tgt}, which the catalogue '
-                        f'copy leaves out, so the link is broken in every '
-                        f'consumer -- link it on GitHub instead '
-                        f'(https://github.com/alex137/BestPractice/blob/staging/{tgt})'))
+                # A target missing here is doc_lint's broken link, not this.
+                if not (ROOT / tgt).exists() or checkin.in_shipped_copy(tgt, ROOT):
+                    continue
+                kind = 'tree' if (ROOT / tgt).is_dir() else 'blob'
+                out.append(Finding(
+                    f'{rel}:{i}', f'links to {tgt}, which the catalogue '
+                    f'copy leaves out, so the link is broken in every '
+                    f'consumer -- link it on GitHub instead '
+                    f'(https://github.com/alex137/BestPractice/{kind}/'
+                    f'{_shipped_link_branch()}/{tgt})'))
     return out
 
 
@@ -2198,9 +2214,7 @@ def _practice_carries_its_files(ctx):
             'practices/ here is materialized from declared sources (a '
             'MANIFEST.json records it) -- each source holds its own practices '
             'to this at its own push, and their files are not expected here')
-    engine = _bv._engine_tool_paths() | {'tools/ENGINE_MANIFEST.json'}
-    engine |= {f'tools/{n}' for n in (_engine_manifest().get('files') or [])
-               if isinstance(n, str)}
+    engine = _engine_shipped_paths()
     files = sorted(pdir.glob('*.md'))
     active = [p for p in files
               if (_practice_status_fields(p) or (True,))[0]]
@@ -2456,6 +2470,54 @@ def _engine_fixed_filenames():
 ENGINE_FIXED_FILENAMES = _engine_fixed_filenames()
 
 
+def _engine_shipped_paths(root=None):
+    """{repo-relative path} of every file the vendoring engine puts in this
+    repository, so a name on it is the engine's, never this repository's.
+
+    Two halves, both read from where the answer already lives rather than
+    listed here. What the engine SHIPS is precedent_vendor_engine.py's own
+    file lists (build_views._engine_tool_paths asks it) -- the answer in
+    BestPractice, which vendors nothing into itself and has no manifest.
+    What it WROTE here is tools/ENGINE_MANIFEST.json: the tools/ files, the
+    hook stubs, the CI workflows and the template instances it records,
+    which in a consumer can name a file an older or newer engine shipped.
+
+    THE INCIDENT (2026-10-08). filename-separator exempted only the names a
+    tool declares as a *_NAME constant, so the hook scripts every Update
+    Vendors writes into a consumer's tools/ (artifact-publish-gate.sh,
+    commit-identity-once.sh, ...) counted as the consumer's own "-" choice,
+    and the full check before a stage failed on the consumer's one
+    snake_case script, a file nobody there had touched."""
+    base = pathlib.Path(root or ROOT)
+    paths = {'tools/ENGINE_MANIFEST.json'}
+    hook_dir = '.claude/hooks'
+    try:
+        import build_views as _bv
+        import precedent_vendor_engine as _pve
+        paths |= _bv._engine_tool_paths()
+        hook_dir = getattr(_pve, 'HOOK_DEST_DIR', hook_dir)
+    except Exception:                               # practice: fail-gracefully
+        pass
+    try:
+        m = json.loads((base / 'tools' / 'ENGINE_MANIFEST.json')
+                       .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        m = {}
+    if not isinstance(m, dict):
+        m = {}
+
+    def names(key):
+        v = m.get(key) or []
+        return [n for n in v if isinstance(n, str)]
+    paths |= {f'tools/{n}' for n in names('files')}
+    paths |= {f'{hook_dir}/{n}' for n in names('hook_files')}
+    paths |= set(names('ci_workflow_files'))
+    inst = m.get('template_instances_sha256')
+    if isinstance(inst, dict):
+        paths |= {k for k in inst if isinstance(k, str)}
+    return paths
+
+
 # An ISO date inside a file name (report_2026-09-19.md) carries hyphens
 # because ISO 8601 puts them there, not because anyone chose "-" as the
 # separator. Counting them made a directory with one consistent convention
@@ -2496,6 +2558,10 @@ def _filename_separator(ctx):
         pass
 
     groups = collections.defaultdict(lambda: {'-': [], '_': []})
+    # Every file the engine itself put here is named by the engine, the same
+    # reason as the fixed names below (_engine_shipped_paths has the
+    # incident).
+    shipped = _engine_shipped_paths()
     # Tracked files PLUS untracked-but-not-ignored ones. This is a tree-scope
     # check, so the question is what the repository CONTAINS -- and a file
     # just added and not yet committed is exactly when the answer is most
@@ -2511,7 +2577,7 @@ def _filename_separator(ctx):
         # the same reason precedent.json's exemption exists -- so it never
         # sets or breaks a directory's convention (practice: source-naming:
         # the source manifest's name is the same in every repository).
-        if path.name in ENGINE_FIXED_FILENAMES:
+        if path.name in ENGINE_FIXED_FILENAMES or f in shipped:
             continue
         # The FIRST dot ends the stem: `a_b.md.template` is named after
         # `a_b.md`, so its separator was inherited from that name, not
@@ -8681,52 +8747,62 @@ def _rename_updates_links(ctx):
                            '--stdin'], input='\n'.join(o for o, n in searchable if not n),
                           capture_output=True, text=True)
     ignored_now = set(_ign.stdout.split()) if _ign.returncode in (0, 1) else set()
-    for old, new_path in searchable:
-        if old in ignored_now:
-            continue          # build output now, not deleted -- see above
-        for rel in tracked:
-            if rel == new_path or rel == old:
-                continue
-            if old in withheld:
-                continue      # withheld, not deleted -- see the note above
-            moved = _lives_on_in_own_engine(old)
-            # A file the consuming repo RECEIVED cannot be repointed there:
-            # a mirrored tree, the vendored engine and another source's
-            # materialized files are copied wholesale, and an edit is
-            # overwritten by the next refresh. run() drops those findings
-            # for every check; asking the same one answer here as well only
-            # saves reading the files (practice: upstream-fix).
-            if _received_owner(rel) is not None \
-                    or rel == DECOMMISSIONED_PATHS_REGISTRY \
-                    or any(_exempt_matches(rel, e) for e in _retired_exempt):
-                # The decommissioning registry names every path this repo has
-                # deleted, on purpose (practice: decommission-deletes-files) --
-                # it is the record OF the deletion, not a reference left
-                # behind by one, so reading it as a stranded link would make
-                # every decommissioning fail the moment it was recorded.
-                #
-                # And so is everything the registry's own `exempt_files`
-                # names, which is the half this check was missing: the
-                # migration record explaining the deletion, and the dated
-                # backlog entry it closed, are the same kind of document as
-                # the registry and were being flagged for doing their job.
-                # See _decommissioning_record_exemptions() for the incident.
-                continue
-            if any(_exempt_matches(rel, e) for e in _records):
-                continue      # a declared record: it names what was, then
-            f = ROOT / rel
-            if not f.is_file():
-                continue
-            try:
-                text = f.read_text(encoding='utf-8', errors='ignore')
-            except OSError:
-                continue
-            if _is_history(rel, text):
-                continue      # a generated view, or a closed todo item
-            lines = text.splitlines()
-            in_story = _story_mask(lines) if rel.endswith('.md') else [False] * len(lines)
-            for i, (line, in_generated) in enumerate(
-                    zip(lines, generated_blocks.mask(lines)), 1):
+    # Files outer, paths inner, and each file read and parsed ONCE. Paths
+    # outer re-read and re-parsed every tracked file once per removed path:
+    # on a consumer whose update deleted a few hundred mirrored files that
+    # was about 295 of its full sweep's 313 seconds, measured 2026-10-08,
+    # with the same findings. A file that names none of the paths is
+    # skipped before it is split into lines -- a line can only match a path
+    # the text holds.
+    paths = [(k, old, new_path) for k, (old, new_path) in enumerate(searchable)
+             if old not in ignored_now      # build output now, not deleted -- see above
+             and old not in withheld]       # withheld, not deleted -- see the note above
+    moved_by_old = {old: _lives_on_in_own_engine(old) for _k, old, _n in paths}
+    found = {}
+    for rel in (tracked if paths else []):
+        # A file the consuming repo RECEIVED cannot be repointed there:
+        # a mirrored tree, the vendored engine and another source's
+        # materialized files are copied wholesale, and an edit is
+        # overwritten by the next refresh. run() drops those findings
+        # for every check; asking the same one answer here as well only
+        # saves reading the files (practice: upstream-fix).
+        if _received_owner(rel) is not None \
+                or rel == DECOMMISSIONED_PATHS_REGISTRY \
+                or any(_exempt_matches(rel, e) for e in _retired_exempt):
+            # The decommissioning registry names every path this repo has
+            # deleted, on purpose (practice: decommission-deletes-files) --
+            # it is the record OF the deletion, not a reference left
+            # behind by one, so reading it as a stranded link would make
+            # every decommissioning fail the moment it was recorded.
+            #
+            # And so is everything the registry's own `exempt_files`
+            # names, which is the half this check was missing: the
+            # migration record explaining the deletion, and the dated
+            # backlog entry it closed, are the same kind of document as
+            # the registry and were being flagged for doing their job.
+            # See _decommissioning_record_exemptions() for the incident.
+            continue
+        if any(_exempt_matches(rel, e) for e in _records):
+            continue      # a declared record: it names what was, then
+        f = ROOT / rel
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        here = [(k, old, new_path) for k, old, new_path in paths
+                if old in text and rel != new_path and rel != old]
+        if not here:
+            continue
+        if _is_history(rel, text):
+            continue      # a generated view, or a closed todo item
+        lines = text.splitlines()
+        in_story = _story_mask(lines) if rel.endswith('.md') else [False] * len(lines)
+        in_generated_mask = generated_blocks.mask(lines)
+        for k, old, new_path in here:
+            moved = moved_by_old[old]
+            for i, (line, in_generated) in enumerate(zip(lines, in_generated_mask), 1):
                 if in_story[i - 1]:
                     continue  # a Story section: what happened, named as it was
                 # The loader block is rewritten wholesale by build_views.py
@@ -8752,13 +8828,15 @@ def _rename_updates_links(ctx):
                     if moved:
                         where = (f'deleted; the file is at tools/'
                                  f'{old.split("/tools/", 1)[-1]} now')
-                    out.append(Finding(
+                    found.setdefault(k, []).append(Finding(
                         f'{rel}:{i}',
                         f'still references {old!r}, which this branch '
                         f'{where} -- repoint it in the same change, or the '
                         f'repository is broken at every commit in between',
                         cause=old))
                     break
+    # The order paths-outer gave: by removed path, then by file.
+    out = [x for k in sorted(found) for x in found[k]]
     if not out and skipped:
         print(f'  (rename-updates-links: {skipped} single-segment path(s) '
               f'skipped as too generic to search)')
@@ -8808,12 +8886,26 @@ def _sentences_saying_gone(lines, i, path):
     return False
 
 
-def _paths_this_repo_removed():
-    """-> every path this repository's history deleted or renamed away and
-    that is still gone, with a directory in it (a bare `README.md` means a
-    different file in every directory). A shallow clone sees less history,
-    which only finds less."""
-    r = _git('log', '--diff-filter=DR', '-M', '--name-status', '--format=', 'HEAD')
+def _paths_this_repo_removed(ctx=None):
+    """-> every path THIS CHANGE deleted or renamed away and that is still
+    gone, with a directory in it (a bare `README.md` means a different file
+    in every directory). The change is ctx.range when the run has one, and
+    otherwise this branch against the published default branch; with
+    neither, nothing.
+
+    Never the whole history (Morgan, 2026-10-08, strength: decided: "WE
+    SHOULD NOT RUN ANY TESTS THAT CHECK THE FULL HISTORY ... THIS NEEDS TO
+    BE A STRONG PRINCIPLE"; practice: checks-read-only-the-work). This read
+    `git log HEAD` until then, so every run re-judged every deletion the
+    repository ever made. A whole-history audit is a run asked for by name:
+    `--only change-updates-its-docs --range <first commit>...HEAD`."""
+    rng = getattr(ctx, 'range', None) if ctx is not None else None
+    if not rng:
+        base = _published_default_branch()
+        if base is None:
+            return set()
+        rng = f'{base}...HEAD'
+    r = _git('diff', '--diff-filter=DR', '-M', '--name-status', rng)
     if r.returncode != 0:
         return set()
     tracked = set(_git('ls-files').stdout.split())
@@ -8863,21 +8955,23 @@ def gone_path_matcher(gone):
 
 
 @check('change-updates-its-docs', 'tree',
-       'no live document names a path this repository once had and has '
-       'since deleted or renamed away',
+       'no live document names a path this change deleted or renamed away',
        'a document that is wrong in any other way: this sees only a path '
-       'that history shows is gone, never a wrong claim, a retired command, '
+       'this change removed -- never one removed earlier in the history, '
+       'unless a run asks for it with --range -- and never a wrong '
+       'claim, a retired command, '
        'or a path this repository never had (a consuming repo\'s own layout, '
        'which docs here describe on purpose). History is left alone, as '
        'rename-updates-links leaves it: a generated view, a closed todo '
        'item, a `## Story` section, a declared record file, a commit-pinned '
        'permalink, and a line that itself says the thing was retired or '
-       'removed. A shallow clone sees less history, so finds less.')
+       'removed.')
 def _docs_name_no_removed_path(ctx):
-    gone = _paths_this_repo_removed()
+    gone = _paths_this_repo_removed(ctx)
     if not gone:
-        raise NotApplicable('this repository\'s history deletes no path that '
-                            'is still gone')
+        raise NotApplicable('this change deletes no path that is still gone '
+                            '(it judges this branch against its base, never '
+                            'the whole history)')
     first_gone = gone_path_matcher(gone)
     exempt = _declared_record_paths() + _decommissioning_record_exemptions()
     # A link to this repository's own branch names a path here too:
@@ -9460,16 +9554,69 @@ def _entry_identity(entry):
     return json.dumps(entry, sort_keys=True)
 
 
+def _received_edit_findings():
+    """-> [Finding] for each engine file or engine hook this repo edited
+    (its text no longer what tools/ENGINE_MANIFEST.json recorded) with no
+    open item handing the root fix upstream: one that names the file and
+    links the pull request or issue, or saves a Prompt Please for it
+    (doc_lint.upstream_handoff). [] where no engine is vendored.
+
+    Morgan, 2026-10-08: a local fix to an upstream file is allowed, "because
+    sometimes it's urgent", but "they also must do a prompt please so the
+    user can easily bring it upstream at his convenience later"."""
+    mpath = ROOT / 'tools' / 'ENGINE_MANIFEST.json'
+    try:
+        manifest = json.loads(mpath.read_text(encoding='utf-8'))
+        import precedent_vendor_engine as _pve
+        import doc_lint as _dl
+    except Exception:                                       # noqa: BLE001
+        return []
+    edited = [f'tools/{n}' for n, _w in _pve._local_drift(ROOT / 'tools', manifest)]
+    edited += [f'{_pve.HOOK_DEST_DIR}/{n}' for n, _w in _pve._hook_drift(ROOT, manifest)]
+    edited = [r for r in edited if (ROOT / r).is_file()]
+    if not edited:
+        return []
+    handed = []
+    for f in sorted((ROOT / 'todo').glob('todo-*.md')):
+        text = f.read_text(encoding='utf-8', errors='ignore')
+        st = re.search(r'^status:[ \t]*["\']?([\w-]+)', text, re.M)
+        if (st.group(1) if st else 'open') == 'open' and _dl.upstream_handoff(text):
+            handed.append(text)
+    out = []
+    for rel in edited:
+        if any(rel in t for t in handed):
+            continue
+        out.append(Finding(
+            rel, f'differs from the copy the engine shipped -- a local '
+                 f'workaround to a file that comes from BestPractice. Fine '
+                 f'when it cannot wait; hand the root fix upstream too: open '
+                 f'it there (`python3 tools/upstream_fix.py {rel}`) and link '
+                 f'the pull request from an open todo/ item naming {rel}, or '
+                 f'save a `## Prompt Please` section with the paste-ready '
+                 f'block in such an item, for the person to take upstream '
+                 f'when it suits them (practice: upstream-fix)'))
+    return out
+
+
 @check('upstream-fix', 'tree',
        'every exemption-list entry in precedent.json that is new against the '
        'base branch carries a root_fix: what was fixed instead, or why the '
-       'check cannot learn the case',
+       'check cannot learn the case; and every engine file or engine hook '
+       'this repo edited locally has an open todo/ item naming it that links '
+       'the upstream pull request or issue, or saves a Prompt Please for it',
        'whether the root_fix is TRUE, or whether a root fix was really out of '
        'reach -- only that the question was answered in writing. Entries '
        'already on the base branch are left alone until someone touches '
        'them, and an exemption declared anywhere but precedent.json is not '
-       'seen.')
+       'seen. Of received files, only the engine manifest\'s are judged: an '
+       'edit to a vendored catalogue copy is Update Vendors\' to find, and '
+       'whether the saved prompt is a good one is not judged at all.',
+       selects_on=('precedent.json', 'tools/*', '.claude/hooks/*', 'todo/*'))
 def _exemption_names_its_root_fix(ctx):
+    return _received_edit_findings() + _exemption_findings(ctx)
+
+
+def _exemption_findings(ctx):
     # practice: upstream-fix, point 6. Morgan, 2026-09-29: "whenever we need
     # to add an 'exemption' of any sort anywhere, we always use that as an
     # example of a root fix opportunity." The same day a set exempted its
@@ -9752,11 +9899,24 @@ def _parallel_artifact_ledger(ctx):
     # it reads only the commits the push brings and pins each finding to the
     # member file the commit changed, which the filter keeps. The full check
     # at staging still reads everything.
-    ranged = bool(getattr(ctx, 'range', None))
-    roots = (set() if ranged else
-             set(_git('rev-list', '--max-parents=0', 'HEAD').stdout.split()))
-    roots |= _shallow_boundary_commits()
-    range_base = ctx.range.split('..')[0] if ranged else None
+    # This change only: the run's range, or this branch against the
+    # published default branch -- never every commit the member
+    # directories ever had (Morgan, 2026-10-08, strength: decided: "WE
+    # SHOULD NOT RUN ANY TESTS THAT CHECK THE FULL HISTORY"; practice:
+    # checks-read-only-the-work). Auditing every past change is a run asked
+    # for by name, with --range starting at the first commit.
+    rng = getattr(ctx, 'range', None)
+    if not rng:
+        base = _published_default_branch()
+        if base is None:
+            raise NotApplicable(
+                'no published default branch to judge this branch against, '
+                'and this check never walks the whole history unasked -- '
+                'pass --range from the first commit to audit it on purpose')
+        rng = f'{base}..HEAD'
+    ranged = True
+    roots = _shallow_boundary_commits()
+    range_base = rng.split('..')[0]
     findings = []
     for member_dir in _LEDGER_MEMBER_DIRS:
         # `git log` is newest-first, so the LAST entry is this member
@@ -9773,7 +9933,7 @@ def _parallel_artifact_ledger(ctx):
         # as a row saying, in effect, "no transfer verdict applicable".
         # (closed and pruned from TODO.md; was the `ledger-root-commit-exemption` item.)
         if ranged:
-            out = _git('log', '--no-merges', '--format=%H', ctx.range,
+            out = _git('log', '--no-merges', '--format=%H', rng,
                        '--', member_dir).stdout.split()
             # A member created inside the range is inception, told apart by
             # its directory not existing at the range's base -- no history
@@ -9781,9 +9941,6 @@ def _parallel_artifact_ledger(ctx):
             created_here = _git('cat-file', '-e',
                                 f'{range_base}:{member_dir}').returncode != 0
             inception = {out[-1]} if out and created_here else set()
-        else:
-            out = _git('log', '--no-merges', '--format=%H', '--', member_dir).stdout.split()
-            inception = {out[-1]} if out else set()
         for full_hash in out:
             if full_hash in roots or full_hash in inception:
                 continue
@@ -9823,7 +9980,7 @@ def _parallel_artifact_ledger(ctx):
     # commit twice by design, in the link text and the URL.
     for full_hash in {h for d in _LEDGER_MEMBER_DIRS
                       for h in _git('log', '--no-merges', '--format=%H',
-                                    *([ctx.range] if ranged else []),
+                                    rng,
                                     '--', d).stdout.split()}:
         # Counted over the change cells only -- see
         # _ledger_change_cells(). Counting whole lines made three correct
@@ -10287,17 +10444,15 @@ def _declared_record_paths():
     file names paths as they were -- a migration record, a dated audit --
     and is declared, with its reason, rather than folded into the
     decommissioning registry's exempt_files, which is for records OF a
-    decommissioning."""
+    decommissioning. Read by precedent_resolve.declared_record_paths(), the
+    one reader the citation scan shares. A resolver that cannot answer (an
+    older or stubbed engine file) declares nothing: fewer exemptions, never
+    more."""
     try:
-        cfg = json.loads((ROOT / 'precedent.json').read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+        import precedent_resolve as _pr
+        return list(_pr.declared_record_paths(ROOT))
+    except (ImportError, AttributeError):
         return []
-    out = []
-    for e in (cfg.get('record_paths') if isinstance(cfg, dict) else None) or []:
-        path = e.get('path') if isinstance(e, dict) else e
-        if isinstance(path, str) and path.strip():
-            out.append(path.strip())
-    return out
 
 
 # A document whose lifecycle header says it is finished is a record of what
@@ -10836,6 +10991,84 @@ def _manifest_entries_resolve(ctx):
                                     f'exist -- restore the file, or drop the '
                                     f'entry if it is gone on purpose')
             for m, name, rel in pve.dead_manifest_entries(ROOT)]
+
+
+_COPY_DRIFT_SHOWN = 25
+
+
+@check('vendored-copy-matches-record', 'tree',
+       'the vendored catalogue copy (process/upstream/, and each mirror a '
+       'process/manifest_*.json records) is still what was recorded when its '
+       'commit was recorded: the fingerprint process/manifest.json keeps '
+       '(upstream.copy_tree) is compared with the copy as it stands, with no '
+       'BestPractice clone. A file the manifest marks diverged or local-only, '
+       'or that precedent.json keeps under kept_template_divergences with a '
+       'reason, is exempt by name. A manifest written before the fingerprint existed is '
+       'reported COULD NOT VERIFY, and the next Update Vendors records one',
+       'whether the recorded copy was right in the first place -- Update '
+       'Vendors checks that against the upstream commit before it records '
+       'the fingerprint, and that needs the clone. It is blind to a drift '
+       'committed together with a new fingerprint, since the fingerprint is '
+       'the record; and where the recorded tree is not in this clone (a '
+       'shallow clone, or a copy changed before its first commit) it can say '
+       'the copy changed but not which files',
+       practice_backed=False, judges_received=True,
+       selects_on=('process/**', 'tools/checkin.py'))
+def _vendored_copy_matches_record(ctx):
+    # 2026-10-08, a consuming repository: its records named one upstream
+    # commit while most of process/upstream/ held other versions, and nothing
+    # in the repository could tell without a BestPractice clone to compare
+    # with (gotchas/gotcha-2026-10-08-a-vendored-copy-can-claim-a-commit-it-
+    # does-not-hold.md). checkin.copy_drift() is the one answer; this says it.
+    try:
+        import checkin
+        drift = checkin.copy_drift(ROOT)
+    except Exception as e:                           # practice: fail-gracefully
+        raise NotApplicable(f'tools/checkin.py could not be loaded here ({e}), '
+                            f'so there is nothing to compare the copy with')
+    if not drift:
+        raise NotApplicable('no process/manifest*.json here records a vendored '
+                            'copy at an upstream commit')
+    remedy = ('Run Update Vendors once, from a BestPractice clone with its full '
+              'history (python3 ../BestPractice/tools/precedent_update.py '
+              '--repo .): it puts back upstream\'s text at the recorded commit, '
+              'reports any edit of yours instead of overwriting it, and records '
+              'the copy again. To keep a change on purpose, send it upstream, '
+              'or record it under precedent.json\'s kept_template_divergences '
+              'with a reason')
+    out = []
+    for manifest, tree, state, detail in drift:
+        if state == 'unrecorded':
+            out.append(Unverified(manifest, f'records upstream commit '
+                                  f'{detail[:12]} but no fingerprint of {tree}/ '
+                                  f'(upstream.copy_tree) -- it was written before '
+                                  f'the fingerprint existed, so nothing here can '
+                                  f'tell whether the copy has changed since. The '
+                                  f'next Update Vendors records one (for a shared '
+                                  f'set\'s mirror, the next checkin.py --source '
+                                  f'record)'))
+        elif state == 'unreadable':
+            out.append(Unverified(manifest, f'{detail}, so the copy could not be '
+                                  f'compared with its recorded fingerprint'))
+        elif state == 'unnamed':
+            out.append(Finding(manifest, f'{tree}/ has changed since this '
+                               f'manifest recorded it (fingerprint '
+                               f'{detail[:12]}), and the recorded tree is not '
+                               f'in this clone, so the files cannot be named '
+                               f'here. {remedy}'))
+        elif state == 'drifted':
+            for path, how in detail[:_COPY_DRIFT_SHOWN]:
+                out.append(Finding(f'{tree}/{path}', f'{how} since {manifest} '
+                                   f'recorded the copy'))
+            more = len(detail) - _COPY_DRIFT_SHOWN
+            out.append(Finding(manifest, f'{len(detail)} file(s) in {tree}/ '
+                               f'differ from the copy it recorded'
+                               + (f' ({more} more not listed above)' if more > 0
+                                  else '')
+                               + f'. The copy is meant to be what the recorded '
+                               f'upstream commit gives, plus the local edits '
+                               f'Update Vendors kept. {remedy}'))
+    return out
 
 
 OPEN_ITEM_FILE_RE = re.compile(r'(?:^|/)(todo|gotcha)-\d{4}-\d{2}-\d{2}-[^/]*\.md$')
@@ -11403,7 +11636,11 @@ def duplicated_resident_text(root, text, corpus=None):
 # approvals list in the registry, and needs no base: it gives the same answer
 # at commit, push, merge, CI and Promote, whoever merged what.
 _BUDGET_REGISTRY = 'tools/session_load_budgets.json'
-_BUDGET_STRENGTHS = ('decided', 'assented', 'baseline')
+# 'offset' (Morgan, 2026-10-08): a raise paid for by tokens freed elsewhere in
+# the same change -- "if we remove a supporting set repo then it's okay to
+# allocate its tokens to the new repo". It names what was removed and how
+# many tokens that freed, and is never larger than what it freed.
+_BUDGET_STRENGTHS = ('decided', 'assented', 'baseline', 'offset')
 
 
 def _budget_approval_problem(entry):
@@ -11417,6 +11654,18 @@ def _budget_approval_problem(entry):
                 f'{", ".join(_BUDGET_STRENGTHS)}')
     if not _APPROVAL_DATE.search(who):
         return 'has an approved_by with no YYYY-MM-DD date'
+    if strength == 'offset':
+        freed, was = entry.get('freed'), entry.get('previous_max')
+        if not (isinstance(freed, int) and isinstance(was, int)
+                and str(entry.get('offset_from') or '').strip()):
+            return ('is an offset with no "offset_from" (what was removed), '
+                    '"freed" (the tokens that removal freed) and '
+                    '"previous_max" (the approved number before it)')
+        if entry['max'] - was > freed:
+            return (f'raises {was:,} to {entry["max"]:,}, more than the '
+                    f'{freed:,} tokens its offset freed -- the rest needs '
+                    f'the person\'s own words')
+        return None
     if strength != 'baseline' and not _APPROVAL_QUOTE.search(who):
         return ('is marked decided/assented but approved_by quotes nobody\'s '
                 'words')
@@ -11669,25 +11918,20 @@ def _charge_brought_share(n):
     stays charged to the repository, as it was before the budget existed."""
     try:
         import precedent_session_practices as _psp
-        share, names = _psp.brought_share(ROOT)
-    except Exception:                                         # noqa: BLE001
-        return n, None
-    if not share:
-        return n, None
-    budget, ind = _psp.brought_budget(ROOT)
-    rel = '.precedent/SESSION_PRACTICES.md'
-    if budget is None:
         # Undeclared: charged to the repository, as before the budget
         # existed, so nobody's check changes until they declare one -- and a
-        # rollout need not land the individual set first.
+        # rollout need not land the individual set first (charged_to_repo).
+        charged, share, names, budget = _psp.charged_to_repo(ROOT, n)
+    except Exception:                                         # noqa: BLE001
         return n, None
-    if share > budget:
-        return n - share, Finding(rel, (
+    rel = '.precedent/SESSION_PRACTICES.md'
+    if budget is not None and share > budget:
+        return charged, Finding(rel, (
             f"{share:,} tokens of it come from the set(s) this person brings "
             f"({', '.join(names)}), over the {budget:,}-token "
             f"`{_psp.BROUGHT_BUDGET_KEY}` budget in their individual set. "
             f"Reduce in the brought set, or the person raises their own budget"))
-    return n - share, None
+    return charged, None
 
 
 @check('session-load-budget', 'tree',
