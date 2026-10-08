@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "main",
-  "source_commit": "7a577e8b44d7c286c8eae9bd08be1c12ee23e29b",
+  "source_commit": "4dccc15494a0e3fd16601092ef886d7ec5ec0f51",
   "files": [
     "build_views.py",
     "github_budget.py",
@@ -110,7 +110,7 @@
     "precedent_check.py": "1f841d225ba710b951cbe1f74690b1446572a4edbca866c751ae3e5aa5b27a19",
     "precedent_practice_refs.py": "72f39e6540f66843d0b56af8c9237a79070710108111d7b625f37f957a6779ee",
     "precedent_source_credentials.py": "53d0c36f3ad3b701fad12034c4b615fe6dc9e479bed91c86279ba3db31896785",
-    "precedent_source_bootstrap.py": "d719768b43ab3298cf6e867eeb07ee8ba96db975cf3dba71dc56ca2e38f2a3dd",
+    "precedent_source_bootstrap.py": "98645e9a5bfd1d11341c581059cbf4eb97cdeec190267090655274e6d32ad5e2",
     "precedent_time.py": "3d728b21826043cb4427b2b28fcd0613d06ccc29d39ef4798115a0fec090105f",
     "precedent_identity.py": "df299ef4ffaca56167e3d51c577261bd06cb9e82ccab8a9ec5589d3294e3fb40",
     "precedent_audience.py": "21ee107f00a46b612f8b259a2cb54e9c4d262d31ce359db8652aee800a6861f8",
