@@ -143,6 +143,7 @@ def _mirrored_prefixes_from_manifest() -> tuple:
     return (at + "/",) if at else ()
 
 
+@functools.lru_cache(maxsize=None)
 def _mirrored_prefixes() -> tuple:
     """-> repo-relative POSIX prefixes whose contents ROOT mirrors from
     somewhere else, and may therefore not hand-edit.

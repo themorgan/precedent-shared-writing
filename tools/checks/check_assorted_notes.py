@@ -39,6 +39,7 @@ applies to the listing-document exemption: a file merely named
 Exit 0 and print nothing when clean. Exit 1 and print the practice's own
 Rule text (never a paraphrase) plus the specific finding(s) on a violation.
 """
+import functools
 import os
 import pathlib
 import re
@@ -69,6 +70,7 @@ LEGACY_FILENAMES = ("BRAINSTORM.md", "NOTES.md", "IDEAS.md")
 CANONICAL_FILENAME = "ASSORTED_NOTES.md"
 
 
+@functools.lru_cache(maxsize=None)
 def _canonical_exists() -> bool:
     """Is there an ASSORTED_NOTES.md anywhere in the tracked tree?
 
@@ -159,6 +161,7 @@ def _mirrored_prefixes_without_the_engine() -> tuple:
 # not vendor it -- and an exclusion that comes back empty costs extra
 # findings, never a missed one, while an identity that cannot be resolved
 # would make every verdict wrong. Different failure, different degrade.
+@functools.lru_cache(maxsize=None)
 def _mirrored_prefixes() -> tuple:
     for _d in (ROOT / "tools", ROOT / "process" / "upstream" / "tools",
                pathlib.Path(__file__).resolve().parent.parent,
