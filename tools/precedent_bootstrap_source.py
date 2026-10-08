@@ -1468,9 +1468,14 @@ def _write_session_load_budget(dest, occasion='bootstrap'):
     own SESSION_LOAD_SURFACES checks both, not just whichever the local
     harness happens to read. A repo missing one after this seeds only
     what is actually there, same as the hand-written registries do.
+
+    Each surface is measured as every ceiling check measures it
+    (session_load_trend.charged_tokens): the session-start file less the
+    sets the person brings, which their own budget holds, so the ceiling
+    written here is the repository's and does not depend on who ran this.
     """
-    import build_views as bv
     import precedent_time
+    import session_load_trend as slt
     dest = pathlib.Path(dest)
     today = precedent_time.today(dest)
     surfaces = {}
@@ -1481,12 +1486,12 @@ def _write_session_load_budget(dest, occasion='bootstrap'):
         f = dest / rel
         if not f.is_file():
             continue
-        measured = bv._approx_tokens(f.read_text(encoding='utf-8'))
+        measured = slt.charged_tokens(dest, rel, f.read_text(encoding='utf-8'))
         ceiling = ((int(measured * 1.2) + 49) // 50) * 50 if measured else 50
         surfaces[rel] = {
             'ceiling': ceiling,
             '_note': f'{measured} tokens measured at {occasion} ({today}). '
-                     f'Ceiling is current + ~20%.',
+                     'Ceiling is current + ~20%.',
         }
     path = dest / 'tools' / 'session_load_budgets.json'
     path.parent.mkdir(parents=True, exist_ok=True)

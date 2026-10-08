@@ -25,7 +25,8 @@ three things that need the answer ask it rather than keeping copies:
 
 A citation is LIVE unless it is plainly history: frontmatter lineage fields,
 a Story/History-style section, a record directory (decisions/, gotchas/,
-closed items), a withdrawn practice's own stub, or a line that itself narrates
+closed items), a file declared a record (`kind: record` in its frontmatter,
+or precedent.json's `record_paths`), a withdrawn practice's own stub, or a line that itself narrates
 the change ("renamed", "retired", "superseded", or naming the successor
 beside it). History is the record of what used to be true and is left alone.
 
@@ -52,6 +53,8 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 import build_views as bv            # noqa: E402
+import generated_blocks             # noqa: E402
+import our_language                 # noqa: E402
 import precedent_resolve as pr      # noqa: E402
 
 TEXT_EXTS = {'.md', '.py', '.sh', '.json', '.yml', '.yaml', '.txt', '.toml'}
@@ -245,6 +248,25 @@ def _practice_withdrawn(text):
     return bool(m) and m.group(1) != 'active'
 
 
+def _declared_record(rel, text, records):
+    """True when a file is declared a record of what was: by itself, in
+    frontmatter (`kind: record`, or a finished lifecycle status -- the
+    definition our_language.is_history() holds for the retired-words
+    check), or by its repository, in precedent.json's `record_paths`.
+
+    A dated migration record names the practices it migrated off, and those
+    are the ones a later update withdraws or rewords. Read as live, it put
+    six of seven "citations of a practice reworded or withdrawn" into a
+    consumer's Update Vendors, every run, in a file current-rule-governs
+    calls history (2026-10-08). Its citations are history now, as a Story
+    section's already were; a record that does not say it is one is still
+    read as live -- this never guesses from a file's name or its prose."""
+    if our_language.is_history(rel, text):
+        return True
+    return any(rel == r or (r.endswith('/') and rel.startswith(r))
+               for r in records)
+
+
 def scan_root(root, slugs, successors=None, only_md=True, skip=()):
     """-> [(rel, lineno, slug, form, kind, section, line)] across a repo's
     tracked files. `skip` is a set of repo-relative paths (or prefixes ending
@@ -257,6 +279,7 @@ def scan_root(root, slugs, successors=None, only_md=True, skip=()):
     out = []
     prefixes = tuple(p for p in skip if p.endswith('/'))
     exact = {p for p in skip if not p.endswith('/')}
+    records = pr.declared_record_paths(root)
     for rel in _tracked(root):
         ext = Path(rel).suffix.lower()
         if ext not in TEXT_EXTS or (only_md and ext != '.md'):
@@ -277,11 +300,23 @@ def scan_root(root, slugs, successors=None, only_md=True, skip=()):
         # so nothing it says reaches a session or a consumer.
         withdrawn_file = is_practice and _practice_withdrawn(text)
         hits = scan_file(p, rel, slugs, successors, stub_slug=stub,
-                         file_is_history=withdrawn_file)
-        gen = _is_generated(text.splitlines())
+                         file_is_history=withdrawn_file
+                         or _declared_record(rel, text, records))
+        lines = text.splitlines()
+        # A generated BLOCK inside a hand-written file is generated text too:
+        # AGENTS.md's loader block is rewritten from the sources on every
+        # sync, so a citation there is fixed in the source, never here.
+        # Until 2026-10-08 only a whole file marked generated in its first
+        # lines counted, and Update Vendors sent a consumer to read loader
+        # lines it cannot edit. A block's own marker is not a mark on the
+        # whole file, so the file test reads the lines outside every block.
+        inside = generated_blocks.mask(lines)
+        gen = _is_generated([l for l, hide in zip(lines, inside) if not hide])
         for (ln, s, form, kind, section, line) in hits:
+            in_block = 0 < ln <= len(inside) and inside[ln - 1]
             out.append((rel, ln, s, form,
-                        'generated' if gen and kind == 'live' else kind,
+                        'generated' if (gen or in_block) and kind == 'live'
+                        else kind,
                         section, line))
     return out
 

@@ -372,6 +372,10 @@ ENGINE_FILES = [
     # vendored-engine-file-refs-resolve, on the run that added it -- a
     # vendored build_views.py naming a companion nobody had copied.
     'glossary_terms.json',
+    # The record of shared sets whose repositories are deleted
+    # (precedent_resolve.deleted_sets, 2026-10-08): every person's sessions
+    # and Update Vendors read it, so it travels with the resolver.
+    'deleted_sets.json',
     # A shared set's approvers.json -> CODEOWNERS generator. In the engine
     # rather than in one shared set's own tools/ because that is where it
     # was, and the consequence was a second shared set with declared
@@ -463,6 +467,15 @@ ENGINE_FILES = [
     # anyway (practice: timestamps-carry-offset); it has no dependencies of
     # its own beyond the standard library.
     'precedent_time.py',
+    # Files a failure an unattended job could not report anywhere else as an
+    # open item under todo/, and lists the open ones at session start
+    # (tools/bootstrap.sh runs it; practice: automation-issues, added
+    # 2026-10-08). In ENGINE_FILES so a practice set's own jobs get it too.
+    'open_failures.py',
+    # The full check of a commit that already landed, run in the background
+    # (`update_full_check: after` in precedent.json); files a failure through
+    # open_failures.py (added 2026-10-08).
+    'precedent_check_after.py',
     # WHO this repo's commits belong to, resolved the way commit-identity.sh
     # already resolves it. In ENGINE_FILES rather than CONSUMER-only,
     # unlike precedent_resolve.py which it was carved out of: a practice
@@ -720,6 +733,12 @@ ENGINE_FILES = [
     # "What's new?" works in every project, so the log's mechanics ship
     # (practice: whats-new); each project's own log never does.
     'precedent_whats_new.py',
+    # Its other half (Morgan, 2026-10-08): once a day, what OTHER people
+    # landed since the person was last told. The session-start hook and the
+    # reply gate both call it, so a repository without it would carry hooks
+    # naming a file that is not there (the others-did practice, in the ladder set). Each
+    # repository's own mark, tools/others_did_watermark.json, never ships.
+    'precedent_others_did.py',
     # EVERY VOCABULARY WORD HAS TO WORK WHERE THE ENGINE IS VENDORED
     # (2026-09-21, Morgan: "ALL of our vocabulary words should"). A standing
     # command a session cannot carry out is worse than one that does not
@@ -3922,14 +3941,39 @@ def _active_practice_slugs(clone):
     return out
 
 
-def retired_sources(dest_root, archived=()):
+def _person_sets():
+    """-> (deleted {name: info}, [carrier paths]) for the person running this:
+    the sets their individual set says they deleted, and the individual set
+    with every set it brings, which carry rules wherever that person works.
+    Both empty when the engine's resolver or the user config is not there."""
+    try:
+        import precedent_resolve as pr
+    except Exception:                                           # noqa: BLE001
+        return {}, []
+    gone = pr.deleted_sets()
+    ind = pr.person_individual_path()
+    carriers = []
+    if ind is not None and ind.is_dir():
+        carriers.append(ind)
+        carriers += [pathlib.Path(b['path']) for b in pr.brought_sources(ind, warn=False)]
+    return gone, carriers
+
+
+def retired_sources(dest_root, archived=(), person=None):
     """-> [(name, path, why, uncarried)] for every shared or individual
     source `dest_root`'s precedent.json declares that is retired: it says so
     itself (source_retirement), or its name is in `archived` (what GitHub
-    reported, which only the caller can ask). `uncarried` is the sorted list
-    of its active practices that no OTHER declared source carries as active;
-    empty means dropping the declaration loses no rule. A source whose clone
-    cannot be read declares nothing, so it is never listed here."""
+    reported, which only the caller can ask), or the person running this
+    deleted it (precedent_resolve.deleted_sets) -- the one case a source with
+    no readable clone is listed, since its repository may be gone. `uncarried`
+    is the sorted list of its active practices that no OTHER declared source
+    carries as active, nor the person's own individual set or a set it
+    brings (2026-10-08: a rule a repo's sets dropped while the person's own
+    set carried it read as lost); empty means dropping the declaration loses
+    no rule. A deleted set is dropped whatever `uncarried` says (the
+    person's word), and the caller names what it held. `person` is
+    _person_sets()'s answer, for a test; None asks it."""
+    gone, carriers = _person_sets() if person is None else person
     root = pathlib.Path(dest_root)
     try:
         cfg = json.loads((root / 'precedent.json').read_text(encoding='utf-8'))
@@ -3948,7 +3992,13 @@ def retired_sources(dest_root, archived=()):
             continue
         name, clone = str(s.get('name') or ''), where(s)
         ret = source_retirement(clone)
-        if ret is not None:
+        if s.get('level') == 'shared' and name in gone:
+            info = gone[name]
+            why = (DELETED_WHY + (f' ({info["date"]})' if info.get('date') else '')
+                   + (' -- BestPractice\'s record of deleted sets, '
+                      'tools/deleted_sets.json' if info.get('from') == 'engine'
+                      else ' -- your individual set lists it in deleted_sets'))
+        elif ret is not None:
             why = 'it says it is retired'
             if ret.get('date'):
                 why += f' (since {ret["date"]}'
@@ -3970,21 +4020,31 @@ def retired_sources(dest_root, archived=()):
                     or str(o.get('name') or '') in set(archived)):
                 continue
             elsewhere |= _active_practice_slugs(where(o)) or set()
+        for c in carriers:
+            if (c.resolve() != clone and source_retirement(c) is None
+                    and c.name not in gone):
+                elsewhere |= _active_practice_slugs(c) or set()
         out.append((name, str(s.get('path') or ''), why,
                     sorted(mine - elsewhere)))
     return out
 
 
-def drop_retired_sources(dest_root, archived=(), apply=True):
+# The words retired_sources gives a set the person deleted; such a set is
+# dropped whether or not every rule it held is carried elsewhere.
+DELETED_WHY = 'its repository is deleted'
+
+
+def drop_retired_sources(dest_root, archived=(), apply=True, person=None):
     """Remove from precedent.json each retired source (retired_sources)
     whose active practices are all carried by another declared source.
     -> (dropped, kept): dropped [(name, path, why)], kept [(name, path, why,
     uncarried)] -- a retired set still holding a rule nothing else carries
     stays declared, and the caller names that rule. With apply=False,
     nothing is written: what would happen is returned."""
-    found = retired_sources(dest_root, archived)
-    dropped = [(n, p, w) for n, p, w, u in found if not u]
-    kept = [f for f in found if f[3]]
+    found = retired_sources(dest_root, archived, person=person)
+    deleted = DELETED_WHY
+    dropped = [(n, p, w) for n, p, w, u in found if not u or deleted in w]
+    kept = [f for f in found if f[3] and deleted not in f[2]]
     if not dropped or not apply:
         return dropped, kept
     path = pathlib.Path(dest_root) / 'precedent.json'
@@ -4024,6 +4084,105 @@ def drop_retired_sources(dest_root, archived=(), apply=True):
         new_text = json.dumps(cfg, indent=2, ensure_ascii=False) + '\n'
     path.write_text(new_text, encoding='utf-8')
     return dropped, kept
+
+
+def undeclared_successors(dest_root, dropped, person=None):
+    """-> [(successor, [dropped names], brought)] for each shared set that a
+    set in `dropped` ([(name, path, why)], drop_retired_sources' answer)
+    names as where its rules went -- its deletion record's `successors` or
+    its own `retired` marker's `folded_into`, one reader for both
+    (precedent_resolve.successors_of) -- when `dest_root`'s precedent.json
+    does not declare it. `brought` is True when the person's own individual
+    set brings it (or is it), so its rules are in force for that person
+    only. A successor that is itself deleted is left out. `person` is
+    _person_sets()'s answer, for a test; None asks it.
+
+    2026-10-08: Update Vendors dropped precedent-shared-working-style and
+    never asked whether to declare precedent-shared-writing, where two of
+    its rules went. With one member whose own set brings it, nothing is
+    lost; with more, everyone else silently loses those rules."""
+    try:
+        import precedent_resolve as pr
+    except Exception:                                           # noqa: BLE001
+        return []
+    gone, carriers = _person_sets() if person is None else person
+    root = pathlib.Path(dest_root)
+    try:
+        cfg = json.loads((root / 'precedent.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    sources = cfg.get('sources') if isinstance(cfg, dict) else None
+    declared = {str(s.get('name') or '') for s in sources or []
+                if isinstance(s, dict)}
+    brought = {pathlib.Path(c).name for c in carriers}
+    dropped_names = {n for n, _p, _w in dropped}
+    found = {}
+    for name, path, _why in dropped:
+        clone = (root / pathlib.Path(str(path or '')).expanduser()).resolve()
+        for succ in (pr.successors_of(gone.get(name))
+                     + pr.successors_of(source_retirement(clone))):
+            if succ in declared or succ in dropped_names or succ in gone:
+                continue
+            froms = found.setdefault(succ, [])
+            if name not in froms:
+                froms.append(name)
+    return [(s, froms, s in brought) for s, froms in found.items()]
+
+
+def drop_deleted_brings(dest_root, apply=True, gone=None):
+    """-> [name] of each set `dest_root`'s own precedent-source.json `brings`
+    that is deleted (precedent_resolve.deleted_sets), removed from `brings`
+    unless apply is False. [] for a repository that brings nothing. Only an
+    individual set brings anything; a brought set is never loaded once it
+    is deleted, and this keeps the declaration from naming it forever."""
+    path = pathlib.Path(dest_root) / 'precedent-source.json'
+    try:
+        text = path.read_text(encoding='utf-8')
+        man = json.loads(text)
+    except (OSError, ValueError):
+        return []
+    brings = man.get('brings') if isinstance(man, dict) else None
+    if not isinstance(brings, list):
+        return []
+    if gone is None:
+        try:
+            import precedent_resolve as pr
+            gone = pr.deleted_sets(dest_root)
+        except Exception:                                       # noqa: BLE001
+            gone = {}
+    names = [b.get('name') for b in brings
+             if isinstance(b, dict) and b.get('name') in gone]
+    if names and apply:
+        man['brings'] = [b for b in brings
+                         if not (isinstance(b, dict) and b.get('name') in names)]
+        path.write_text(json.dumps(man, indent=2, ensure_ascii=False) + '\n',
+                        encoding='utf-8')
+    return names
+
+
+def person_names_deleted(repo):
+    """-> [(where, name)] for each deleted set the person's OWN individual set
+    still declares or brings, when that set is not `repo` itself: the person
+    runs Update Vendors there to drop it (Morgan, 2026-10-08: another person's
+    update should notice a deleted set in their own individual set too)."""
+    try:
+        import precedent_resolve as pr
+    except Exception:                                           # noqa: BLE001
+        return []
+    ind = pr.person_individual_path()
+    if ind is None or not ind.is_dir() or ind.resolve() == pathlib.Path(repo).resolve():
+        return []
+    gone = pr.deleted_sets(ind)
+    out = []
+    for f, key in (('precedent-source.json', 'brings'), ('precedent.json', 'sources')):
+        try:
+            data = json.loads((ind / f).read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        for e in (data.get(key) if isinstance(data, dict) else None) or []:
+            if isinstance(e, dict) and e.get('name') in gone:
+                out.append((f'{ind / f} `{key}`', e['name']))
+    return out
 
 
 _GH_SLUG_RE = re.compile(r'github\.com[:/]([A-Za-z0-9][\w-]*)/([\w.-]+?)(?:\.git)?/?$')
@@ -5853,6 +6012,54 @@ def _change_already_here(change, local):
                         for r in removed))
 
 
+def _hunks(old, new):
+    """-> [(i1, i2)]: the line ranges of `old` that changed on the way to
+    `new` (difflib opcodes other than 'equal'; i1 == i2 is an insertion
+    before line i1), each widened over the blank lines either side of it,
+    so where the matcher happens to place an insertion among blank lines
+    cannot decide whether it sits beside another change. Lines compare
+    exactly, trailing whitespace aside."""
+    import difflib
+    a = [l.rstrip() for l in old.split('\n')]
+    b = [l.rstrip() for l in new.split('\n')]
+    out = []
+    for tag, i1, i2, _j1, _j2 in difflib.SequenceMatcher(
+            None, a, b, autojunk=False).get_opcodes():
+        if tag == 'equal':
+            continue
+        while i1 > 0 and not a[i1 - 1]:
+            i1 -= 1
+        while i2 < len(a) and not a[i2]:
+            i2 += 1
+        out.append((i1, i2))
+    return out
+
+
+def _change_touches_local(old, new, local):
+    """True when upstream's change to a kept section could touch what the
+    consumer kept differently -- a three-way read with the pinned template
+    text `old` as the base: the hunks old -> `new` (upstream's change) and
+    the hunks old -> `local` (the consumer's own section).
+
+    They intersect when two hunks' line ranges of `old` overlap OR TOUCH
+    (closed ranges, a.i1 <= b.i2 and b.i1 <= a.i2, after _hunks widens each
+    over the blank lines around it), so a change to the line or paragraph
+    right beside one the consumer changed asks, as a merge would call it a
+    conflict. Any doubt answers True: no pinned or local text, or a
+    consumer hunk spanning the whole section (nothing lines up). False
+    means every line upstream changed is one the consumer carries exactly
+    as the pinned template had it, and so are its neighbours."""
+    if local is None or old is None:
+        return True
+    theirs, mine = _hunks(old, new), _hunks(old, local)
+    if not theirs:
+        return False
+    n = len(old.split('\n'))
+    if any(i1 == 0 and i2 >= n for i1, i2 in mine):
+        return True
+    return any(a1 <= b2 and b1 <= a2 for a1, a2 in theirs for b1, b2 in mine)
+
+
 # The clone a command was run against, as typed, so a hint can name it.
 _CLONE_ARG = '../BestPractice'
 
@@ -5902,17 +6109,47 @@ def _report_stale_kept(dest_root, templates_dir, key, item, what, section,
                   f"now records today's text.")
             return True
         return False
+    # 2026-10-08, a consuming repository: a template rewording elsewhere in
+    # a kept section -- lines the consumer carries exactly as upstream wrote
+    # them -- stopped the update for the person's yes to a re-pin, though
+    # nothing the consumer kept differently was touched. Read three ways
+    # (_change_touches_local); only a change that could touch the kept
+    # difference asks. The section itself is never rewritten either way.
+    if not _change_touches_local(old, section, local):
+        if _repin_after_formatting(dest_root, item, template_sha, carried_sha):
+            n = sum(1 for l in change if l[:1] in '+-')
+            print(f"PIN UPDATED: {item} is kept on purpose (\"{reason}\"), and "
+                  f"upstream's change to {what} since it was recorded "
+                  f"({n} line(s)) touches no line this repository's section "
+                  f"changes, so the kept entry now records today's text. The "
+                  f"section is left as it is; that change is not copied in.")
+            return True
+        return False
+    # 2026-10-08, Morgan (strength: decided): "replace our wording or
+    # version with the upstream version when we have it *EXCEPT* in cases
+    # where there is a substantive difference, in which case you should ASK
+    # THE SESSION USER or use your judgment". Upstream's change reaching the
+    # lines this repository kept differently is that case, so the default
+    # said here is upstream's section, not a copy-in on top of ours.
     print(f"DIVERGED: {AGENTS_MD} \"{key}\" is kept on purpose (\"{reason}\"), "
-          f"and upstream has changed {what} since that was recorded. "
-          f"Upstream's change, from the recorded text to today's:")
+          f"and upstream has changed {what} since that was recorded, on or "
+          f"beside the lines this repository words its own way. Upstream's "
+          f"change, from the recorded text to today's:")
     for line in change[:60]:
         print(f"    {line if len(line) <= 200 else line[:197] + '...'}")
     if len(change) > 60:
         print(f"    ... and {len(change) - 60} more line(s)")
-    print(f"    still kept once what applies is copied in? the person says so, "
-          f"and: {_repin_command(item)}")
+    print(f"    the default is upstream's wording: replace this section with "
+          f"{what} and remove its {KEPT_DIVERGENCES_KEY} entry. Keep this "
+          f"repository's wording only where it does something different and "
+          f"important -- then copy in the rest of upstream's change, say why, "
+          f"and with the person's yes re-pin it: {_repin_command(item)}")
     _left(f'{AGENTS_MD} "{key}"', f'kept on purpose, and upstream changed '
-          f'{what} since (listed above) -- copy in what applies here, then, '
+          f'{what} where this repository words it differently (listed above) '
+          f'-- the default is upstream\'s: replace the section with it and '
+          f'remove the {KEPT_DIVERGENCES_KEY} entry. Keep yours only where it '
+          f'does something different and important (ask the person when it is '
+          f'a close call); then copy in the rest of upstream\'s change and, '
           f'with the person\'s yes, re-pin it: {_repin_command(item)}')
     return True
 
@@ -5936,6 +6173,18 @@ def _report_agents_md(dest_root, templates_dir, plan, reask_absent=False):
     template_text = None
     complete = []
     for key, src_rel, line_no, action, span in plan:
+        # This pass judges the section on today's state, so what the first
+        # pass of a self-replacing refresh said about it no longer stands:
+        # anything still needing the person is put back below, in this
+        # pass's words. Only 'absent' keeps the first pass's finding, since
+        # that is the one this pass cannot find again (_CARRIED_LEFT).
+        # 2026-10-08, a consuming repository's Update Vendors: the second
+        # pass re-pinned a kept section ("PIN UPDATED") while the first
+        # pass's "lacks N blocks" for the same section was still printed
+        # under Left for you; the next run was clean.
+        if action != 'absent':
+            _CARRIED_LEFT[:] = [(i, w) for i, w in _CARRIED_LEFT
+                                if i != f'{AGENTS_MD} "{key}"']
         if action == 'absent' and reask_absent:
             print(f"  NOTE: {AGENTS_MD} \"{key}\" is recorded as left out, but "
                   f"possibly only by the first pass of this refresh, whose "
@@ -6063,6 +6312,19 @@ def _apply_agents_md_plan(dest_root, templates_dir, plan, recorded):
     if rewritten:
         path.write_text('\n'.join(lines), encoding='utf-8')
     return list(reversed(rewritten))
+
+
+def agents_md_recorded(dest_root):
+    """-> the AGENTS.md section record ENGINE_MANIFEST.json holds now, as a
+    dict (empty when there is none). Read before a refresh, it says which
+    sections were already left out on purpose and which the refresh is
+    about to report as missing for the first time."""
+    try:
+        manifest = json.loads((dest_root / 'tools' / MANIFEST_NAME)
+                              .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    return dict(manifest.get(AGENTS_MD_SECTIONS_KEY) or {})
 
 
 def record_agents_md_sections(dest_root, kind, source_root):
