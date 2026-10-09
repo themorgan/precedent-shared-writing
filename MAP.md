@@ -53,6 +53,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | Path | What it is |
 |---|---|
 | [tools/artifact_publish_gate.py](tools/artifact_publish_gate.py) | The publish gate: a page reaches a link only as a fresh render of a |
+| [tools/branch_store.py](tools/branch_store.py) | Small records on a dedicated branch of a shared remote, with the push as the lock: the git plumbing shared by the lease board and the result cache |
 | [tools/build_codeowners.py](tools/build_codeowners.py) | CODEOWNERS, generated -- a practice set's from its approvers.json, a project's from the maintainers and owned_paths in its precedent.json |
 | [tools/build_todo_index.py](tools/build_todo_index.py) | todo/TODO.md and todo/CLOSED.md, generated from todo/*.md's frontmatter |
 | [tools/build_views.py](tools/build_views.py) | This file, GLOSSARY.md, and AGENTS.md's loader block — generated views |
@@ -64,6 +65,8 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/generated_blocks.py](tools/generated_blocks.py) | Whether a line is inside a generated block, in both marker styles, closing marker required -- the one answer every scan that skips generated text uses |
 | [tools/github_budget.py](tools/github_budget.py) | What this account has left of GitHub's API allowances and what each tool spent -- read off the X-RateLimit headers of calls already being made, because /rate_limit answers a pristine window from inside a session |
 | [tools/ladder_words.py](tools/ladder_words.py) | The one matcher for the five-stage ladder's own words -- step labels, the release commands, the branch tiers, links to the ladder set's practices -- used by the check that keeps them out of everything outside that set and by the tests that hold engine output to the same (spec/LADDER_OPT_IN_PLAN.md D7) |
+| [tools/land_next.py](tools/land_next.py) | The lander as one command: land every queued branch on the trunk, oldest first, or say exactly why not |
+| [tools/land_queue.py](tools/land_queue.py) | The landing queue: branches waiting for the lander to merge them into the trunk, one record per branch on the coord branch |
 | [tools/leak_gate.py](tools/leak_gate.py) | The push-time leak gate — structural rules always, private-term blocklist when configured |
 | [tools/open_failures.py](tools/open_failures.py) | Failures an unattended job could not report anywhere else, kept as open blocker items in todo/ and listed at session start |
 | [tools/our_language.py](tools/our_language.py) | Our language: the short list of words a person needs to follow a conversation about Precedent, read from tools/our_language.json and rendered into documentation/OUR_LANGUAGE.md's generated table (spec/FIVE_STAGES_AND_OUR_LANGUAGE_PLAN.md) |
@@ -91,7 +94,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_merge_vendors.py](tools/precedent_merge_vendors.py) | At a merge: when the vendored engine or catalogue is behind, runs Update Vendors from the BestPractice clone and commits the result on its own, or takes it all back and says why; never blocks the merge |
 | [tools/precedent_migrate_status.py](tools/precedent_migrate_status.py) | Classifies practices written under the old status vocabulary, where `retired` meant two different things; proposes, and refuses to guess a renamed successor |
 | [tools/precedent_migrate_views.py](tools/precedent_migrate_views.py) | Moves a repository's hand-written MAP.md and GLOSSARY.md into their source files, word for word, and generates both from then on |
-| [tools/precedent_others_did.py](tools/precedent_others_did.py) | Once a day, from the first session after 07:00 in the person's own timezone, says what OTHER people landed in this repository since that person was last told -- every commit on its shared branches that is not theirs -- and hands the session a block to open its first reply with; the per-person mark lives in tools/others_did_watermark.json on the landing branch and is written there without touching the checkout |
+| [tools/precedent_others_did.py](tools/precedent_others_did.py) | Once a day, from the first session after 07:00 in the person's own timezone, says what OTHER people landed in this repository since that person was last told -- every commit on its shared branches that is not theirs -- and hands the session a block to open its first reply with; the per-person mark lives on origin's refs/precedent/others-did, outside every branch, and is written there without touching the checkout |
 | [tools/precedent_paths.py](tools/precedent_paths.py) | The PATH-TRIGGERED channel — matches a touched file against every practice's `applies_to` |
 | [tools/precedent_practice_refs.py](tools/precedent_practice_refs.py) | Who cites a practice, across this repo and every source it declares -- live citations vs history; the lookup behind practice-change-propagates, the merge moment and Update Vendors |
 | [tools/precedent_promote.py](tools/precedent_promote.py) | Stage 3 (phase 5) — runs a candidate against the four promotion criteria |
