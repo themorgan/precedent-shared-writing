@@ -271,6 +271,48 @@ ROOT = ENGINE_DIR.parent
 SOURCE_REPO = 'https://github.com/alex137/BestPractice'
 SOURCE_BRANCH = 'main'  # the default every install follows -- see docstring
 
+# A BestPractice clone is known by its origin, not its directory name.
+# 2026-10-08, from a consumer: the attach tool cloned it at a lowercase
+# <owner>/<repo> path (alex137/bestpractice), and the runbook's
+# ../BestPractice found nothing there. Any host, any case, .git or not.
+_SOURCE_ORIGIN = re.compile(r'[/:]alex137/bestpractice(?:\.git)?/*$', re.I)
+
+
+def is_source_clone(path):
+    """True when `path` is the top of a git checkout whose origin is
+    BestPractice and which carries tools/precedent_update.py."""
+    path = pathlib.Path(path)
+    if not ((path / '.git').exists()
+            and (path / 'tools' / 'precedent_update.py').is_file()):
+        return False
+    r = subprocess.run(['git', '-C', str(path), 'remote', 'get-url', 'origin'],
+                       capture_output=True, text=True)
+    return r.returncode == 0 and bool(_SOURCE_ORIGIN.search(r.stdout.strip()))
+
+
+def find_source_clones(near):
+    """-> the BestPractice clones near the repository `near`, by origin: its
+    siblings, and one level further down for the attach tool's
+    <owner>/<repo> layout. ../BestPractice first when it is one."""
+    near = pathlib.Path(near).resolve()
+    base = near.parent
+    found = []
+    try:
+        cands = [base / 'BestPractice'] + sorted(base.iterdir()) + sorted(
+            p for d in base.iterdir() if d.is_dir() and d != near
+            and not d.name.startswith('.')
+            for p in (d.iterdir() if os.access(d, os.R_OK | os.X_OK) else ()))
+    except OSError:
+        cands = [base / 'BestPractice']
+    for c in cands:
+        try:
+            c = c.resolve()
+            if c != near and c not in found and c.is_dir() and is_source_clone(c):
+                found.append(c)
+        except OSError:
+            continue
+    return found
+
 # WHICH BRANCH ONE INSTALL FOLLOWS (2026-10-05). SOURCE_BRANCH is the
 # default; a consuming repo may name `staging` instead, in its own
 # precedent.json, as `"upstream_branch": "staging"`. Alex, 2026-10-05, in
@@ -476,6 +518,15 @@ ENGINE_FILES = [
     # (`update_full_check: after` in precedent.json); files a failure through
     # open_failures.py (added 2026-10-08).
     'precedent_check_after.py',
+    # The lander and its queue (added 2026-10-08): land every queued branch
+    # on the trunk, then take Update Vendors. Built in a consumer repository
+    # on 2026-10-04 and moved here; the repository's own audits, caches and
+    # ledgers are its precedent.json "lander" block.
+    'land_queue.py',
+    'land_next.py',
+    # land_queue.py's git store on the coord branch (also the lease board's
+    # and the result cache's), imported at module level.
+    'branch_store.py',
     # WHO this repo's commits belong to, resolved the way commit-identity.sh
     # already resolves it. In ENGINE_FILES rather than CONSUMER-only,
     # unlike precedent_resolve.py which it was carved out of: a practice
@@ -737,7 +788,9 @@ ENGINE_FILES = [
     # landed since the person was last told. The session-start hook and the
     # reply gate both call it, so a repository without it would carry hooks
     # naming a file that is not there (the others-did practice, in the ladder set). Each
-    # repository's own mark, tools/others_did_watermark.json, never ships.
+    # repository's own mark lives on its origin's refs/precedent/others-did,
+    # outside every branch, and never ships (nor does the file it lived in
+    # before 2026-10-08, tools/others_did_watermark.json).
     'precedent_others_did.py',
     # EVERY VOCABULARY WORD HAS TO WORK WHERE THE ENGINE IS VENDORED
     # (2026-09-21, Morgan: "ALL of our vocabulary words should"). A standing
@@ -935,7 +988,9 @@ CONSUMER_ENGINE_FILES = ENGINE_FILES[:-1] + [
     #                       tools/model_audit.py; a consumer's own list is
     #                       tools/model_audit_host.json, never this file)
     #   lease_board.py   -- lease-in-flight-work
-    #   branch_store.py  -- the git store under the lease board and the cache
+    #   (branch_store.py, the git store under the lease board and the
+    #   cache, moved to ENGINE_FILES on 2026-10-08: land_queue.py imports
+    #   it at module level, and a source set gets land_queue.py)
     #   result_cache.py  -- shared-result-cache
     #   reach_key.py     -- the memo key shared-result-cache keys on
     #   fact_ledger.py   -- gate-ledger (doc_sync and model_audit import it)
@@ -944,7 +999,6 @@ CONSUMER_ENGINE_FILES = ENGINE_FILES[:-1] + [
     'table_fmt.py',
     'model_audit.py',
     'lease_board.py',
-    'branch_store.py',
     'result_cache.py',
     'reach_key.py',
     'fact_ledger.py',
@@ -4345,6 +4399,60 @@ def seed_maintainers(dest_root, logins=None, today=None):
         new_text = json.dumps(cfg, indent=2, ensure_ascii=False) + '\n'
     path.write_text(new_text, encoding='utf-8')
     return logins, how
+
+
+def timezone_offer(dest_root, user_config=None):
+    """-> one line offering the owner's own zone as precedent.json's
+    `fallback_timezone`, or None. Offered, never written: the person says
+    yes, and the session adds the line.
+
+    Offered only when all of it holds: precedent.json declares no
+    fallback_timezone; it names exactly one maintainer; the person running
+    this is that maintainer (their declared GitHub username); and their
+    identity.json declares a zone that loads.
+
+    WHY (2026-10-08, from a consumer). A single person's repository never
+    declared fallback_timezone, so its GitHub Actions job -- where no
+    person's identity.json reaches -- dated its failure records and issue
+    stamps in the engine's last resort, New York, the right default for a
+    team, instead of its one owner's zone (precedent_time.py, rungs 5-6)."""
+    root = pathlib.Path(dest_root)
+    try:
+        cfg = json.loads((root / 'precedent.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(cfg, dict) or cfg.get('fallback_timezone'):
+        return None
+    people = [m for m in cfg.get('maintainers') or [] if isinstance(m, dict)]
+    if len(people) != 1:
+        return None
+    login = str(people[0].get('github') or '').lstrip('@').lower()
+    try:
+        import precedent_identity as _pid
+        ident = _pid.declared_identity(root, user_config)
+    except Exception:                                           # noqa: BLE001
+        return None
+    me = (os.environ.get('PRECEDENT_GITHUB_USER', '').strip()
+          or str(ident.get('github') or '')).lstrip('@').lower()
+    zone = str(ident.get('timezone') or '').strip()
+    if not login or me != login or not zone:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(zone)
+    except Exception:                                           # noqa: BLE001
+        return None
+    try:
+        import precedent_time as _pt
+        last = _pt.FALLBACK_TZ
+    except Exception:                                           # noqa: BLE001
+        last = 'the engine\'s last-resort zone'
+    return (f'@{login} is this repository\'s only maintainer -- you -- and '
+            f'precedent.json declares no fallback_timezone, so whatever runs '
+            f'where your identity does not reach (a GitHub Actions job, its '
+            f'failure records and issue stamps) dates in {last}. Say yes to '
+            f'add "fallback_timezone": "{zone}" (your zone, from your '
+            f'identity.json) to precedent.json.')
 
 
 def _rev_text(repo_dir, *args):
