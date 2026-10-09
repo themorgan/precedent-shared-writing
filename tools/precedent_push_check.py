@@ -258,6 +258,12 @@ GENERATED_FILES_CHECK = (
     'generated_files', ['{engine}/precedent_check.py', '--only',
                         'generated-files-registered'],
     'nothing -- it ran only inside the full sweep')
+# A reference left pointing at a path this branch renamed away: basic tier
+# (BASIC_CHECKS says why). The full sweep runs it too.
+RENAME_LINKS_CHECK = (
+    'rename_links', ['{engine}/precedent_check.py', '--only',
+                     'rename-updates-links'],
+    'nothing -- it ran only inside the full sweep, at the landing')
 CI_WORKFLOWS_CHECK = (
     'ci_workflows', ['{engine}/precedent_check.py', '--only',
                      'ci-workflow-approved'],
@@ -286,10 +292,18 @@ OPTIONAL = {'deep_check', 'commit_author', 'commit_dates', 'session_trailer',
 # todo/TODO.md stale, the push to pre-staging passed, and only the full
 # check said so. Two seconds. Not upstream's: there precedent_check.py is
 # full-only by design, and BestPractice's commit backstop rebuilds these.
+# rename_links joins a consumer's and a practice set's basic tier
+# (2026-10-08): a branch renamed a page and repointed the references a
+# search for *.py and *.md found, but not a key in a tool's table or lines
+# in two ledgers. Every push of the branch passed, and the landing's full
+# check failed on them. It judges only what this branch renamed or deleted
+# against its base -- a finding no push but this branch's could bring --
+# and takes seconds.
 BASIC_CHECKS = {'doc_lint', 'leak_gate', 'commit_author', 'commit_dates',
                 'session_trailer', 'ci_workflows', 'light_check', 'build_views',
                 'views_sync',
-                'scrub_gate', 'practice_export_loop', 'generated_files'}
+                'scrub_gate', 'practice_export_loop', 'generated_files',
+                'rename_links'}
 BASIC, FULL = 'basic', 'full'
 # A PUSH TO A WORKING BRANCH IS JUDGED ON WHAT IT BRINGS (2026-09-28). A
 # consumer session could not push its claude/* branch: commit_author refused
@@ -345,6 +359,7 @@ PUSH_CHECKS = {
         ('doc_lint', ['{engine}/doc_lint.py'],
          'doc-lint.yml, retired 2026-09-21'),
         GENERATED_FILES_CHECK,
+        RENAME_LINKS_CHECK,
         CI_WORKFLOWS_CHECK,
         DEEP_CHECK_SUITE,
         CONSUMER_SHAPE_SUITE,
@@ -358,6 +373,7 @@ PUSH_CHECKS = {
         ('doc_lint', ['{engine}/doc_lint.py'],
          'bestpractice-docs.yml, retired 2026-09-21'),
         GENERATED_FILES_CHECK,
+        RENAME_LINKS_CHECK,
         CI_WORKFLOWS_CHECK,
         # Whether the generated views still match the practice sources
         # (2026-10-03): a reduction pass retired practices in the shared sets,
@@ -433,7 +449,12 @@ GUARDS = {'precedent_check': _guard_precedent_check,
 STAND_DOWNS = {'leak_gate': ('NOT APPLICABLE', 'stood down -- it inspected '
                              'nothing (a private repository)'),
                'doc_lint': ('NOTHING IS BEING GATED', 'stood down -- no '
-                            'Markdown file was in scope')}
+                            'Markdown file was in scope'),
+               # The views were generated with a person's individual set,
+               # and none resolves here (build_views.individual_not_verifiable).
+               'views_sync': ('NOT VERIFIABLE', 'not verified -- the views '
+                              'carry practices from an individual set this '
+                              'machine cannot reach')}
 
 
 def git(root, *args):
@@ -1204,6 +1225,10 @@ def _changed_since(root, argv):
     finally:
         sys.path.pop(0)
     targets = precedent_branches.push_targets(root, cmd) or []
+    since_for = getattr(precedent_branches, 'changed_since_for', None)
+    if since_for:
+        # pre-staging, or staging for a person who lands straight on it.
+        return since_for(root, targets)
     if precedent_branches.PRE_STAGING in targets:
         return f'origin/{precedent_branches.PRE_STAGING}'
     return None
@@ -1279,6 +1304,14 @@ def _full_tier_refusal(root, argv):
         sys.path.pop(0)
     if tier != BASIC:
         return None
+    if landing != precedent_branches.PRE_STAGING:
+        # A person who lands straight on staging asks for the full suite
+        # with --run-tests, which records it for the move into main.
+        return (f'--tier full asks for the ~12-minute suite, and your landing '
+                f'branch, {landing}, takes the quick check: run this bare. The '
+                f'full suite is `python3 tools/precedent_branches.py --run-tests`, '
+                f'which records its result for the move into main. If you really '
+                f'mean this, say why: --tier full --because "<reason>".')
     return (f'--tier full asks for the ~12-minute suite, and your landing '
             f'branch, {landing}, takes the quick check: run this bare, which '
             f'is what Booked needs. The full check is the Debut\'s, and it '
