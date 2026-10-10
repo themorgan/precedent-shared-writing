@@ -57,6 +57,8 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/build_codeowners.py](tools/build_codeowners.py) | CODEOWNERS, generated -- a practice set's from its approvers.json, a project's from the maintainers and owned_paths in its precedent.json |
 | [tools/build_todo_index.py](tools/build_todo_index.py) | todo/TODO.md and todo/CLOSED.md, generated from todo/*.md's frontmatter |
 | [tools/build_views.py](tools/build_views.py) | This file, GLOSSARY.md, and AGENTS.md's loader block — generated views |
+| [tools/check_commit_author.py](tools/check_commit_author.py) | Each commit is authored as the declared person (practice commit-author) |
+| [tools/check_commit_dates.py](tools/check_commit_dates.py) | Each commit carries the declared person's time zone (practice buenos-aires-dates) |
 | [tools/ci_fleet_audit.py](tools/ci_fleet_audit.py) | Every GitHub Actions workflow on every branch of every reachable repo, asked of GitHub: approval, triggers, schedules, 30 days of runs |
 | [tools/doc_lifecycle.py](tools/doc_lifecycle.py) | The document status header — kind, status, supersession — checked across spec/ and record/ |
 | [tools/doc_lint.py](tools/doc_lint.py) | Markdown hygiene checks — strikethrough, links, acronyms |
