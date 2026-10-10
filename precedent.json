@@ -114,8 +114,8 @@
   ],
   "_grandfathered_commit_shas_comment": [
     "Kept as a record, not an exemption anything enforces. Since 2026-09-25 this",
-    "set vendors neither check_commit_author.py nor check_buenos_aires_dates.py",
-    "(both moved to the individual set), and the routine scope looks only at",
+    "set ran neither commit check from 2026-09-25 (both had moved to the individual",
+    "set); since 2026-10-10 the engine ships one copy of each, tools/check_commit_author.py and tools/check_commit_dates.py, which stand down here with no identity.json. The routine scope looks only at",
     "commits not yet on a remote, so nothing here trips on these SHAs. The only",
     "reader left is very_deep_check.py's IDENTITY REALITY section, which",
     "subtracts them so an old, explained commit is not reported again. Noted",
