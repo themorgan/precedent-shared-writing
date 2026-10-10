@@ -501,6 +501,10 @@ ENGINE_FILES = [
     # manual step, after which precedent_source_credentials.py went from SET
     # to OK. The mechanism was sound; only its distribution was wrong.
     'precedent_source_bootstrap.py',
+    # The lock precedent_source_bootstrap and precedent_update take on a clone
+    # several runs share, so Update Vendors in several repos at once waits its
+    # turn instead of losing a ref lock (2026-10-10). Standard library only.
+    'precedent_clone_lock.py',
     # precedent_check.py imports it at module scope, so a vendored engine
     # without it does not degrade -- it raises ModuleNotFoundError and takes
     # the whole check run down. Found 2026-09-09 by verify_harness the moment
@@ -795,10 +799,9 @@ ENGINE_FILES = [
     # Its other half (Morgan, 2026-10-08): once a day, what OTHER people
     # landed since the person was last told. The session-start hook and the
     # reply gate both call it, so a repository without it would carry hooks
-    # naming a file that is not there (the others-did practice, in the ladder set). Each
-    # repository's own mark lives on its origin's refs/precedent/others-did,
-    # outside every branch, and never ships (nor does the file it lived in
-    # before 2026-10-08, tools/others_did_watermark.json).
+    # naming a file that is not there (the others-did practice, in the ladder set). It
+    # stores nothing on origin: since 2026-10-10 it counts from the person's
+    # own last commit, with only a note in the container's .precedent/.
     'precedent_others_did.py',
     # EVERY VOCABULARY WORD HAS TO WORK WHERE THE ENGINE IS VENDORED
     # (2026-09-21, Morgan: "ALL of our vocabulary words should"). A standing
@@ -4324,9 +4327,12 @@ def archived_declared_sources(dest_root):
             if getattr(_gb, 'is_proxy_refusal', lambda _t: False)(msg):
                 notes.append(f'{name}: {PROXY_NOTE}')
                 continue
+            fix = getattr(_gb, 'attach_remedy', lambda *_a: '')(
+                msg, f'{m.group(1)}/{m.group(2)}')
             notes.append(f'{name}: GitHub could not say whether it is archived '
-                         f'({msg}) -- left declared; "Not Found" can mean the '
-                         f'access is gone, not the repository')
+                         + (f'-- {fix}' if fix else
+                            f'({msg}) -- left declared; "Not Found" can mean the '
+                            f'access is gone, not the repository'))
             continue
         if data.get('archived'):
             archived.add(name)
