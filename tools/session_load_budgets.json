@@ -16,5 +16,37 @@
       "ceiling": 6650,
       "_note": "5522 tokens measured 2026-09-28 with this set's own engine. Ceiling is current + ~20%."
     }
+  },
+  "approved_budgets": {
+    "occasion_index": {
+      "max": 550,
+      "strength": "baseline",
+      "approved_by": "baseline 2026-10-10: no budget went up since this registry was first committed (99fcb5b5777e); recorded by Update Vendors at the values in force"
+    },
+    "occasion_share_tokens": {
+      "max": 550,
+      "strength": "baseline",
+      "approved_by": "baseline 2026-10-10: no budget went up since this registry was first committed (99fcb5b5777e); recorded by Update Vendors at the values in force"
+    },
+    "resident_block_tokens": {
+      "max": 2000,
+      "strength": "baseline",
+      "approved_by": "baseline 2026-10-10: no budget went up since this registry was first committed (99fcb5b5777e); recorded by Update Vendors at the values in force"
+    },
+    "surfaces/.precedent/SESSION_PRACTICES.md": {
+      "max": 6650,
+      "strength": "baseline",
+      "approved_by": "baseline 2026-10-10: no budget went up since this registry was first committed (99fcb5b5777e); recorded by Update Vendors at the values in force"
+    },
+    "surfaces/AGENTS.md": {
+      "max": 1450,
+      "strength": "baseline",
+      "approved_by": "baseline 2026-10-10: no budget went up since this registry was first committed (99fcb5b5777e); recorded by Update Vendors at the values in force"
+    },
+    "surfaces/CLAUDE.md": {
+      "max": 150,
+      "strength": "baseline",
+      "approved_by": "baseline 2026-10-10: no budget went up since this registry was first committed (99fcb5b5777e); recorded by Update Vendors at the values in force"
+    }
   }
 }
