@@ -62,6 +62,10 @@ a clause that narrates what a session, tool or check did or was told, in
 the past tense and never to "you", is not read as an instruction to the
 receiving session (see _narrated_clauses). Added 2026-10-08; an older
 engine ignores the key and judges every clause, the stricter reading.
+Since 2026-10-10 the pair may also say `narration_exempt: true`: on every
+block, a past-tense report of a done thing ("the update merged into staging")
+is never an instruction, whether or not the block stops at Act; a report of
+what somebody was told still needs the stop. An older engine ignores it, the stricter way.
 
 The same pair may also carry, since later on 2026-10-08:
 
@@ -80,6 +84,13 @@ The same pair may also carry, since later on 2026-10-08:
   no questions asked"), and the clause is judged. See _negated_clauses.
   An older engine ignores the key, so a source that drops its old
   line-level lookahead is stricter there, never looser.
+- `description_exempt_if_clause_preceded_by` (2026-10-10): a regex that
+  must end the clause's text just before each landing phrase in it -- a
+  preposition and an article, "on a", "after every". A clause where every
+  landing phrase is such an object describes an event or a condition
+  ("the step fires on a pull request into main") and is forgiven; the verb
+  is what makes an order, so "Open a PR into main" is still judged. See
+  _described_clauses. An older engine ignores the key, the stricter way.
 
 `require_no_bare_pattern` checks a different practice family entirely --
 rule-links and branch-links, both of which say a mentioned destination (a
@@ -243,6 +254,25 @@ def _settle(reqs, repo):
         if isinstance(rid, str) and rid:
             last[rid] = r
             first.setdefault(rid, i)
+    # `inherits` (2026-10-10): a replacing requirement that says
+    # "inherits": true keeps every key of the one it replaces that it does
+    # not set itself, and each require_in_fence_paired_with pair merges with
+    # the earlier pair at the same position. The ladder set's landing rule
+    # restated universal's exemptions word for word, and on 2026-10-10 one
+    # exemption had to be added to both; now the set states only what
+    # differs (its branches, the word it wants quoted). An engine older than
+    # this replaces outright and lacks the inherited exemptions: stricter,
+    # never looser.
+    for rid, r in list(last.items()):
+        earlier = next((x for x in reqs if x.get('id') == rid), None)
+        if r.get('inherits') is True and earlier is not None and earlier is not r:
+            merged = {**earlier, **r}
+            key = 'require_in_fence_paired_with'
+            if isinstance(earlier.get(key), list) and isinstance(r.get(key), list):
+                merged[key] = [
+                    {**(earlier[key][i] if i < len(earlier[key]) else {}), **pair}
+                    for i, pair in enumerate(r[key])]
+            last[rid] = merged
     kept = []
     for i, r in enumerate(reqs):
         rid = r.get('id')
@@ -792,11 +822,22 @@ _NARRATION_CLAUSE_RE = re.compile(
     r"last|first|same|sending|vendoring|consuming|update|engine|reply|landing|"
     r"precedent)\s+){0,3}"
     r"(?:it|session|tool|agent|script|check|command|hook|gate|job|workflow|"
-    r"bot|run|repository|repo)\s+"
+    r"bot|run|repository|repo|update|change|changes|commit|commits|branch|"
+    r"fix|fixes|work|merge|(?:PR|pull\s+request)(?:\s*#?\d+)?)\s+"
     r"(?:(?:had|has|have|was|were|then|also|already|just|been|once)\s+)*"
     r"(?:told|asked|instructed|directed|prompted|said|landed|merged|pushed|"
     r"promoted|opened|prepared|made|built|tried|wanted|suggested|"
     r"recommended|proposed|reported|printed)\b", re.I)
+# A narrated clause whose verb is a DONE THING, not a told one: "the update
+# merged into staging" reports an event, while "a tool told it to open a PR
+# to main" reports an order, which a reader may take up. Only the first is
+# forgiven in a block that does not end at Act (2026-10-10).
+_NARRATED_EVENT_RE = re.compile(
+    r"\b(?:had|has|have|was|were|been)?\s*(?:landed|merged|pushed|promoted|"
+    r"opened|built|made)\b", re.I)
+_NARRATED_ORDER_RE = re.compile(
+    r"\b(?:told|asked|instructed|directed|prompted|said|wanted|suggested|"
+    r"recommended|proposed|tried)\b", re.I)
 _SECOND_PERSON_RE = re.compile(r"\byou(?:r|rs|rself|'\w+)?\b", re.I)
 # Clause boundaries: sentence and list punctuation, a line break, and the
 # conjunctions an instruction tacked onto narration would start with ("the
@@ -831,7 +872,7 @@ def _first_trigger(patterns, s):
     return best
 
 
-def _narrated_clauses(block, trigger):
+def _narrated_clauses(block, trigger, events_only=False):
     """-> `block` with every narrating clause that matches `trigger` (one
     regex or a list) on its own blanked to spaces, so what is left is what the block TELLS the
     receiving session.
@@ -845,7 +886,11 @@ def _narrated_clauses(block, trigger):
     whole trigger, keeps every instruction in reach: "Then merge it into
     main" in the same block is its own clause, narrates nothing, and still
     fails. Strict where unsure -- an unrecognized narration is refused and
-    rewritten, never an instruction let through."""
+    rewritten, never an instruction let through.
+
+    `events_only` (2026-10-10): forgive only a clause reporting a done thing
+    ("the update merged into staging"), never one reporting what somebody
+    was told -- the reading for a block that does not end at Act."""
     out, start = list(block), 0
     bounds = [(m.start(), m.end()) for m in _CLAUSE_BOUNDARY_RE.finditer(block)]
     bounds.append((len(block), len(block)))
@@ -853,6 +898,8 @@ def _narrated_clauses(block, trigger):
         clause = block[start:b_start]
         if (clause.strip() and _NARRATION_CLAUSE_RE.match(clause)
                 and not _SECOND_PERSON_RE.search(clause)
+                and not (events_only and (_NARRATED_ORDER_RE.search(clause)
+                                          or not _NARRATED_EVENT_RE.search(clause)))
                 and _first_trigger(_as_patterns(trigger), clause)):
             out[start:b_start] = ' ' * (b_start - start)
         start = b_end
@@ -902,6 +949,59 @@ def _negated_clauses(block, triggers, negator):
         clause = block[start:b_start]
         if clause.strip() and _clause_is_negated(clause, triggers,
                                                  before_re, object_re):
+            out[start:b_start] = ' ' * (b_start - start)
+        start = b_end
+    return ''.join(out)
+
+
+def _quoted_output_blanked(block, before_re):
+    """-> `block` with every quoted span that `before_re` introduces blanked
+    to spaces: a message a tool printed, quoted as it printed it ("it still
+    prints "Merge the pull request into main""), is a quotation of output,
+    not an instruction to the receiving session.
+
+    WHY (2026-10-10): a root-issues prompt reporting that a tool's wait
+    ended by printing a merge instruction was refused as granting landing.
+    `before_re` is the rule's own data and must END the text just before the
+    opening quote -- printing words only. "Said" is deliberately not one: a
+    person's words quoted are the very thing this rule exists to check."""
+    out = list(block)
+    for m in re.finditer(r'["\u201c]([^"\u201d\n]{1,300})["\u201d]', block):
+        if re.search(f'(?:{before_re})\\s*$', block[:m.start()], re.I):
+            out[m.start():m.end()] = ' ' * (m.end() - m.start())
+    return ''.join(out)
+
+
+def _described_clauses(block, triggers, before_re):
+    """-> `block` with every clause blanked in which each trigger match is
+    the object of a preposition -- "fires on a pull request into main",
+    "runs after a push to main" -- so what is left is what the block tells
+    the receiving session to do.
+
+    WHY (2026-10-10): a paste block asking for a workflow fix said the step
+    "should run only on main itself, after a push, never a pull request.
+    Today it also fires on a pull request into main". That names an event
+    a workflow reacts to; it orders nothing, and the landing rule refused
+    it. Past tense was already forgiven (_narrated_clauses); a present-tense
+    description of a condition is the same kind of thing.
+
+    `before_re` is the rule's own data: what must END the clause's text just
+    before each match ("on a ", "after every "). The verb is what makes an
+    order, so "Open a pull request into main" stays one -- "Open a" is no
+    preposition -- and "Merge it after a push to main" too, because its
+    match starts at "Merge". Strict where unsure: EVERY match in the clause
+    must be described, and a match running across a clause boundary is
+    never blanked."""
+    out, start = list(block), 0
+    bounds = [(m.start(), m.end()) for m in _CLAUSE_BOUNDARY_RE.finditer(block)]
+    bounds.append((len(block), len(block)))
+    for b_start, b_end in bounds:
+        clause = block[start:b_start]
+        matches = [m for pat in triggers
+                   for m in re.finditer(pat, clause, re.I | re.M)]
+        if clause.strip() and matches and all(
+                re.search(f'(?:{before_re})$', clause[:m.start()], re.I)
+                for m in matches):
             out[start:b_start] = ' ' * (b_start - start)
         start = b_end
     return ''.join(out)
@@ -1311,12 +1411,31 @@ def violations(text, reqs, timeline=None, wake=None, prompt=None):
                 continue
             stop = pair.get('narration_exempt_if_block_matches')
             negator = pair.get('negation_exempt_if_clause_negates')
+            describer = pair.get('description_exempt_if_clause_preceded_by')
+            quoter = pair.get('quoted_output_exempt_if_preceded_by')
+            # NARRATION IS NEVER AN ORDER (2026-10-10, a consumer's root-
+            # issues reply): "The update merged into staging as PR #47", in
+            # a block's situation paragraph, was refused as granting landing
+            # -- the narration exemption applied only to a block that also
+            # said it stops at Act. A clause that narrates, in the past
+            # tense, with a third-person subject and never "you", REPORTING A
+            # DONE THING tells the receiving session nothing to do, whatever
+            # else the block says, so a source may ask for that on every
+            # block (`narration_exempt`: true). A report of what somebody was
+            # TOLD ("a tool told it to open a PR to main") is still forgiven
+            # only where the block ends at Act: a reader may take it up. An
+            # instruction in the same block is its own clause, still judged.
+            always = pair.get('narration_exempt') is True
             for block in _fenced_blocks(text):
-                judged = block
-                if stop and re.search(stop, block, re.I | re.M):
-                    judged = _narrated_clauses(block, triggers)
+                judged = _quoted_output_blanked(block, quoter) if quoter else block
+                if stop and re.search(stop, judged, re.I | re.M):
+                    judged = _narrated_clauses(judged, triggers)
+                elif always:
+                    judged = _narrated_clauses(judged, triggers, events_only=True)
                 if negator:
                     judged = _negated_clauses(judged, triggers, negator)
+                if describer:
+                    judged = _described_clauses(judged, triggers, describer)
                 m = _first_trigger(triggers, judged)
                 if m and not re.search(needed, block, re.I | re.M):
                     out.append({'kind': 'in_fence_paired', 'advisory': advisory,
@@ -1557,6 +1676,33 @@ def _full_check_owed(root=None):
         return pb.full_check_owed(top) if top and hasattr(pb, 'full_check_owed') else []
     except Exception:                                       # noqa: BLE001
         return []
+
+
+def _consume_turn_start(root=None):
+    """A reply that passes has given its delete link for every branch that
+    landed; take those branches off the turn-start record, so each is asked
+    about once. A branch not landed yet stays. Never raises.
+
+    WHY (2026-10-10). The record is written at a turn's start by the
+    UserPromptSubmit hook. A session rooted above its repositories runs no
+    hook, so the one record, written that morning, was read as "this turn's
+    start" all day: every reply after was refused for owing a delete link to
+    a branch merged hours before. With hooks, each turn writes a fresh one
+    anyway; without them, an answered branch is now gone from it."""
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import precedent_gate as _pg
+        root = root or os.environ.get('CLAUDE_PROJECT_DIR') or '.'
+        done = {(r, b) for r, b, _ in _landed_this_turn(root)}
+        if not done:
+            return
+        f = _pg._turn_start_file(root)
+        recs = json.loads(f.read_text(encoding='utf-8')) if f and f.is_file() else []
+        keep = [x for x in recs if isinstance(x, dict)
+                and (x.get('repo'), x.get('branch')) not in done]
+        _pg.record_turn_start_unlanded(root, keep)
+    except Exception:                                         # noqa: BLE001
+        pass
 
 
 def _landed_this_turn(root=None):
@@ -1873,6 +2019,7 @@ def main():
     bad = [b for b in violations(text, reqs, timeline, wake, prompt)
            if not b.get('advisory')]
     if not bad:
+        _consume_turn_start()
         return 0
     # The reply that was just refused has ALREADY been shown to the person --
     # a Stop hook cannot un-show it. So the only correct repair is to emit the

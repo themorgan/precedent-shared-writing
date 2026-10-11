@@ -1076,6 +1076,20 @@ def main():
         except ImportError:
             pass
 
+        # The longest-due reminder this conversation has not shown yet, for
+        # the Boildown's Todo line, by date rather than by topic (practice:
+        # todo-reminder; Morgan, 2026-10-10: "Maybe we should have it show
+        # one BY DATE"). Local files only; quiet when nothing is due.
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+            import build_todo_index as bti
+            block = bti.remind(
+                root, os.environ.get('PRECEDENT_TRANSCRIPT_PATH', '').strip())
+            if block:
+                print(f"{block}\n")
+        except Exception:                                    # noqa: BLE001
+            pass
+
     # THE MERGE MOMENT, and only it: did CI actually run on the commit about
     # to be merged?
     #
@@ -1290,9 +1304,14 @@ def main():
             except Exception:                                 # noqa: BLE001
                 _n = 0
             if _n:
+                # NO COUNT HERE (2026-10-10, a consumer): this reads the
+                # remote-tracking refs as they stand, without a fetch -- a
+                # fetch per repository at every turn costs too much -- while
+                # the page fetches first, so "13 branch(es) across 4" here
+                # met 16 on the page. The page's number is the one to give.
                 print(f"- For the CLOSING Boildown only (the reply that says "
-                      f"\"You can archive this session\"): {_n} branch(es) "
-                      f"across {len(_groups)} repositor(ies) can be deleted. "
+                      f"\"You can archive this session\"): some branches "
+                      f"can be deleted (the page counts them, after a fetch). "
                       f"Build the page with `python3 tools/"
                       f"precedent_stale_branches.py --fetch --html "
                       f"<scratchpad>/branch-cleanup.html`, publish it as an "
