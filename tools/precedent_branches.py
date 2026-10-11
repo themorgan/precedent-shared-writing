@@ -121,18 +121,26 @@ CLI:
   precedent_branches.py --drift             what staging and main carry that pre-staging
                                             lacks, checked or not (the session-start note)
   precedent_branches.py --promote [--to staging|main] [--work BRANCH]
-                                            pre-staging into staging, or staging into
-                                            main, fully checked; says which first.
-                                            0 moved or nothing to move, 1 refused,
-                                            3 main not moved yet (its pull request
-                                            is still to open, test and merge)
-  precedent_branches.py --promote --to main --fast [--despite-failed-tests] [--no-full-after]
+                                            pre-staging into staging, fully checked,
+                                            or staging into main, the fast way (below);
+                                            says which first. 0 moved or nothing to
+                                            move, 1 refused, 3 main not moved yet
+                                            (its pull request is still to open and
+                                            merge)
+  precedent_branches.py --promote --to main [--despite-failed-tests] [--no-full-after]
                                             staging into main with the quick checks
-                                            only; GitHub's test runs after the merge,
+                                            only, the default (Morgan, 2026-10-11);
+                                            GitHub's test runs after the merge,
                                             or, when it is not due, the full local
                                             suite on main here (full_check_after);
                                             --no-full-after when the person asked
-                                            for a fast one
+                                            for a fast one. --fast is still taken.
+  precedent_branches.py --promote --to main --full --because '<their words>'
+                                            the long route, only when the person asks
+                                            for it or agrees to it, in their own
+                                            words (refused without --because): the
+                                            full local suite, then GitHub's test
+                                            before the merge
                                             4 (PROMOTE_ASKS) when --run-tests failed on
                                             staging's current commit: ask the person,
                                             and on a yes add --despite-failed-tests
@@ -222,8 +230,38 @@ REPO_LANDING_COMMENT = [
     'Change it here for this repository.',
 ]
 
+REPO_LANDING_STAGING_COMMENT = [
+    'Where Go update lands for anyone whose own identity.json names no',
+    'landing_branch -- a person\'s own setting always wins. staging: the',
+    'person who installed this has retired pre-staging (retire_pre_staging,',
+    'or landing_branch "staging", in their identity.json), so work lands on',
+    'staging and reaches main by a Produce. Change it here for this repository.',
+]
 
-def ensure_repo_landing(root, new_install=False):
+
+def repo_landing_default(root, user_config=None):
+    """-> (branch, comment) a new install, or a repository given its first
+    landing_branch, writes into precedent.json: staging for a person who has
+    retired pre-staging (retire_pre_staging, or their own landing_branch
+    "staging"), else REPO_LANDING_DEFAULT. Until 2026-10-11 it was always
+    pre-staging, so a repository Morgan installed after moving every other
+    one to staging started on the tier he had retired, and its first Update
+    Vendors had to move it back."""
+    # The person's own words, read raw: moves_repo_by_repo also asks for
+    # promote_only, which is off in a repository that has no tiers yet --
+    # and a new install is exactly that.
+    retired = False
+    for path in _identity_files(root, user_config):
+        ident = _read_json(path)
+        if ident and ident.get('email') and RETIRE_SETTING in ident:
+            retired = ident[RETIRE_SETTING] is True
+            break
+    if retired or _declared_landing(root, user_config) == STAGING:
+        return STAGING, REPO_LANDING_STAGING_COMMENT
+    return REPO_LANDING_DEFAULT, REPO_LANDING_COMMENT
+
+
+def ensure_repo_landing(root, new_install=False, user_config=None):
     """Give precedent.json a `landing_branch` when it has none. -> True when
     it wrote one. Never changes a value that is there, and never creates the
     file: a repository without a precedent.json is not an install.
@@ -246,20 +284,21 @@ def ensure_repo_landing(root, new_install=False):
     # hand-kept file -- its order, its escapes, its comments' wrapping --
     # comes back byte for byte. A file that does not end in `}` is
     # rewritten whole instead, which is still valid, only noisier.
+    landing, comment = repo_landing_default(root, user_config)
     text = path.read_text(encoding='utf-8')
     body = text.rstrip()
-    added = (f',\n  "{LANDING_SETTING}": {json.dumps(REPO_LANDING_DEFAULT)},\n'
+    added = (f',\n  "{LANDING_SETTING}": {json.dumps(landing)},\n'
              f'  "_{LANDING_SETTING}_comment": [\n'
-             + ',\n'.join('    ' + json.dumps(line) for line in REPO_LANDING_COMMENT)
+             + ',\n'.join('    ' + json.dumps(line) for line in comment)
              + '\n  ]\n}\n')
     candidate = body[:-1].rstrip() + added if body.endswith('}') else None
     try:
         if candidate is None or json.loads(candidate).get(LANDING_SETTING) \
-                != REPO_LANDING_DEFAULT:
+                != landing:
             raise ValueError
     except ValueError:
-        data[LANDING_SETTING] = REPO_LANDING_DEFAULT
-        data['_' + LANDING_SETTING + '_comment'] = REPO_LANDING_COMMENT
+        data[LANDING_SETTING] = landing
+        data['_' + LANDING_SETTING + '_comment'] = comment
         candidate = json.dumps(data, indent=2) + '\n'
     path.write_text(candidate, encoding='utf-8')
     return True
@@ -693,7 +732,7 @@ def direct_push_refusal(root, args, user_config=None):
                 f'only by promotion here -- {PROMOTE_ONLY_SETTING} is on in '
                 f'{where}. Your work lands on {staging} (`{LAND_COMMAND}`); '
                 f'then promote it into {MAIN}: '
-                f'`python3 tools/precedent_branches.py --promote --to {MAIN} --fast`.')
+                f'`python3 tools/precedent_branches.py --promote --to {MAIN}`.')
     return (f'{" and ".join(hit)} take{"s" if len(hit) == 1 else ""} work only '
             f'by promotion here -- {PROMOTE_ONLY_SETTING} is on in {where}. '
             f'Push to {PRE_STAGING} instead (`git push origin HEAD:{PRE_STAGING}`), '
@@ -967,6 +1006,13 @@ def ensure_tiers(root, apply=False, say=print, new_install=False):
     # A person who lands on staging has no use for pre-staging, and making
     # it again would undo the deletion they were offered (pre_staging_retired).
     retired = pre_staging_unused(root)[0]
+    # A new install whose precedent.json already lands on staging
+    # (repo_landing_default) never had a use for pre-staging; making it would
+    # only hand the person a branch to delete. pre_staging_unused cannot say
+    # so yet: it asks for promote_only, which a repository with no tiers
+    # turns off.
+    if new_install and precedent_json(root).get(LANDING_SETTING) == STAGING:
+        retired = True
     if not retired and not _remote_tip(root, PRE_STAGING):
         missing.append(f'{PRE_STAGING} on origin')
     if not missing:
@@ -1276,6 +1322,35 @@ def _sibling(name):
         return None
     finally:
         sys.path.pop(0)
+
+
+def _upstream_review(root, wt, stage, out, batch_range):
+    """-> (lines, recorded): the upstream review for this stage (the ladder
+    set's upstream-review practice) -- what the check printed, less what
+    the batch's own commits already record as reviewed -- and whether its
+    Upstream-seen lines were written into the commit at `wt`'s HEAD. Only on
+    the ladder and only for a code owner: anyone else gets ([], False) and
+    sees nothing. `wt` is None where nothing is recorded (Produce: main
+    moves by a pull request). Never refuses a stage: on any error the review
+    is simply not shown."""
+    ur = _sibling('precedent_upstream_review')
+    if ur is None:
+        return [], False
+    try:
+        new, old = ur.prepare(root, stage, out, rev_range=batch_range)
+        if new is None:
+            return [], False
+        recording = None
+        if new and wt is not None:
+            msg = (_git(wt, 'log', '-1', '--format=%B') or '').rstrip()
+            msg += ('\n\n' if not ur.TRAILER in msg else '\n') \
+                + '\n'.join(ur.trailer_lines(new)) + '\n'
+            a = _run(wt, 'commit', '--amend', '--allow-empty', '-q', '--no-verify', '-m', msg,
+                     env=_merge_env(root))
+            recording = 'written' if a.returncode == 0 else None
+        return ur.report(stage, new, old, recording), recording == 'written'
+    except Exception:                                            # noqa: BLE001
+        return [], False
 
 
 def _receipt(root, sha):
@@ -2773,39 +2848,6 @@ def produce_waiting_hold(root, gh=None):
             f'promote again.')
 
 
-def retired_set_hold(root, env=None):
-    """-> why a Promote in a practice set that says it is retired does
-    nothing, or None. Morgan, 2026-10-06 (strength: decided), the same day
-    a session promoted toward main in every set at once: "I just told you a
-    few minutes ago to not edit nor promote nor touch repo maintenance or
-    working style, unless it is essential to their graceful deprecation."
-    Practice: retired-set-takes-only-its-retirement (temporary). The
-    person's own words in PRECEDENT_RETIRED_SET_EDIT let one Promote run."""
-    env = os.environ if env is None else env
-    try:
-        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-        import precedent_vendor_engine as ve
-    except ImportError:
-        return None
-    finally:
-        sys.path.pop(0)
-    judge = (getattr(ve, 'retirement_on_any_tier', None)
-             or getattr(ve, 'source_retirement', None))
-    retirement = judge(root) if judge else None
-    if retirement is None:
-        return None
-    asked = (env.get('PRECEDENT_RETIRED_SET_EDIT') or '').strip()
-    if asked:
-        print(f'promoting a retired set, because the person asked: {asked!r}',
-              flush=True)
-        return None
-    return ('PROMOTE REFUSED: this set says it is retired, and a retired set is '
-            'not promoted unless the person asks for that exact move as '
-            'essential to retiring it gracefully (practice: '
-            'retired-set-takes-only-its-retirement). If they have, run again '
-            'with PRECEDENT_RETIRED_SET_EDIT="<their words>".')
-
-
 # What the run that is under way decided, for promote_result_line: set by
 # _verdict at the point each path knows it, read once the run is over.
 _RESULT = {}
@@ -2879,10 +2921,6 @@ def _promote_run(root, say=print, to=None, work=None, fast=False,
     promoting; 1 refused (a failing check, a conflict, a race);
     PROMOTE_MAIN_NOT_MOVED when staging into main is ready for its pull
     request and main has not moved yet."""
-    held = retired_set_hold(root)
-    if held:
-        say(held)
-        return 1
     if not repo_has_tiers(root) and not _git(
             root, 'rev-parse', '--verify', '--quiet',
             f'refs/remotes/origin/{staging_branch(root)}'):
@@ -3274,6 +3312,8 @@ def _promote_to_main(root, say=print, work=None, fast=False,
         t0 = time.monotonic()
         ok, out = _check(root, wt, FULL, dest=MAIN)
         took = time.monotonic() - t0
+    review = _upstream_review(root, None, 'produce', out, f'{mtip}..{stip}')[0] \
+        if ok else []
     if not ok:
         say(f'PROMOTE REFUSED: the full check failed on {staging} merged into '
             f'{MAIN}, so nothing was pushed. The batch was:\n  '
@@ -3331,11 +3371,14 @@ def _promote_to_main(root, say=print, work=None, fast=False,
              + ('' if none_runs else ' once its GitHub test says PASSED'
                 + ('' if due else ' (or NOT DUE)'))
              + f'; {MAIN} has not moved yet', move=f'{MAIN} <- {staging}')
+    for line in review:
+        say(line)
     return PROMOTE_MAIN_NOT_MOVED
 
 
 # THE FAST MOVE INTO MAIN (2026-10-09, the approved plan that makes the
-# move into main fast for whoever asks for it). The full local suite is not run: it is --run-tests, asked
+# move into main fast for whoever asks for it; the default since
+# 2026-10-11, promote_args). The full local suite is not run: it is --run-tests, asked
 # for when wanted. This runs the quick checks on the change, builds the copy
 # for the pull request exactly as the full move does (main_copy_tip: staging
 # merged into main, so nothing that reached main directly is dropped), and
@@ -3631,6 +3674,8 @@ def _promote_to_main_fast(root, say=print, work=None, despite_failed_tests=False
         t0 = time.monotonic()
         ok, out = _check(root, wt, BASIC, dest=MAIN, since=mtip)
         took = time.monotonic() - t0
+    review = _upstream_review(root, None, 'produce', out, f'{mtip}..{stip}')[0] \
+        if ok else []
     if not ok:
         say(f'PROMOTE REFUSED: the quick checks failed on {staging} merged into '
             f'{MAIN}, so nothing was pushed.\n\n{out}\n\nFix it, land the fix on '
@@ -3695,6 +3740,8 @@ def _promote_to_main_fast(root, say=print, work=None, despite_failed_tests=False
                 f'the GitHub test runs after the merge -- wait on it with '
                 f'--wait-main-test {copy}')
              + f'; {MAIN} has not moved yet', move=move)
+    for line in review:
+        say(line)
     return PROMOTE_MAIN_NOT_MOVED
 
 
@@ -3894,6 +3941,10 @@ def _promote_unlocked(root, say=print, work=None):
                 f'the full check failed on the composition, after {took:.0f}s.'
                 + (f'\n{where}' if where else '') + f'\n\n{out}'),
                 'fix what failed there, whoever\'s commit it came from')
+        review, written = _upstream_review(root, wt if new != stip else None,
+                                           'debut', out, f'{stip}..{ptip}')
+        if written:
+            new = _git(wt, 'rev-parse', 'HEAD')
         refs = ([f'{new}:refs/heads/{staging}'] if new != stip else []) + (
             [f'{new}:refs/heads/{PRE_STAGING}'] if new != ptip else [])
         if not refs:
@@ -3933,6 +3984,8 @@ def _promote_unlocked(root, say=print, work=None):
         say(f'PROMOTED nothing new: {staging} had changes {PRE_STAGING} lacked, '
             f'and they passed the full check.')
     say(f'{staging} and {PRE_STAGING} are both at {new[:12]} now.')
+    for line in review:
+        say(line)
     _mirror_legacy(root, staging, new, say)
     _verdict(f'PROMOTED at {new} ({staging} and {PRE_STAGING} are both there)',
              move=f'{staging} <- {PRE_STAGING}')
@@ -4169,6 +4222,13 @@ def _land_composed(root, sha, label, staging, why, say):
                 f'failed on the composition, after {took:.0f}s.\n\n{out}\n\n'
                 f'Fix it on {label} and land again.')
             return 1, 'LAND REFUSED: the quick checks failed on the composition'
+        # The landing commit carries the review's Upstream-seen lines, so
+        # Produce lists only what is new since (message only; the tree the
+        # checks passed is unchanged).
+        review, written = _upstream_review(root, wt if last else None, 'booked',
+                                           out, f'{stip}..{sha}')
+        if written:
+            new = _git(wt, 'rev-parse', 'HEAD')
         p = _run(wt, 'push', '-q', 'origin', f'{new}:refs/heads/{staging}')
     if p.returncode != 0:
         moved, said = refused_push(root, staging, new, p)
@@ -4194,6 +4254,8 @@ def _land_composed(root, sha, label, staging, why, say):
     say(f'{staging} is at {new[:12]} now. The full suite has not run on it: '
         f'`python3 tools/precedent_branches.py --run-tests` runs it, moving '
         f'nothing.')
+    for line in review:
+        say(line)
     return 0, f'LANDED at {new}'
 
 
@@ -4414,6 +4476,76 @@ def tier_for_push(root, args, user_config=None):
     return BASIC, tiers[0][1]
 
 
+FULL_FLAG = '--full'
+BECAUSE_FLAG = '--because'
+
+
+def full_route_refusal(kw):
+    """-> why `kw` (from promote_args) is refused, or None. The full route
+    into main is refused unless it carries the person's own words asking
+    for it or agreeing to it, in --because."""
+    if kw.get('fast', True):
+        return None
+    if (kw.get('because') or '').strip():
+        return None
+    return ('PROMOTE REFUSED: --full, the long way into main (the full local '
+            'suite before the merge, and GitHub\'s test waited on first), is '
+            'taken only when the person explicitly asks for it or agrees to it '
+            '(Morgan, 2026-10-11). Without that, run the move with no flag: '
+            'the quick checks, merge at once, and the tests after. If they '
+            'did ask, run again with --because \'<their own words>\'.')
+
+
+def promote_args(args):
+    """-> the keyword arguments --promote's `args` ask promote() for, or None
+    for a usage error.
+
+    THE MOVE INTO MAIN IS THE FAST ONE UNLESS THE PERSON ASKS FOR THE FULL
+    ONE (Morgan, 2026-10-11, strength: decided: "I think we should default
+    to the fast route unless I explicitly agree to or request the slow
+    route"). The slow route had stayed the default after the fast one was
+    built, so a Produce run as the practice wrote it, with no flag, ran the
+    full suite before the merge and waited on GitHub's test as well; that
+    day it took most of an hour for a two-file change. --full asks for the
+    old route; --fast is still taken, and changes nothing. The flag only
+    matters when the step is the move into main: a Promote into staging
+    is always fully checked.
+
+    --full takes `--because '<the person's own words>'`, and without it is
+    refused by full_route_refusal: the long way is taken only when the
+    person agreed to it or asked for it, never on a session's own reading
+    (Morgan, 2026-10-11: "only do the long way when explicitly authorized
+    otherwise the short way with the tests after pushing it")."""
+    rest, opts = list(args), {}
+    while rest:
+        if len(rest) >= 2 and rest[0] in ('--to', '--work', BECAUSE_FLAG):
+            opts[rest[0][2:]] = rest[1]
+            rest = rest[2:]
+        elif rest[0] in ('--fast', FULL_FLAG, DESPITE_FLAG, NO_FULL_AFTER_FLAG):
+            opts[rest[0]] = True
+            rest = rest[1:]
+        else:
+            return None
+    full = bool(opts.get(FULL_FLAG))
+    if opts.get('--fast') and 'to' not in opts:
+        opts['to'] = MAIN
+    if opts.get('to', STAGING) not in (STAGING, MAIN):
+        return None
+    if full and (opts.get('--fast') or opts.get(DESPITE_FLAG)
+                 or opts.get(NO_FULL_AFTER_FLAG)):
+        return None
+    if opts.get('because') is not None and not full:
+        return None
+    if opts.get('to') == STAGING and (opts.get('--fast') or full
+                                      or opts.get(DESPITE_FLAG)
+                                      or opts.get(NO_FULL_AFTER_FLAG)):
+        return None
+    return {'to': opts.get('to'), 'work': opts.get('work'), 'fast': not full,
+            'because': opts.get('because'),
+            'despite_failed_tests': bool(opts.get(DESPITE_FLAG)),
+            'no_full_after': bool(opts.get(NO_FULL_AFTER_FLAG))}
+
+
 def _main(argv):
     root = _git(pathlib.Path.cwd(), 'rev-parse', '--show-toplevel')
     if not root:
@@ -4442,30 +4574,23 @@ def _main(argv):
             print(line)
         return 0
     if argv[:1] == ['--promote']:
-        rest, opts = argv[1:], {}
-        while rest:
-            if len(rest) >= 2 and rest[0] in ('--to', '--work'):
-                opts[rest[0][2:]] = rest[1]
-                rest = rest[2:]
-            elif rest[0] in ('--fast', DESPITE_FLAG, NO_FULL_AFTER_FLAG):
-                opts[rest[0]] = True
-                rest = rest[1:]
-            else:
-                break
-        fast = bool(opts.get('--fast'))
-        if fast and 'to' not in opts:
-            opts['to'] = MAIN
-        if rest or opts.get('to', STAGING) not in (STAGING, MAIN) or (
-                fast and opts['to'] != MAIN) or (
-                (opts.get(DESPITE_FLAG) or opts.get(NO_FULL_AFTER_FLAG)) and not fast):
+        kw = promote_args(argv[1:])
+        if kw is None:
             print('usage: precedent_branches.py --promote [--to staging|main] '
-                  '[--work BRANCH-OR-COMMIT] [--fast [--despite-failed-tests] '
-                  '[--no-full-after]]'
-                  '  (--fast is the move into main)', file=sys.stderr)
+                  '[--work BRANCH-OR-COMMIT] [--full --because \'<their words>\' '
+                  '| [--despite-failed-tests] [--no-full-after]]  (the move into '
+                  'main is the fast one unless the person asks for --full)',
+                  file=sys.stderr)
             return 2
-        return promote(root, to=opts.get('to'), work=opts.get('work'),
-                       fast=fast, despite_failed_tests=bool(opts.get(DESPITE_FLAG)),
-                       no_full_after=bool(opts.get(NO_FULL_AFTER_FLAG)))
+        refused = full_route_refusal(kw)
+        if refused:
+            print(refused, file=sys.stderr)
+            return 2
+        because = kw.pop('because')
+        if because:
+            print(f'the full route into {MAIN}, because the person asked: '
+                  f'{because.strip()!r}', flush=True)
+        return promote(root, **kw)
     if argv[:1] == ['--land'] and len(argv) <= 2:
         return land(root, argv[1] if len(argv) == 2 else None)
     if argv[:1] == ['--run-tests'] and len(argv) <= 2:
