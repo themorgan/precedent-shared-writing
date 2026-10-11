@@ -820,6 +820,9 @@ esac
 mkdir -p "$hooks_dir" 2>/dev/null || true
 target="$hooks_dir/pre-commit"
 marker="# precedent:commit-identity"
+# The version of the global hooks below (see _install_global_backstop):
+# the date their text last changed.
+GLOBAL_HOOKS_VERSION=20261010
 
 # Never clobber a pre-commit hook somebody else put here. Ours is
 # recognised by its marker; anything else is left alone, out loud.
@@ -1080,6 +1083,25 @@ _install_global_backstop() {
   fi
   mkdir -p "$dir" 2>/dev/null || return 0
 
+  # A NEWER ENGINE'S HOOKS ARE NEVER REPLACED BY AN OLDER ONE'S (2026-10-10).
+  # Every repository's session start writes this one directory, so the last
+  # to start wins: one with an older engine put the plain pass-through
+  # pre-push back, and the leak gate and the failed-tree refusal stopped
+  # running on every push from this machine. Each write records
+  # GLOBAL_HOOKS_VERSION; a writer whose number is lower leaves the
+  # directory alone and says so. An engine older than this stamp cannot
+  # read it, so until each repository takes Update Vendors it can still
+  # overwrite -- and the next newer one to start writes it back.
+  # Raise GLOBAL_HOOKS_VERSION (today's date) whenever a hook's text here
+  # changes.
+  local have
+  have="$(cat "$dir/.precedent-hooks-version" 2>/dev/null || echo 0)"
+  case "$have" in ''|*[!0-9]*) have=0 ;; esac
+  if [ "$have" -gt "$GLOBAL_HOOKS_VERSION" ]; then
+    echo "NOTE: commit-identity: the global hooks at $dir were written by a newer engine ($have, this one is $GLOBAL_HOOKS_VERSION) -- left as they are. Take Update Vendors here to match." >&2
+    return 0
+  fi
+
   for hook in pre-commit prepare-commit-msg; do
     cat > "$dir/$hook" <<GLOBALHOOK
 #!/bin/sh
@@ -1235,6 +1257,7 @@ PASSTHROUGH
   done
   _write_pre_push "$dir"
   _write_ci_cadence "$dir"
+  printf '%s\n' "$GLOBAL_HOOKS_VERSION" > "$dir/.precedent-hooks-version" 2>/dev/null || true
 
   if [ "$existing" != "$dir" ] && ! _global_config_writable; then
     echo "NOTE: commit-identity: GIT_CONFIG_GLOBAL is $GIT_CONFIG_GLOBAL, which is not a regular file, so core.hooksPath is not set globally (writing it would replace that file); the hooks are written to $dir." >&2
@@ -1260,13 +1283,35 @@ _write_pre_push() {
   cat > "$1/pre-push" <<PREPUSH
 #!/bin/sh
 $marker -- GLOBAL pre-push, installed by the commit-identity hook.
-# Runs the leak gate over what the push publishes, then the repository's own
-# pre-push. Safe to delete; rewritten at every session start.
+# Refuses a tree the push check last failed, runs the leak gate over what
+# the push publishes, then the repository's own pre-push. Safe to delete;
+# rewritten at every session start.
 _input="\$(cat)"
 _top="\$(git rev-parse --show-toplevel 2>/dev/null || true)"
 _common="\$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || git rev-parse --absolute-git-dir 2>/dev/null || true)"
 _own="\$_common/hooks/pre-push"
 _gate="\$_top/tools/leak_gate.py"
+# A tree the push check last FAILED is not pushed (precedent_push_check.py,
+# FAILED_TREES): the check's own "do not push past it", made to hold where
+# no harness hook runs. A pass of the same tree clears it.
+_failed="\$_common/precedent-push-check-failed.json"
+if [ -n "\$_common" ] && [ -s "\$_failed" ] && command -v python3 >/dev/null 2>&1; then
+  if [ "\${PRECEDENT_SKIP_FAILED_TREE:-}" = 1 ]; then
+    echo "pre-push: the failed-check refusal SKIPPED for this push (PRECEDENT_SKIP_FAILED_TREE=1)" >&2
+  else
+    for _sha in \$(printf '%s\\n' "\$_input" | awk 'NF == 4 { print \$2 }'); do
+      _tree="\$(git rev-parse --verify --quiet "\$_sha^{tree}" 2>/dev/null || true)"
+      [ -n "\$_tree" ] || continue
+      if _why="\$(python3 -c 'import json,sys
+d = json.load(open(sys.argv[1])).get(sys.argv[2])
+if not d: sys.exit(1)
+print(", ".join(d.get("failed") or []) + (" at " + d["at"] if d.get("at") else ""))' "\$_failed" "\$_tree" 2>/dev/null)"; then
+        echo "push refused: precedent_push_check FAILED on exactly this tree (\$_why) and has not passed on it since. Fix what it found, run python3 tools/precedent_push_check.py again, and push once it passes. PRECEDENT_SKIP_FAILED_TREE=1 lets one push through." >&2
+        exit 1
+      fi
+    done
+  fi
+fi
 if [ -n "\$_top" ] && [ -f "\$_gate" ] && command -v python3 >/dev/null 2>&1 \\
    && ! { [ -f "\$_own" ] && grep -q "Precedent leak gate" "\$_own" 2>/dev/null; }; then
   if [ "\${PRECEDENT_SKIP_LEAK_GATE:-}" = 1 ]; then

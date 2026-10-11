@@ -177,9 +177,31 @@ def is_file_reference(span):
 FROZEN_PREFIXES = ()
 
 def drop_frozen(files):
+    files = drop_records(files)
     if not FROZEN_PREFIXES:
         return files
     return [f for f in files if not pathlib.PurePath(f).name.startswith(FROZEN_PREFIXES)]
+
+
+def drop_records(files):
+    """Leave out the files this repository declares as records
+    (precedent.json `record_paths`, read by precedent_resolve, its one
+    reader): a call transcript or a dated audit keeps what was said or
+    filed, and is not linted into something else (2026-10-10, a consumer's
+    transcripts, refused on the speakers' own words). A file named
+    explicitly on the command line is still linted, unless it came from the
+    commit gate (--scope-changed). An engine with no
+    resolver declares nothing: fewer exemptions, never more."""
+    try:
+        import precedent_resolve as _pr
+        records = list(_pr.declared_record_paths(ROOT))
+    except Exception:                                          # noqa: BLE001
+        return files
+    if not records:
+        return files
+    return [f for f in files
+            if not any(f == r or (r.endswith('/') and f.startswith(r))
+                       for r in records)]
 
 # ---- acronym check (check 3) ----
 ACRONYM_RE = re.compile(r'\b([A-Z]{2}[A-Z0-9]{0,4})\b')   # 2-6 chars, ≥2 leading letters
@@ -196,6 +218,29 @@ ACRONYM_SKIP_FILES = {'GLOSSARY.md'}
 # so "link the ones you touched" is advice nobody can take there. Only the
 # unlinked-reference warning is skipped; every other check still runs.
 UNLINKED_SKIP_FILES = {'todo/TODO.md', 'todo/CLOSED.md', 'gotchas/INDEX.md'}
+
+
+def received_practice_files(root=None):
+    """-> {'practices/<slug>.md'} for each practice this repository received
+    from another source: listed in its MANIFEST.json (a consuming repo's
+    record of what precedent_sync_views.py materialized) at any level but
+    repo-local. An edit there is overwritten by the next sync, so a bare
+    file name in one is its source's to link, not this repo's; the
+    unlinked-reference warning skips them. WHY (2026-10-10, a consumer's
+    update): two individual-set practices' Story sections gave eight
+    "is not a link" lines in every repo that received them, at every
+    update, naming files of another repository that no link here could
+    reach. Every other check still runs on them."""
+    try:
+        man = json.loads(((root or ROOT) / 'MANIFEST.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return set()
+    out = set()
+    for row in man.get('practices') or [] if isinstance(man, dict) else []:
+        if isinstance(row, dict) and row.get('slug') and \
+                row.get('level') not in (None, 'repo-local'):
+            out.add(f"practices/{row['slug']}.md")
+    return out
 # common words / units / universally-known tech that are never worth glossing:
 ACRONYM_STOP = {
     'THE','AND','FOR','NOT','BUT','ALL','ONE','TWO','OUR','YOU','WHO','WHY','HOW','NEW',
@@ -1089,7 +1134,16 @@ def check_upstream_item(path, root=None):
     block does not count (2026-10-08: a consumer's item that said to run
     `python3 tools/open_failures.py --file ...` was refused, and had to link
     the tool instead of writing the command). The same path in prose, in a
-    link's text, or as a later argument of the command still counts."""
+    link's text, or as a later argument of the command still counts.
+
+    Two more readings that are not the subject (2026-10-10, a consumer's
+    Update Vendors): a fenced block is quoted material -- a check's verbatim
+    output names its own script -- so nothing inside a fence counts; and an
+    item whose stated reason names its blocker, and that blocker is no
+    repository a source comes from (waiting_on: the person), says what it
+    waits on, so a vendored path in its body does not make it an upstream
+    fix. The consumer's item asked whether the person grandfathers three
+    commits, quoted the check's output, and was refused for it."""
     root = pathlib.Path(root or ROOT)
     p = pathlib.PurePosixPath(str(path))
     if p.parent.name != 'todo' or not (p.name.startswith('todo-') and p.suffix == '.md'):
@@ -1113,8 +1167,14 @@ def check_upstream_item(path, root=None):
     # refused for a one-line note until it linked an unrelated pull
     # request). Only the address goes; the link's own text still counts,
     # so "[tools/doc_lint.py](...) misreads a fence" is still caught.
-    body = _drop_run_programs(
-        _LINK_TARGET_RE.sub('](', _MIGRATION_STAMP_RE.sub('', text)))
+    reason = ' '.join(v.strip().strip('"\'') for v in re.findall(
+        r'^(?:blocked_on|waiting_on):(.*)$', head, re.M))
+    reason = re.sub(r'\b(?:null|none|~)\b', '', reason, flags=re.I).strip()
+    if reason and not any(re.search(r'(?<![\w.-])' + re.escape(n) + r'(?![\w-])',
+                                    reason, re.I) for n in names):
+        return None
+    body = _CODE_FENCE_RE.sub('', _drop_run_programs(
+        _LINK_TARGET_RE.sub('](', _MIGRATION_STAMP_RE.sub('', text))))
     lead = r'(?:(?<=\.\./)|(?<![\w./-]))'
     named = None
     for e in entries:
@@ -1125,7 +1185,6 @@ def check_upstream_item(path, root=None):
             named = m.group(0).rstrip('.,;:')
             break
     if named is None:
-        reason = ' '.join(re.findall(r'^(?:blocked_on|waiting_on):(.*)$', head, re.M))
         named = next((n for n in names if re.search(
             r'(?<![\w.-])' + re.escape(n) + r'(?![\w-])', reason, re.I)), None)
         if named is None:
@@ -1137,6 +1196,15 @@ def check_upstream_item(path, root=None):
             f"sets it up); or, when it cannot wait, keep the local fix and save "
             f"the upstream one here as a `## Prompt Please` section with the "
             f"paste-ready block in a fence")
+
+
+_RECEIVED = []
+
+
+def _received():
+    if not _RECEIVED:
+        _RECEIVED.append(received_practice_files())
+    return _RECEIVED[0]
 
 
 def check_file(path, fix=False, known=None):
@@ -1153,6 +1221,7 @@ def check_file(path, fix=False, known=None):
         unglossed = scan_unglossed(
             (ROOT / path).read_text(encoding='utf-8', errors='ignore'),
             known, path)
+    received = str(path).replace('\\', '/') in _received()
     for i, line in iter_prose_lines(path):
         if HAVE_GFM and renders_del(line) and '~~' not in line:
             if fix:
@@ -1162,7 +1231,7 @@ def check_file(path, fix=False, known=None):
         # unlinked refs: a `file.md` code span not immediately followed by ](
         for m in REF_RE.finditer(line):
             after = line[m.end():m.end()+2]
-            if (after != '](' and is_file_reference(m.group(1))
+            if (after != '](' and is_file_reference(m.group(1)) and not received
                     and str(path).replace('\\', '/') not in UNLINKED_SKIP_FILES):
                 unlinked.append((i, m.group(1)))
         # target= anchors: GitHub strips the attribute from rendered HTML (check 4);
@@ -1607,6 +1676,10 @@ def main():
             print("(explicit paths are resolved against the repo root — a missing "
                   "file scanned as 'OK' is a silent no-op)")
             return 2
+        if '--scope-changed' in flags:
+            # The commit gate (doc-lint-gate.sh) names the staged files; a
+            # declared record among them is left as filed, as above.
+            files = drop_records(files)
     else:
         files, gate = drop_frozen(changed_md()), True
 

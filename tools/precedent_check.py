@@ -7371,6 +7371,24 @@ def _vocabulary_reaches_the_consumer(ctx):
             f'that inspected nothing reads exactly like one that cleared '
             f'the repo')
 
+    # A REPO-LOCAL PRACTICE NEVER TRAVELS (2026-10-10, a consumer). Its
+    # `command:` named tools/notes_file.py, a script of that repo's own, and
+    # this refused it as missing from the engine lists -- a failure that
+    # cannot happen to a practice authored, with its script, in the one repo
+    # that reads it. The session dropped the `command:` to get past, and the
+    # word left the repo's Vocabulary. So the repo's MANIFEST.json says each
+    # practice's level; a repo-local one must name scripts the repo has,
+    # and every other level is judged against the engine lists as before.
+    # No MANIFEST.json, or a practice it does not list: today's rule.
+    levels = {}
+    try:
+        _man = json.loads((ctx.root / 'MANIFEST.json').read_text(encoding='utf-8'))
+        for _row in (_man.get('practices') or []) if isinstance(_man, dict) else []:
+            if isinstance(_row, dict) and _row.get('slug'):
+                levels[_row['slug']] = _row.get('level')
+    except (OSError, ValueError):
+        pass
+
     findings = []
     for path, text in command_practices:
         slug = path.stem
@@ -7395,6 +7413,15 @@ def _vocabulary_reaches_the_consumer(ctx):
         named = sorted({m for m in _re.findall(r'tools/([A-Za-z0-9_]+\.py)',
                                                text)})
         for script in named:
+            if levels.get(slug) == 'repo-local':
+                if not (ctx.root / 'tools' / script).is_file():
+                    findings.append(Finding(
+                        f'practices/{slug}.md',
+                        f'is this repository\'s own practice, declares a '
+                        f'standing command, and names tools/{script}, which '
+                        f'is not in this repository: the person can say the '
+                        f'word and the script it points at is not there'))
+                continue
             if script in NEVER_VENDORED or script in consumer:
                 continue
             findings.append(Finding(
@@ -8153,9 +8180,33 @@ def _is_vendored(path):
     return path.startswith(_mirrored(ROOT))
 
 
+def _in_record_path(rel, records):
+    """True when `rel` is one of the repository's declared records
+    (precedent.json `record_paths`): the path itself, or under an entry
+    ending in "/"."""
+    rel = str(rel).replace('\\', '/')
+    return any(rel == r or (r.endswith('/') and rel.startswith(r))
+               for r in records)
+
+
 def _md_in_scope(ctx):
+    """The changed Markdown the writing checks read: never a vendored file,
+    and never a declared record.
+
+    RECORDS ARE LEFT AS WRITTEN (2026-10-10, a consumer filing call
+    transcripts). Its first two transcripts could not be committed: the
+    acronym, figure and heading checks flagged what people SAID on the
+    calls, and the only ways past were editing the record of their speech,
+    exempting the whole repo, or storing it where no check reads it. Every
+    caller of this is about how text is written -- strikethrough, heading
+    levels, acronyms, figures, labels, current-state wording, indexes -- so
+    a file the repository declares in record_paths is out of all of them.
+    The leak and private-name checks are separate tools that read every
+    file, records included."""
+    records = _declared_record_paths()
     return [f for f in ctx.changed
-            if f.endswith('.md') and not _is_vendored(f) and (ROOT / f).exists()]
+            if f.endswith('.md') and not _is_vendored(f) and (ROOT / f).exists()
+            and not _in_record_path(f, records)]
 
 
 @check('doc-references-are-links', 'change',
@@ -8242,9 +8293,12 @@ def _headline_capitalization(ctx):
     # asks it rather than carrying a second copy of the boundary, and passes
     # ROOT so the repo-declared half is read from THIS repo's config rather
     # than the process's working directory.
+    # A declared record keeps the headings it was filed with (2026-10-10,
+    # the same transcripts as _md_in_scope's note).
+    records = _declared_record_paths()
     scope = [f for f in ctx.changed
              if f.endswith('.md') and title_case.is_outward(f, root=ROOT)
-             and (ROOT / f).exists()]
+             and (ROOT / f).exists() and not _in_record_path(f, records)]
     if not scope:
         raise NotApplicable('no changed outward-facing document is in scope')
     out = []
@@ -9632,7 +9686,13 @@ def _repo_retired_terms(cfg_path, _ol):
     # An exempt_files entry ending in `/` exempts a directory: a
     # materialized one holds other sources' content that can share a
     # retired term by coincidence, and its file list changes every sync.
-    exempt_files = [RETIRED_VOCAB_CONFIG] + exempt_files
+    # A DECLARED RECORD KEEPS THE OLD NAMES TOO (2026-10-10, a consumer's
+    # migration record). precedent.json's record_paths is the one list of
+    # files that are records -- the citation, link and writing checks read
+    # it -- so this scrub reads it as well, and a record is declared once.
+    # exempt_files stays for what is not a record (a materialized tree, a
+    # generated index), and still works for a record listed there before.
+    exempt_files = [RETIRED_VOCAB_CONFIG] + exempt_files + _declared_record_paths()
     retired = [(t, 'this repository\'s current wording', [_retired_term_re(t)])
                for t in terms]
     out = []
@@ -11212,7 +11272,11 @@ def _open_item_disposition_copies(ctx):
 # catalogue practice -- there is no practices/<slug>.md for it to be in
 # force against, the same shape as open-item-disposition's sibling checks
 # that guard a file's grammar rather than a rule a session follows.
-TODO_STALE_LINK_RE = re.compile(r'(\.\./)?\bTODO\.md#[a-zA-Z0-9-]+')
+# Not todo/TODO.md: that is the live generated index, and a link to one
+# of its sections (#due-reminders) is current, not a pre-migration
+# citation (2026-10-10, a people-facing page linking the Due Reminders
+# table was refused).
+TODO_STALE_LINK_RE = re.compile(r'(\.\./)?(?<!todo/)\bTODO\.md#[a-zA-Z0-9-]+')
 BARE_GOTCHA_ANCHOR_RE = re.compile(r'\]\(#g\d+\)')
 ITEM_N_PHRASE_RE = re.compile(
     r'\bTODO(?:\.md)?\s+item\s+\d+\b|\bitem\s+\d+\s*\(\s*(?:was|closed)\b',

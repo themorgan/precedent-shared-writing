@@ -504,16 +504,32 @@ def repo_kind(engine=HERE):
 # carries what it runs, and so is a step calling an engine file. Any other
 # step is named by Update Vendors, once per update (the second answer of
 # approved_workflow_checks), so nobody reads a pass as covering it.
+#
+# ONLY TESTS, NEVER THE PRODUCT (2026-10-10, a consumer whose workflows ARE
+# its deliverable -- a live calendar sync run on GitHub with secrets). Its
+# Update Vendors called every step of them a missed check and said to run it
+# on every push, which would have run the live sync on every push. So a
+# workflow counts only when GitHub runs it on a change (push, pull_request,
+# merge_group), never one an entry marks `"role": "deliverable"`; a step
+# counts only when it looks like a check (its name or command says check,
+# test, lint, audit, verify or validate); and a step reading GitHub's own
+# environment (`$VAR`) is never run here, only named.
 APPROVED_WORKFLOWS_KEY = 'github_ci_approved'
-_LOCAL_STEP_RE = re.compile(r'^(python3?)\s+(tools/[\w./-]+\.py)((?:\s+[\w./=:@-]+)*)\s*$')
+DELIVERABLE_ROLE = 'deliverable'
+_LOCAL_STEP_RE = re.compile(r'^(python3?)\s+(tools/[\w./-]+\.py)(\s.*)?$')
+_CHECK_LIKE_RE = re.compile(
+    r'(?<![a-z])(check|checks|checker|test|tests|lint|linter|audit|verify|'
+    r'validate|validation|phpunit|pytest|unittest|doc_lint)(?![a-z])', re.I)
+_CHANGE_EVENTS = {'push', 'pull_request', 'pull_request_target', 'merge_group'}
 _SETUP_STEP_RE = re.compile(r'^(?:python3?\s+-m\s+pip|pip3?|echo|set|cd|export|git\s+config|true)\b')
 
 
-def _workflow_commands(text):
-    """-> [(step name, command)] for every `run:` line in a workflow, a
-    block's lines one by one. Read line by line, not as YAML: nothing here
+def _workflow_steps(text):
+    """-> [(step name, command, condition)] for every `run:` line in a
+    workflow, a block's lines one by one; `condition` is the step's own
+    `if:`, '' when it has none. Read line by line, not as YAML: nothing here
     may need PyYAML, and a run step's shape is regular enough."""
-    out, name, block, indent = [], '', False, 0
+    out, name, cond, block, indent = [], '', '', False, 0
     for line in text.splitlines():
         stripped = line.strip()
         lead = len(line) - len(line.lstrip())
@@ -521,20 +537,95 @@ def _workflow_commands(text):
             if stripped and lead <= indent:
                 block = False
             elif stripped and not stripped.startswith('#'):
-                out.append((name, stripped))
+                out.append((name, stripped, cond))
                 continue
             else:
                 continue
+        if re.match(r'^\s*-\s+[\w-]+:', line):        # a new step begins
+            name, cond = '', ''
         m = re.match(r'^\s*-?\s*name:\s*(.+?)\s*$', line)
         if m:
             name = m.group(1).strip('"\'')
+        m = re.match(r'^\s*-?\s*if:\s*(.+?)\s*$', line)
+        if m:
+            cond = m.group(1)
         m = re.match(r'^(\s*)-?\s*run:\s*(.*?)\s*$', line)
         if m:
             if m.group(2) in ('|', '>', '|-', '>-'):
                 block, indent = True, len(m.group(1))
             elif m.group(2):
-                out.append((name, m.group(2)))
+                out.append((name, m.group(2), cond))
     return out
+
+
+def _workflow_commands(text):
+    """-> [(step name, command)] for every `run:` line (_workflow_steps)."""
+    return [(n, c) for n, c, _ in _workflow_steps(text)]
+
+
+# A STEP NO CHANGE CAN RUN IS NO TEST OF ONE (2026-10-10, a consumer's
+# product workflow). Its alarm drill files a todo item and opens an issue
+# only when the job has already failed, and only when started by hand with
+# an input set; the detector counted both as GitHub-only checks because
+# their names said "alerting test". A step whose `if:` runs it only after a
+# failure (failure() or cancelled(), and not always()), or only on a manual
+# input (inputs.X required, never negated or or-ed), is skipped.
+def _never_tests_a_change(cond):
+    c = (cond or '').replace(' ', '')
+    if not c:
+        return False
+    if re.search(r'\b(?:failure|cancelled)\(\)', c) and 'always()' not in c \
+            and not re.search(r'\bsuccess\(\)', c):
+        return True
+    return bool(re.search(r'(?<![!\w.])inputs\.\w+', c)) and '||' not in c
+
+
+def _unquoted(cmd):
+    """-> `cmd` with its quoted strings blanked: words a script prints or
+    stores are not what it runs (2026-10-10: "Commit state" matched on
+    'file the alerting test as a todo item', a string it appends)."""
+    return re.sub(r'"(?:[^"\\]|\\.)*"|\'[^\']*\'', ' ', cmd)
+
+
+def _workflow_events(text):
+    """-> the set of events a workflow's `on:` names, or None when there is
+    no `on:` to read (then it is treated as running on a change)."""
+    events, seen, inside = set(), False, False
+    for line in text.splitlines():
+        body = line.split(' #', 1)[0].rstrip()
+        if not body.strip() or body.lstrip().startswith('#'):
+            continue
+        ind = len(body) - len(body.lstrip(' '))
+        if ind == 0:
+            m = re.match(r'["\']?on["\']?:\s*(.*)$', body)
+            inside = bool(m) and not m.group(1).strip()
+            if m:
+                seen = True
+                events |= set(re.findall(r'[\w-]+', m.group(1)))
+            continue
+        if inside and ind == 2:
+            m = re.match(r'\s*-?\s*["\']?([\w-]+)["\']?', body)
+            if m:
+                events.add(m.group(1))
+    return events if seen else None
+
+
+def _local_argv(cmd):
+    """-> the argv of a `python3 tools/<x>.py ARGS` line, quoted arguments
+    unquoted, or None when it is not one, cannot be split, or reads
+    GitHub's environment ($VAR), which only GitHub has."""
+    m = _LOCAL_STEP_RE.match(cmd)
+    if not m or '$' in cmd or '`' in cmd:
+        return None
+    try:
+        import shlex
+        rest = shlex.split(m.group(3) or '')
+    except ValueError:
+        return None
+    if any(t in ('|', '||', '&&', ';', '>', '>>', '<') or t.startswith(('>', '<', '|'))
+           for t in rest):
+        return None
+    return [m.group(2), *rest]
 
 
 def approved_workflow_checks(root):
@@ -563,15 +654,25 @@ def approved_workflow_checks(root):
     checks, unrun = [], []
     for rel in sorted(approved if isinstance(approved, dict) else []):
         wf = root / rel
-        if rel in engine_wf or not wf.is_file():
+        entry = approved.get(rel)
+        if rel in engine_wf or not wf.is_file() or (
+                isinstance(entry, dict) and entry.get('role') == DELIVERABLE_ROLE):
             continue
-        for step, cmd in _workflow_commands(wf.read_text(encoding='utf-8', errors='replace')):
-            m = _LOCAL_STEP_RE.match(cmd)
-            if m and '${{' not in cmd:
-                if m.group(2) in engine_tools:
+        text = wf.read_text(encoding='utf-8', errors='replace')
+        events = _workflow_events(text)
+        if events is not None and not events & _CHANGE_EVENTS:
+            continue            # a button or a schedule: never a change's test
+        for step, cmd, cond in _workflow_steps(text):
+            if _never_tests_a_change(cond):
+                continue
+            if not (_CHECK_LIKE_RE.search(step) or _CHECK_LIKE_RE.search(_unquoted(cmd))):
+                continue
+            argv = _local_argv(cmd)
+            if argv:
+                if argv[0] in engine_tools:
                     continue
-                checks.append((f'workflow {Path(rel).name}: {m.group(2)}',
-                               [sys.executable, m.group(2), *m.group(3).split()],
+                checks.append((f'workflow {Path(rel).name}: {argv[0]}',
+                               [sys.executable, *argv],
                                f'its step "{step}" on GitHub'))
             elif not _SETUP_STEP_RE.match(cmd) and \
                     not any(u[:2] == (rel, step) for u in unrun):
@@ -627,6 +728,62 @@ def signature(checks):
 def record_path(root):
     p = git(root, 'rev-parse', '--git-path', RECORD)
     return (root / p) if p else None
+
+
+# A FAILED TREE IS NOT PUSHED (2026-10-10). A session working in a
+# repository it was not started in loads none of that repository's harness
+# hooks, push-check-gate.sh among them, and pushed a branch right after this
+# tool had printed "FAILED ... do not push past it". Nothing stopped it. A
+# failure is now written down against the tree it judged, in the git
+# directory every worktree shares, and the global pre-push hook
+# (commit-identity.sh, _write_pre_push) refuses a push of that tree, from
+# any repository, under any harness. A pass of the same tree clears it. The
+# hook runs no check itself: on a ladder push it would re-run the full
+# suite a session's own gate has already run.
+FAILED_TREES = 'precedent-push-check-failed.json'
+FAILED_TREES_KEPT = 50
+
+
+def failed_trees_path(root):
+    p = git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+    return Path(p) / FAILED_TREES if p else None
+
+
+def _failed_trees(path):
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def note_failed_tree(root, tree, failed):
+    """Record that `tree` failed `failed` (check names). Never raises."""
+    path = failed_trees_path(root)
+    if not (tree and path):
+        return
+    try:
+        data = _failed_trees(path)
+        data.pop(tree, None)
+        data[tree] = {'failed': list(failed),
+                      'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+        keep = dict(list(data.items())[-FAILED_TREES_KEPT:])
+        path.write_text(json.dumps(keep, indent=2) + '\n', encoding='utf-8')
+    except OSError:
+        pass
+
+
+def clear_failed_tree(root, tree):
+    """A pass of `tree` clears any failure recorded for it. Never raises."""
+    path = failed_trees_path(root)
+    if not (tree and path and path.is_file()):
+        return
+    data = _failed_trees(path)
+    if data.pop(tree, None) is not None:
+        try:
+            path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+        except OSError:
+            pass
 
 
 def dirty_paths(root):
@@ -2072,6 +2229,7 @@ def main(argv):
               + (' but the checks that judge commits rather than files.'
                  if history else '.'), flush=True)
         if not history:
+            clear_failed_tree(root, rec.get('tree'))
             return 0
         failed, _missing, total, findings = run(root, history, landed)
         if failed:
@@ -2082,7 +2240,9 @@ def main(argv):
                   f'({total:.0f}s). The files passed before, but a commit '
                   f'here since then did not. Fix the commit and run this '
                   f'again; do not push past it.')
+            note_failed_tree(root, rec.get('tree'), failed)
             return 1
+        clear_failed_tree(root, rec.get('tree'))
         return 0
 
     if git(root, 'rev-parse', '--is-shallow-repository') == 'true':
@@ -2166,11 +2326,15 @@ def main(argv):
         print(f'\nprecedent_push_check: FAILED -- {", ".join(failed)} '
               f'({total:.0f}s). Fix the finding and run this again; do not '
               f'push past it.')
+        # Only a tree the run judged exactly: over uncommitted edits it
+        # judged something no push sends.
+        note_failed_tree(root, tree or (tree_before if not moved else None), failed)
         return 1
     if missing:
         print(f'\nprecedent_push_check: passed, but {", ".join(missing)} '
               f'could not run here -- this repo does not carry the tool. '
               f'Refresh the vendored engine to get it.')
+    clear_failed_tree(root, tree)
     path = record_path(root)
     if reported:
         # Not recorded: the pass stood only because this push goes to a
