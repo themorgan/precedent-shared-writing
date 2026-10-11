@@ -18,13 +18,16 @@ permissions already allow; it changes nothing but the path.
 
 For each branch `land_queue.py next` names, it:
 
-1. marks it `landing`, fetches it, and merges the commit that was queued
+1. waits its turn for the lock Promote and --land take (the branch
+   precedent-promote-lock; a busy lock is waited out, up to ten minutes),
+   then marks it `landing`, fetches it, and merges the commit that was queued
    (never a later one) into the trunk with `--no-ff`; a conflict confined
    to the generated lists it may rebuild is rebuilt, any other fails;
 2. runs the repository's own gates;
 3. resyncs the practice views, as a commit of its own if they moved;
 4. runs the push check until it leaves no check-ledger files changed;
-5. pushes the trunk, and on a rejected push starts that branch over on the
+5. pushes the trunk, and on a rejected push (someone pushed without the
+   lock) waits a few jittered seconds and starts that branch over on the
    new trunk, at most three times;
 6. confirms by a fresh fetch that the merge commit is on the trunk, and
    only then marks the branch `landed`.
@@ -72,12 +75,35 @@ BESTPRACTICE = ROOT.parent / "BestPractice"
 BESTPRACTICE_URL = "https://github.com/alex137/BestPractice"
 
 
+def _landing_branch(root, pj):
+    """-> the branch a Booked lands on here: precedent_branches.landing_branch,
+    the one definition --land and --landing read.
+
+    WHY (2026-10-10). This read only precedent.json's base_branch, else
+    main. A consumer whose precedent.json says "landing_branch": "staging",
+    with no lander block, had a docs branch queued and landed straight onto
+    main, past staging -- promote-only broken by the tool meant to keep it.
+    Every consumer but one carrying this lander was in that shape. An engine
+    too old to carry the function falls back to the setting itself."""
+    main = pj.get("base_branch") or "main"
+    try:
+        import precedent_branches as pb
+        branch = pb.landing_branch(pathlib.Path(root))[0]
+    except Exception:  # noqa: BLE001
+        branch = pj.get("landing_branch") or "main"
+    # The resolver's "main" is the role, the trunk; a repository whose trunk
+    # is called something else names it in base_branch.
+    return main if branch == "main" else branch
+
+
 def lander_config(root):
     """The repository's own part of the lander: precedent.json's "lander"
     block. Everything else here is the same in every repository.
 
-      trunk          the branch it lands on (default: precedent.json's
-                     base_branch, else main)
+      trunk          the branch it lands on (default: the landing branch
+                     tools/precedent_branches.py --landing names -- the
+                     person's, then precedent.json's -- read by its own
+                     function, landing_branch, so the two can never differ)
       gates          [[name, command...], ...] run on each merge before the
                      push check -- the repository's own audits
       shared_caches  gitignored cache directories a landing worktree links
@@ -94,7 +120,7 @@ def lander_config(root):
         pj = {}
     cfg = pj.get("lander") or {}
     return {
-        "trunk": cfg.get("trunk") or pj.get("base_branch") or "main",
+        "trunk": cfg.get("trunk") or _landing_branch(root, pj),
         "gates": tuple((g[0], list(g[1:])) for g in cfg.get("gates", [])),
         "shared_caches": tuple(cfg.get("shared_caches", [".cache"])),
         "ledgers": tuple(cfg.get("ledgers", [])),
@@ -256,6 +282,43 @@ def prepare(repo, bestpractice, detached=False):
                check=False).returncode == 0
 
 
+@contextlib.contextmanager
+def landing_lock(repo, what):
+    """Hold the lock Promote and --land take (precedent_branches.py,
+    wait_for_landing_lock) for one landing, waiting while another window
+    holds it. Yields None once held, or when the lock cannot be used at all
+    (the landing goes ahead as before); yields the holder when it stayed
+    held past the wait, and the caller lands nothing. Master is reset to
+    origin's after the claim, so the landing starts from the trunk as it is
+    once the turn is ours."""
+    try:
+        import precedent_branches as pb
+    except Exception as e:  # noqa: BLE001
+        log(f"landing lock not used: precedent_branches did not import ({e})")
+        yield None
+        return
+    state, info = pb.wait_for_landing_lock(repo, what, log)
+    if state == "busy":
+        yield info
+        return
+    if state == "none":
+        log(f"landing lock not used: {info}")
+    reset_to_origin(repo)
+    try:
+        yield None
+    finally:
+        if state == "held":
+            pb.release_hold(repo, info)
+
+
+def retry_pause(attempt, sleep=time.sleep):
+    """A short, jittered wait before starting over on a moved trunk, so a
+    push that keeps losing to one that does not take the lock is not retried
+    in step with it."""
+    import random
+    sleep(min(5 * 2 ** (attempt - 1), 30) * (0.5 + random.random()))
+
+
 def reset_to_origin(repo):
     git(repo, "merge", "--abort", check=False)
     git(repo, "fetch", "-q", "origin", TRUNK)
@@ -272,7 +335,9 @@ def file_failure(repo, title, finding, closes):
             reset_to_origin(repo)
             path = open_failures.write_item(repo, title, finding, closes)
             run(repo, ["python3", "tools/build_todo_index.py"])
-            git(repo, "add", "todo")
+            # -A, not todo/: the index builder may also list its files in
+            # tools/generated_files.json, and the tree was reset just above.
+            git(repo, "add", "-A")
             git(repo, "commit", "-q", "-m", f"Open failure: {title}{TRAILER}")
         except Exception as e:  # noqa: BLE001
             log(f"could not file the failure under todo/: {e}")
@@ -325,7 +390,14 @@ def vendor_line(out):
 def update_vendors(repo, push_check, vendor_cmd):
     """Take the vendor step on master itself, and land what it committed.
     -> (ok, line, landed commit or "")."""
-    for _ in range(PUSH_TRIES):
+    with landing_lock(repo, f"Update Vendors on {TRUNK}") as held_by:
+        if held_by:
+            return False, f"vendor update: the landing lock stayed held ({held_by})", ""
+        return _update_vendors(repo, push_check, vendor_cmd)
+
+
+def _update_vendors(repo, push_check, vendor_cmd):
+    for attempt in range(1, PUSH_TRIES + 1):
         before = git(repo, "rev-parse", "HEAD").stdout.strip()
         line = vendor_line(run(repo, vendor_cmd)[1])
         log(line)
@@ -337,7 +409,9 @@ def update_vendors(repo, push_check, vendor_cmd):
             return True, f"{line} landed in {detail}", detail
         if detail != "rejected":
             return False, f"{line} -- not landed: {detail}", ""
-        log("push rejected, master moved; taking the vendor step again")
+        log(f"push rejected, {TRUNK} moved; taking the vendor step again")
+        if attempt < PUSH_TRIES:
+            retry_pause(attempt)
     return False, f"vendor update: push rejected {PUSH_TRIES} times", ""
 
 
@@ -366,9 +440,22 @@ def check_and_push(repo, push_check):
         return False, "push check kept changing the ledgers after three runs"
     log("push check passed")
     head = git(repo, "rev-parse", "HEAD").stdout.strip()
-    if git(repo, "push", "-q", "origin", f"HEAD:refs/heads/{TRUNK}", check=False).returncode != 0:
+    pushed = git(repo, "push", "-q", "origin", f"HEAD:refs/heads/{TRUNK}", check=False)
+    if pushed.returncode != 0:
+        # Only a trunk that MOVED is a race worth starting over for
+        # (2026-10-10: three attempts each said "master moved" while the
+        # trunk sat still and a pre-push hook refused every push, its reason
+        # thrown away). The trunk moved when origin's tip is no longer in
+        # what this attempt built on.
+        git(repo, "fetch", "-q", "origin", TRUNK, check=False)
+        moved = git(repo, "merge-base", "--is-ancestor", f"origin/{TRUNK}", head,
+                    check=False).returncode != 0
         reset_to_origin(repo)
-        return False, "rejected"
+        if moved:
+            return False, "rejected"
+        said = (pushed.stderr or pushed.stdout).strip()
+        return False, (f"push refused, and {TRUNK} did not move, so trying again would "
+                       f"be refused the same way. What the push said:\n{said[-1500:]}")
     git(repo, "fetch", "-q", "origin", TRUNK)
     if git(repo, "merge-base", "--is-ancestor", head, f"origin/{TRUNK}", check=False).returncode != 0:
         reset_to_origin(repo)
@@ -418,6 +505,13 @@ def land_one(repo, store, rec, gates, push_check, vendor_cmd, sync_cmd=SYNC_VIEW
     git(repo, "fetch", "-q", "origin", branch, check=False)
     if git(repo, "cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode != 0:
         return False, f"commit {commit[:12]} is not on origin any more (the branch was rewritten?)"
+    with landing_lock(repo, f"landing {branch} on {TRUNK}") as held_by:
+        if held_by:
+            return False, f"the landing lock stayed held ({held_by}); {TRUNK} did not move"
+        return _land_attempts(repo, branch, commit, gates, push_check, vendor_cmd, sync_cmd)
+
+
+def _land_attempts(repo, branch, commit, gates, push_check, vendor_cmd, sync_cmd):
     for attempt in range(1, PUSH_TRIES + 1):
         log(f"{branch}: merging {commit[:12]} (attempt {attempt})")
         m = git(repo, "merge", "--no-ff", "--no-edit", "-m",
@@ -450,8 +544,10 @@ def land_one(repo, store, rec, gates, push_check, vendor_cmd, sync_cmd=SYNC_VIEW
             return True, f"{detail} {vendors}"
         if detail != "rejected":
             return False, detail
-        log(f"{branch}: push rejected, master moved; starting over on the new master")
-    return False, f"push rejected {PUSH_TRIES} times; master kept moving"
+        log(f"{branch}: push rejected, {TRUNK} moved; starting over on the new {TRUNK}")
+        if attempt < PUSH_TRIES:
+            retry_pause(attempt)
+    return False, f"push rejected {PUSH_TRIES} times; {TRUNK} kept moving"
 
 
 def land_queue_run(repo=ROOT, once=False, vendor=False, gates=GATES, push_check=PUSH_CHECK,
@@ -505,7 +601,9 @@ def _land_queue_run(repo, once, vendor, gates, push_check, bestpractice, store, 
         if once:
             break
     vendor_ok = True
-    take = vendor or any(landed for _, landed, _ in results)
+    # --no-vendor means no vendor step at all (2026-10-10: it was taken
+    # anyway once a branch landed, and printed "VENDORS: updated").
+    take = vendor
     if take and not vendor_cmd:
         print(f"VENDORS: NOT TAKEN -- the BestPractice clone is not on a clean, current "
               f"{followed_branch(repo)} (see the log above)")
@@ -667,6 +765,13 @@ def self_check():
         ok &= cfg["rebuilt"] == {"todo/TODO.md": ["python3", "b.py"]}
         (td / "precedent.json").write_text('{"lander": {"trunk": "trunk"}}\n')
         ok &= lander_config(td)["trunk"] == "trunk"
+        # The landing branch decides, as --land reads it (2026-10-10: a
+        # repo landing on staging, with no lander block, landed on main).
+        (td / "precedent.json").write_text('{"landing_branch": "staging"}\n')
+        ok &= lander_config(td)["trunk"] == "staging"
+        (td / "precedent.json").write_text('{"landing_branch": "staging", "base_branch": "main",'
+                                           ' "lander": {"trunk": "elsewhere"}}\n')
+        ok &= lander_config(td)["trunk"] == "elsewhere"
         (td / "precedent.json").unlink()
         ok &= lander_config(td) == {"trunk": "main", "gates": (), "shared_caches": (".cache",),
                                     "ledgers": (), "rebuilt": {}}
