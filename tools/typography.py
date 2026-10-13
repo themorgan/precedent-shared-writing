@@ -28,7 +28,11 @@ A range in words ("Monday-Friday") keeps its hyphen: telling it from an
 ordinary hyphenated word takes judgment a script cannot make, so a writer
 who wants the en dash there types it.
 
-A web link's address and a backslash-escaped character are never changed.
+Code is never changed: a code span (`--check`, `it's`) keeps every
+character, and a builder sets a fenced code block as typed without calling
+smarten() on it at all, because in code "--" and "-" mean something
+exactly. A web link's address and a backslash-escaped character are never
+changed either.
 A caller that has already pulled links out of the text marks an address
 with LINK_OPEN before it and LINK_MID after it (create_word_doc.py does).
 
@@ -72,6 +76,17 @@ def smarten(text):
             prev = LINK_MID if ch == LINK_MID else prev
             i += 1
             continue
+        if ch == "`":
+            # A code span is code: "--check" and "it's" stay as typed.
+            run = len(text) - i - len(text[i:].lstrip("`"))
+            close = text.find("`" * run, i + run)
+            while close != -1 and close + run < len(text) and text[close + run] == "`":
+                close = text.find("`" * run, close + run + 1)
+            if close != -1:
+                out.append(text[i:close + run])
+                prev = "`"
+                i = close + run
+                continue
         if ch == "\\" and i + 1 < len(text):
             out.append(text[i:i + 2])
             prev = text[i + 1]
@@ -96,18 +111,26 @@ def smarten(text):
     return _apply_ranges("".join(out))
 
 
+# What the range step never touches: a marked link address, and a code span
+# (a run of backticks, its text, the same run again).
+PROTECTED_RE = re.compile(
+    LINK_OPEN + "[^" + LINK_MID + "]*" + LINK_MID + r"|(`+)(?!`).*?(?<!`)\1(?!`)",
+    re.S)
+
+
 def _apply_ranges(text):
-    """Number ranges, everywhere but inside a marked link address or right
-    after a backslash escape."""
-    parts = re.split("(" + LINK_OPEN + "[^" + LINK_MID + "]*" + LINK_MID + ")", text)
-    done = []
-    for part in parts:
-        if part.startswith(LINK_OPEN):
-            done.append(part)
-            continue
+    """Number ranges, everywhere but inside a marked link address, a code
+    span, or right after a backslash escape."""
+    done, at = [], 0
+    for m in list(PROTECTED_RE.finditer(text)) + [None]:
+        part = text[at:m.start() if m else len(text)]
         # Keep an escaped hyphen ("1990\-2000") a hyphen: split it out.
         bits = re.split(r"(\\-)", part)
-        done.append("".join(b if b == "\\-" else _ranges(b) for b in bits))
+        done.append("".join(x if x == "\\-" else _ranges(x) for x in bits))
+        if m is None:
+            break
+        done.append(m.group(0))
+        at = m.end()
     return "".join(done)
 
 

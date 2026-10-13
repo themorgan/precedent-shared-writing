@@ -14,15 +14,15 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count; Markdown keeps hyphens and straight quotes, the conversion moves to building outward formats, real dashes stay allowed in Markdown, 2026-10-13 (\"In Markdown documents, we should only use normal hyphens ... whenever we format it for external use, such as creating a [Microsoft] Word document or on a website, then the double dashes should always become an M dash\"; \"within internal markdown documents, the M-dash and N-dash can optionally be used, so their use should not cause any errors\"); quotes follow the same model on his go-ahead to the proposal that said so (for that part, strength: assented)"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count; Markdown keeps hyphens and straight quotes, the conversion moves to building outward formats, real dashes stay allowed in Markdown, 2026-10-13 (\"In Markdown documents, we should only use normal hyphens ... whenever we format it for external use, such as creating a [Microsoft] Word document or on a website, then the double dashes should always become an M dash\"; \"within internal markdown documents, the M-dash and N-dash can optionally be used, so their use should not cause any errors\"); quotes follow the same model, first on his go-ahead to the proposal that said so and then in his own words, 2026-10-13 (\"the same structure should apply to curly quotes as well. Anything for external use should change them. And internal use, we do not expect to use them, but there's no error if they are used\"); code is the exception, 2026-10-13 (\"make sure in code blocks that are for public use, like examples for the public, that those are not replaced, because double dashes and dashes have particular meanings in code\")"
 strength:    decided
 ---
 ## Rule
 **Markdown is typed with plain keys.** A straight quote (`"`, `'`), a hyphen,
-and two hyphens with no spaces for a long dash (`word--word`) are all
-correct in any Markdown file, outward-facing ones included. A real em dash
-(—), en dash (–) or curly quote typed into Markdown is correct too: nothing
-flags either form.
+and two hyphens with no spaces for a long dash (`word--word`) are what a
+Markdown file is expected to hold, outward-facing ones included. A real em
+dash (—), en dash (–) or curly quote typed into one is not expected, and is
+never an error either: nothing flags either form.
 
 **Anything built from Markdown for an outside reader gets finished
 typography**: a Word document, a web page, and any format added later.
@@ -37,6 +37,10 @@ of these rules, never a copy of its own:
 - A range in words ("Monday-Friday") keeps its hyphen; a writer who wants
   the en dash there types it.
 - Straight quotes become curly ones.
+- **Code never changes**: a code span (`` `git push --force` ``) and a
+  fenced code block keep every character as typed, because in code `--`
+  and `-` mean something exactly. That holds for examples written for the
+  public too.
 - A web link's address and a backslash-escaped character never change.
 
 ## Detail
@@ -44,8 +48,10 @@ of these rules, never a copy of its own:
   read. [create-word-doc](create-word-doc.md)'s
   `tools/create_word_doc.py` calls it on every paragraph and heading; a
   web-page or slide builder for outside readers does the same.
-- Code is never prose: a builder leaves a code block or a code span as it
-  is, quotes and hyphens included.
+- Code is never prose. `smarten()` skips a code span itself, so a
+  builder gets that for free; a fenced block never reaches `smarten()` at
+  all. `create_word_doc.py` sets both in a fixed-width face, the span
+  without its backticks.
 - **Why not convert the Markdown itself**: the source stays easy to type
   and to search, two writers never fight over which dash key to press, and
   the rules sit in one function that every output shares, so changing one
@@ -106,6 +112,12 @@ Markdown check and its grandfather list
 The same change made `--` always an em dash, where it had been an en dash
 when spaced or between numbers, and made a hyphen between two numbers an
 en dash.
+
+Later the same day Morgan confirmed quotes follow the same model in his own
+words, and named the exception: code. The Word builder until then had no
+idea what code was, so a command in backticks or a fenced example would
+have had its `--` turned into a dash. `smarten()` now skips a code span,
+and `create_word_doc.py` sets fenced blocks and code spans as typed.
 
 ## Install
 The set ships [`tools/typography.py`](../tools/typography.py) to every

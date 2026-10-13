@@ -32,10 +32,14 @@ cases = [
     # A link address and an escape never change.
     (LINK_OPEN + "https://x/1990-2000--a" + LINK_MID + "t", LINK_OPEN + "https://x/1990-2000--a" + LINK_MID + "t"),
     ("1990\\-2000", "1990\\-2000"),
+    # Code is never typography: a code span keeps every character.
+    ("run `git push --force` -- now", "run `git push --force` \u2014 now"),
+    ("`1990-2000` and 1990-2000", "`1990-2000` and 1990\u20132000"),
+    ("``a `b` \"c\" --d``", "``a `b` \"c\" --d``"),
 ]
 bad = [(i, smarten(i), want) for i, want in cases if smarten(i) != want]
 for i, got, want in bad:
     print(f"FAIL: {i!r} -> {got!r}, wanted {want!r}", file=sys.stderr)
 sys.exit(1 if bad else 0)
 PY
-echo "ok: typography.py turns -- into an em dash, a number range into an en dash, curls quotes, and leaves dates, codes, links and escapes alone"
+echo "ok: typography.py turns -- into an em dash, a number range into an en dash, curls quotes, and leaves dates, codes, code spans, links and escapes alone"
