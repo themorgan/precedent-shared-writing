@@ -164,14 +164,15 @@ assert breaks(sys.argv[1]) == ["two"], f"page breaks after: {breaks(sys.argv[1])
 assert "See the notes.\nNext line." in texts, texts
 bullets = [p.text for p in d.paragraphs if p.style.name == "List Bullet"]
 assert bullets == ["one item that wraps", "two"], bullets
-# A bullet sits half an inch in, its text a quarter inch past it (Morgan,
-# 2026-10-05: the stock List Bullet put the bullets flush with the margin),
+# A bullet sits a quarter inch in, its text a quarter inch past it (Morgan,
+# 2026-10-05: the stock List Bullet put the bullets flush with the margin;
+# 2026-10-13: half an inch was "far too much"),
 # in the style and in the numbering level Word draws the bullet from.
 pf = d.styles["List Bullet"].paragraph_format
-assert (round(pf.left_indent.inches, 2), round(pf.first_line_indent.inches, 2)) == (0.75, -0.25), \
+assert (round(pf.left_indent.inches, 2), round(pf.first_line_indent.inches, 2)) == (0.5, -0.25), \
     (pf.left_indent, pf.first_line_indent)
 num_xml = d.part.numbering_part.element.xml
-assert 'w:left="1080" w:hanging="360"' in num_xml, "the bullet's numbering level is still at the margin"
+assert 'w:left="720" w:hanging="360"' in num_xml, "the bullet's numbering level is still at the margin"
 assert breaks(sys.argv[2]) == [], f"--no-section-breaks still broke after: {breaks(sys.argv[2])}"
 PY
 )"; then
@@ -369,3 +370,37 @@ PY
   exit 1
 fi
 echo "ok: escapes print as the character, web links stay links, #### is Heading 3, the footer names the document, the logo can head page one"
+
+# 12. Lists a quarter inch in, real numbered lists that restart, curly quotes
+#     and dashes (Morgan, 2026-10-13).
+printf '# T\n\n- a "bullet" -- it'"'"'s here, word--word, 1990--2000\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
+  > "$SCRATCH/notes/lists.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/lists.md" \
+  --out "$SCRATCH/out/Lists.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Lists.docx" <<'PY' 2>&1
+import sys, re, zipfile, docx
+from docx.shared import Inches
+path = sys.argv[1]
+d = docx.Document(path)
+xml = zipfile.ZipFile(path).read("word/document.xml").decode()
+text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
+assert '"' not in text and "'" not in text and "--" not in text, text
+assert "“bullet” – it’s here, word—word, 1990–2000" in text, text
+assert "Text — between." in text, text
+for name in ("List Bullet", "List Number"):
+    pf = d.styles[name].paragraph_format
+    assert abs(pf.left_indent - Inches(0.5)) < 100 and abs(pf.first_line_indent + Inches(0.25)) < 100, name
+nums = [p for p in d.paragraphs if p.style.name == "List Number"]
+assert [p.text for p in nums] == ["one", "two", "three", "four"], [p.text for p in nums]
+ids = [p._p.pPr.numPr.numId.val for p in nums]
+assert ids[0] == ids[1] and ids[2] == ids[3] and ids[0] != ids[2], ids
+nums_xml = re.findall(r'<w:num w:numId="(\d+)">(.*?)</w:num>',
+                      zipfile.ZipFile(path).read("word/numbering.xml").decode(), re.S)
+starts = {n: re.findall(r'<w:startOverride w:val="(\d+)"/>', body) for n, body in nums_xml}
+assert starts[str(ids[0])] == ["1"] and starts[str(ids[2])] == ["3"], starts
+PY
+)"; then
+  echo "FAIL: lists, numbering or typography wrong: $OUT" >&2
+  exit 1
+fi
+echo "ok: lists sit a quarter inch in, numbered lists are real and restart, quotes curl and dashes become dashes"

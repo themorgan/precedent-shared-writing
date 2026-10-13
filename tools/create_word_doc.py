@@ -53,12 +53,21 @@ style, restyled upright (the stock one is italic, which tires the eye
 over a long passage), so the excerpts are findable and restylable in
 Word's Styles pane all at once.
 
-A "- " bullet list sits half an inch in from the margin, the way a
-book indents one: the bullet at half an inch, each item's text a quarter
-inch further, and an item's wrapped lines lined up under its own text.
-Word's stock List Bullet puts the bullet flush against the margin, which
-looks like a mistake beside indented block quotations. style_list_bullet()
-does the same for a document built by hand.
+A "- " bullet list and a "1. " numbered list sit a quarter inch in from
+the margin: the bullet or number at a quarter inch, each item's text a
+quarter inch further, and an item's wrapped lines lined up under its own
+text. A numbered list is a real Word list (List Number), restarting at its
+own first number. Word's stock lists put the bullet flush against the
+margin, which looks like a mistake beside indented block quotations.
+style_list_bullet() and style_list_number() do the same for a document
+built by hand.
+
+Straight quotes become curly ones, single and double, and "--" and "---"
+become real dashes, everywhere in the text and the headings: "---" and an
+unspaced word--word are an em dash, a spaced " -- " and a 1990--2000
+range an en dash
+-- but never inside a web link's address, and never a backslash-escaped
+character. smarten() does the same for a document built by hand.
 
 Default page is A4 with 0.75-inch margins on all four sides, default
 line spacing is 1.3x. A "Words: <count>"
@@ -176,6 +185,7 @@ ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 # An HTML comment (a file header, a generated-block marker) is never text.
 COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 BULLET_RE = re.compile(r"^\s*-\s+")
+NUMBER_RE = re.compile(r"^\s*(\d+)[.)]\s+")
 # practice: create-word-doc -- a manuscript's own word-count line becomes a
 # live NUMWORDS field instead of a number that goes stale as soon as the
 # text changes; any trailing "(PART 1)"-style note is dropped with it.
@@ -304,19 +314,33 @@ def style_block_quote(doc):
 # practice: create-word-doc -- where a list's bullet (or number) sits, and how
 # far past it the item's text starts. A builder that sets list indents by
 # hand reads these rather than its own numbers, so every list matches.
-LIST_INDENT = 0.5
+# A quarter inch, not the half inch it was: Morgan found half an inch "far
+# too much" (2026-10-13).
+LIST_INDENT = 0.25
 LIST_HANG = 0.25
 
 
 def style_list_bullet(doc):
-    """Move Word's built-in "List Bullet" half an inch in from the margin:
+    """Move Word's built-in "List Bullet" LIST_INDENT in from the margin.
+    Returns the style."""
+    return style_list(doc, "List Bullet")
+
+
+def style_list_number(doc):
+    """Move Word's built-in "List Number" LIST_INDENT in from the margin,
+    the same place as a bullet list. Returns the style."""
+    return style_list(doc, "List Number")
+
+
+def style_list(doc, name):
+    """Move one of Word's built-in list styles LIST_INDENT in from the margin:
     the bullet at LIST_INDENT, the text (and every wrapped line under it) at
     LIST_INDENT + LIST_HANG. The stock style puts the bullet flush with the
     margin. The indent is set in both places Word reads it from -- the
     style's own paragraph settings and the bullet's numbering level, plus
     the tab stop after the bullet -- so no viewer is left with the old
     position from whichever one it happens to prefer. Returns the style."""
-    style = doc.styles["List Bullet"]
+    style = doc.styles[name]
     pf = style.paragraph_format
     pf.left_indent = Inches(LIST_INDENT + LIST_HANG)
     pf.first_line_indent = Inches(-LIST_HANG)
@@ -361,6 +385,73 @@ def quote_paragraphs(block):
     return paras
 
 
+# practice: create-word-doc -- typography. Straight quotes become curly and
+# "--"/"---" become en and em dashes, in every Word document (Morgan,
+# 2026-10-13: "they ALWAYS should").
+OPENS_AFTER = set(" \t\n([{<\u2014\u2013-/\u201c\u2018" + LINK_MID)
+
+
+def smarten(text):
+    """Curly quotes, single and double, and en and em dashes for "--" and
+    "---". A quote opens after the start, a space or an opening bracket or
+    dash, and closes anywhere else; an asterisk run is looked through, so
+    '**"word"**' opens and closes properly. A web link's address (between
+    LINK_OPEN and LINK_MID) and a backslash-escaped character are left as
+    they are."""
+    out, prev, i, in_url = [], " ", 0, False
+    while i < len(text):
+        ch = text[i]
+        if ch == LINK_OPEN:
+            in_url = True
+        elif ch == LINK_MID:
+            in_url = False
+        if in_url or ch in (LINK_OPEN, LINK_MID):
+            out.append(ch)
+            prev = LINK_MID if ch == LINK_MID else prev
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            prev = text[i + 1]
+            i += 2
+            continue
+        if text.startswith("---", i):
+            out.append("\u2014")
+            prev = "\u2014"
+            i += 3
+            continue
+        if text.startswith("--", i):
+            # Judgment, not a count (Morgan, 2026-10-13): "--" between two
+            # numbers is a range, an en dash; spaced, " -- " is the spaced
+            # en dash; anywhere else, above all word--word with no spaces,
+            # it is an em dash.
+            before = text[i - 1] if i else " "
+            after = text[i + 2] if i + 2 < len(text) else " "
+            if (before.isdigit() and after.isdigit()) or (before.isspace() and after.isspace()):
+                dash = "\u2013"
+            else:
+                dash = "\u2014"
+            out.append(dash)
+            prev = dash
+            i += 2
+            continue
+        if ch == '"':
+            ch = "\u201c" if prev in OPENS_AFTER else "\u201d"
+        elif ch == "'":
+            ch = "\u2018" if prev in OPENS_AFTER else "\u2019"
+        out.append(ch)
+        if ch != "*":
+            prev = ch
+        i += 1
+    return "".join(out)
+
+
+def heading_text(raw):
+    """A heading's text as it reads in Word: curly quotes, dashes, and
+    escapes taken as their character."""
+    return ESCAPE_RE.sub(r"\1", smarten(raw.strip()))
+
+
 def parse_inline(text):
     """Split text into (text, bold, italic) runs on **bold**, *italic* and
     ***both***, nested either way round -- "**a *b* c**" gives a bold run
@@ -376,6 +467,7 @@ def parse_inline(text):
     text = WEB_LINK_RE.sub(
         lambda m: LINK_OPEN + m.group(2) + LINK_MID + m.group(1) + LINK_CLOSE, text)
     text = LINK_RE.sub(r"\1", text)
+    text = smarten(text)
     if text.endswith("\\"):
         text = text[:-1].rstrip()
 
@@ -566,6 +658,44 @@ def bullet_items(block):
         else:
             return None
     return items
+
+
+def numbered_items(block):
+    """A "1. " list's (start, items), or None when the block is not one.
+    Wrapping works as in bullet_items()."""
+    m = NUMBER_RE.match(block[0])
+    if not m:
+        return None
+    items = []
+    for line in block:
+        if NUMBER_RE.match(line):
+            items.append(NUMBER_RE.sub("", line).strip())
+        elif line[:1].isspace():
+            items[-1] += " " + line.strip()
+        else:
+            return None
+    return int(m.group(1)), items
+
+
+def restart_numbering(doc, paragraph, start):
+    """Give a numbered list its own count, starting at `start`, so a second
+    list in the document starts again rather than carrying on from the
+    first. Called on the list's first paragraph; the caller puts the rest on
+    the same numId."""
+    style = doc.styles["List Number"]
+    num_id = style.element.pPr.numPr.numId.val
+    numbering = doc.part.numbering_part.element
+    abstract_id = numbering.num_having_numId(num_id).abstractNumId.val
+    num = numbering.add_num(abstract_id)
+    override = num.add_lvlOverride(ilvl=0)
+    override.add_startOverride(start)
+    return num.numId
+
+
+def set_num_id(paragraph, num_id):
+    num_pr = paragraph._p.get_or_add_pPr().get_or_add_numPr()
+    num_pr.get_or_add_ilvl().val = 0
+    num_pr.get_or_add_numId().val = num_id
 
 
 def add_header_image(section, image_path, height=None, first_page=False):
@@ -762,6 +892,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
     style_footer(doc)  # practice: create-word-doc
     style_heading_1(doc)  # practice: create-word-doc
     style_list_bullet(doc)  # practice: create-word-doc
+    style_list_number(doc)
 
     saw_title = False
     last_para = None  # practice: create-word-doc (chapter page breaks)
@@ -778,7 +909,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         first = block[0]
 
         if not saw_title and re.match(r"^# ", first) and len(block) == 1:
-            last_para = doc.add_heading(first[2:].strip(), level=0)
+            last_para = doc.add_heading(heading_text(first[2:]), level=0)
             saw_title = True
             # A heading straight after the title shares its page: a break
             # there would leave the title alone on page one (Morgan,
@@ -796,14 +927,14 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             # page-break marking of its own at all.
             if section_breaks and last_para is not None and not last_was_heading:
                 last_para.add_run().add_break(WD_BREAK.PAGE)
-            last_para = doc.add_heading(first[3:].strip(), level=1)
+            last_para = doc.add_heading(heading_text(first[3:]), level=1)
             last_was_heading = True
             continue
 
         if re.match(r"^### ", first) and len(block) == 1:
             if section_breaks and last_para is not None and not last_was_heading:
                 last_para.add_run().add_break(WD_BREAK.PAGE)
-            last_para = doc.add_heading(first[4:].strip(), level=2)
+            last_para = doc.add_heading(heading_text(first[4:]), level=2)
             last_was_heading = True
             continue
 
@@ -812,7 +943,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         # 2026-10-13, a proposal's People and Processes). It flows on: a
         # page break is for a Part or a chapter, not a sub-section.
         if re.match(r"^#### ", first) and len(block) == 1:
-            last_para = doc.add_heading(first[5:].strip(), level=3)
+            last_para = doc.add_heading(heading_text(first[5:]), level=3)
             last_was_heading = True
             continue
 
@@ -825,6 +956,22 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
                 last_para = p
             if paras:
                 last_was_heading = False
+            continue
+
+        numbered = numbered_items(block)
+        if numbered is not None:
+            # practice: create-word-doc -- a "1. " list is a real Word list,
+            # never numbers typed as text (Morgan, 2026-10-13).
+            start, items = numbered
+            num_id = None
+            for item in items:
+                p = doc.add_paragraph(style="List Number")
+                if num_id is None:
+                    num_id = restart_numbering(doc, p, start)
+                set_num_id(p, num_id)
+                add_inline(p, [item], soft_wraps)
+            last_para = p
+            last_was_heading = False
             continue
 
         items = bullet_items(block)
