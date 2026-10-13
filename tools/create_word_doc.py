@@ -66,7 +66,9 @@ Straight quotes become curly ones, single and double, "--" and "---"
 always become an em dash, and a hyphen between two numbers that make a
 range (1990-2000, pages 10-20) becomes an en dash, everywhere in the text
 and the headings -- but never inside a web link's address, and never a
-backslash-escaped character. The rules are typography.py's, shared with
+backslash-escaped character, and never in code: a fenced block is set
+line for line in Courier New, and a code span keeps its characters in the
+same face, without its backticks. The rules are typography.py's, shared with
 every other builder for an outside reader; smarten() does the same for a
 document built by hand.
 
@@ -194,6 +196,17 @@ WORDS_LINE_RE = re.compile(r"^Words:\s*[\d,]+\s*(\(.*\))?\s*$", re.IGNORECASE)
 # practice: create-word-doc -- a "> " line is a block quotation, never text
 # that starts with a ">" character.
 QUOTE_LINE_RE = re.compile(r"^\s*>\s?")
+# practice: curly-quotes -- code is never typography. A fenced block (``` or
+# ~~~) is set line for line in a fixed-width face and never smartened; a
+# code span keeps its characters and drops its backticks, in the same face.
+# In code, "--" and "-" mean something exactly (Morgan, 2026-10-13: "double
+# dashes and dashes have particular meanings in code").
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+CODE_SPAN_RE = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+CODE_OPEN, CODE_CLOSE = "\x04", "\x05"
+CODE_MARK_RE = re.compile("\x04(\\d+)\x05")
+CODE_FONT, CODE_SIZE = "Courier New", 10
+CODE_SPANS = []
 
 
 # practice: create-word-doc -- the footer's face and size. A sans-serif
@@ -419,6 +432,10 @@ def parse_inline(text):
     The text may hold "\\n" (a line break inside the paragraph); emphasis
     carries across it, so an italic title wrapped over two source lines
     still comes out italic."""
+    def hold(m):
+        CODE_SPANS.append(m.group(2))
+        return CODE_OPEN + str(len(CODE_SPANS) - 1) + CODE_CLOSE
+    text = CODE_SPAN_RE.sub(hold, text)
     text = WEB_LINK_RE.sub(
         lambda m: LINK_OPEN + m.group(2) + LINK_MID + m.group(1) + LINK_CLOSE, text)
     text = LINK_RE.sub(r"\1", text)
@@ -536,13 +553,23 @@ def add_inline(paragraph, lines, soft_wraps):
             at = 0
             for m in list(LINK_MARK_RE.finditer(chunk)) + [None]:
                 piece = chunk[at:m.start() if m else len(chunk)]
-                if piece:
-                    if link is None:
-                        r = paragraph.add_run(piece)
+                for k, bit in enumerate(CODE_MARK_RE.split(piece)):
+                    if not bit:
+                        continue
+                    if k % 2:
+                        r = paragraph.add_run(CODE_SPANS[int(bit)])
+                        r.font.name = CODE_FONT
+                        r.font.size = Pt(CODE_SIZE)
+                        r.bold = bold
+                        r.italic = italic
+                        if link is not None:
+                            link.append(r._r)
+                    elif link is None:
+                        r = paragraph.add_run(bit)
                         r.bold = bold
                         r.italic = italic
                     else:
-                        link.append(hyperlink_run(piece, bold, italic))
+                        link.append(hyperlink_run(bit, bold, italic))
                 if m is None:
                     break
                 at = m.end()
@@ -727,6 +754,7 @@ def group_blocks(lines):
     the paragraph as literal text."""
     is_heading = lambda l: re.match(r"^#{1,3}\s", l)
     blocks, current = [], []
+    fence = None   # the fence a code block opened with, while inside one
 
     def flush():
         if current:
@@ -734,6 +762,21 @@ def group_blocks(lines):
             current.clear()
 
     for line in lines:
+        # practice: curly-quotes -- a fenced code block is one block, blank
+        # lines and all, from its opening fence to the matching close.
+        m = FENCE_RE.match(line)
+        if fence is not None:
+            current.append(line)
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) \
+                    and not line.strip()[len(m.group(1)):].strip():
+                fence = None
+                flush()
+            continue
+        if m:
+            flush()
+            fence = m.group(1)
+            current.append(line)
+            continue
         if line.strip() == "":
             flush()
         elif is_heading(line):
@@ -858,6 +901,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
               header_on_first_page=False, footer_label=None):
     text = strip_comments(manuscript_path.read_text(encoding="utf-8"))
     STRAY_ASTERISKS.clear()
+    CODE_SPANS.clear()
     lines = text.split("\n")
     blocks = group_blocks(lines)
 
@@ -892,6 +936,24 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
     last_was_heading = False
     for block in blocks:
         first = block[0]
+
+        if FENCE_RE.match(first):
+            # practice: curly-quotes -- set as typed, never smartened.
+            body = block[1:]
+            if body and FENCE_RE.match(body[-1]):
+                body = body[:-1]
+            p = doc.add_paragraph()
+            p.paragraph_format.left_indent = Inches(0.25)
+            for n, code_line in enumerate(body):
+                r = p.add_run()
+                r.font.name = CODE_FONT
+                r.font.size = Pt(CODE_SIZE)
+                if n:
+                    r.add_break(WD_BREAK.LINE)
+                r.add_text(code_line)
+            last_para = p
+            last_was_heading = False
+            continue
 
         if not saw_title and re.match(r"^# ", first) and len(block) == 1:
             last_para = doc.add_heading(heading_text(first[2:]), level=0)

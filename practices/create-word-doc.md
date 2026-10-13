@@ -141,6 +141,9 @@ rules are [curly-quotes](curly-quotes.md)'s, in
 [`tools/typography.py`](../tools/typography.py), shared with every other
 builder for an outside reader; `smarten(text)` does it for a document
 built by hand. The Markdown source keeps its plain quotes and hyphens.
+**Code stays code:** a fenced block is set line for line as typed, and a
+code span keeps its characters without its backticks, both in a
+fixed-width face (Courier New, 10 point), never converted.
 
 **What Markdown means, the Word file means too.** A backslash escape
 prints as its character (`\$15k` is `$15k`, `\[A\]` is `[A]`); a link
