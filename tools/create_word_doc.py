@@ -62,12 +62,13 @@ margin, which looks like a mistake beside indented block quotations.
 style_list_bullet() and style_list_number() do the same for a document
 built by hand.
 
-Straight quotes become curly ones, single and double, and "--" and "---"
-become real dashes, everywhere in the text and the headings: "---" and an
-unspaced word--word are an em dash, a spaced " -- " and a 1990--2000
-range an en dash
--- but never inside a web link's address, and never a backslash-escaped
-character. smarten() does the same for a document built by hand.
+Straight quotes become curly ones, single and double, "--" and "---"
+always become an em dash, and a hyphen between two numbers that make a
+range (1990-2000, pages 10-20) becomes an en dash, everywhere in the text
+and the headings -- but never inside a web link's address, and never a
+backslash-escaped character. The rules are typography.py's, shared with
+every other builder for an outside reader; smarten() does the same for a
+document built by hand.
 
 Default page is A4 with 0.75-inch margins on all four sides, default
 line spacing is 1.3x. A "Words: <count>"
@@ -389,65 +390,15 @@ def quote_paragraphs(block):
     return paras
 
 
-# practice: create-word-doc -- typography. Straight quotes become curly and
-# "--"/"---" become en and em dashes, in every Word document (Morgan,
-# 2026-10-13: "they ALWAYS should").
-OPENS_AFTER = set(" \t\n([{<\u2014\u2013-/\u201c\u2018" + LINK_MID)
-
-
-def smarten(text):
-    """Curly quotes, single and double, and en and em dashes for "--" and
-    "---". A quote opens after the start, a space or an opening bracket or
-    dash, and closes anywhere else; an asterisk run is looked through, so
-    '**"word"**' opens and closes properly. A web link's address (between
-    LINK_OPEN and LINK_MID) and a backslash-escaped character are left as
-    they are."""
-    out, prev, i, in_url = [], " ", 0, False
-    while i < len(text):
-        ch = text[i]
-        if ch == LINK_OPEN:
-            in_url = True
-        elif ch == LINK_MID:
-            in_url = False
-        if in_url or ch in (LINK_OPEN, LINK_MID):
-            out.append(ch)
-            prev = LINK_MID if ch == LINK_MID else prev
-            i += 1
-            continue
-        if ch == "\\" and i + 1 < len(text):
-            out.append(text[i:i + 2])
-            prev = text[i + 1]
-            i += 2
-            continue
-        if text.startswith("---", i):
-            out.append("\u2014")
-            prev = "\u2014"
-            i += 3
-            continue
-        if text.startswith("--", i):
-            # Judgment, not a count (Morgan, 2026-10-13): "--" between two
-            # numbers is a range, an en dash; spaced, " -- " is the spaced
-            # en dash; anywhere else, above all word--word with no spaces,
-            # it is an em dash.
-            before = text[i - 1] if i else " "
-            after = text[i + 2] if i + 2 < len(text) else " "
-            if (before.isdigit() and after.isdigit()) or (before.isspace() and after.isspace()):
-                dash = "\u2013"
-            else:
-                dash = "\u2014"
-            out.append(dash)
-            prev = dash
-            i += 2
-            continue
-        if ch == '"':
-            ch = "\u201c" if prev in OPENS_AFTER else "\u201d"
-        elif ch == "'":
-            ch = "\u2018" if prev in OPENS_AFTER else "\u2019"
-        out.append(ch)
-        if ch != "*":
-            prev = ch
-        i += 1
-    return "".join(out)
+# practice: create-word-doc -- typography. Straight quotes become curly,
+# "--"/"---" an em dash and a number range's hyphen an en dash, in every Word
+# document (Morgan, 2026-10-13: "they ALWAYS should"). The rules live in
+# typography.py, the one copy every builder for an outside reader shares
+# (practice: curly-quotes).
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from typography import LINK_MID as _TYPO_MID, LINK_OPEN as _TYPO_OPEN, smarten  # noqa: E402
+assert (_TYPO_OPEN, _TYPO_MID) == (LINK_OPEN, LINK_MID), \
+    "typography.py and create_word_doc.py must mark a link address alike"
 
 
 def heading_text(raw):

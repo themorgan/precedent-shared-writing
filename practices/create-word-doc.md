@@ -8,7 +8,7 @@ occasion:    "producing any Word (.docx) document for someone to download -- a s
 gates:       []
 index_clause: "a Word file for a reader: a footer, and it opens without an update-fields prompt"
 checked_by:  tools/checks/check_create_word_doc.py
-ships:       ["tools/create_word_doc.py"]
+ships:       ["tools/create_word_doc.py", "tools/typography.py"]
 defines:     []
 status:      active
 supersedes:  []
@@ -22,14 +22,14 @@ not just a structured, multi-section export.** Two paths, one
 requirement:
 
 - **A structured export** -- a manuscript, a long report, anything with
-  real chapter/section headings -- runs `tools/create_word_doc.py` rather
+  real chapter/section headings -- runs [`tools/create_word_doc.py`](../tools/create_word_doc.py) rather
   than a one-off conversion script; see below for what it includes in the
   same pass.
 - **Anything else** -- a one-off built from a business note, a
   brainstorm doc, or any other unstructured source -- has no shared tool
   yet, so the footer is built by hand into whatever script generates the
   `.docx` (the same way the first structured export was, before it became
-  `tools/create_word_doc.py`). It still needs both pieces the structured
+  [`tools/create_word_doc.py`](../tools/create_word_doc.py)). It still needs both pieces the structured
   export's footer has: a live "Page `<n>` of `<total>`" field, and a
   second line naming the document and the date (`<TITLE> - <date>`).
   "CONFIDENTIAL - DRAFT" is a reasonable prefix for anything drawn from
@@ -39,10 +39,10 @@ requirement:
   `PageNumber.CURRENT`/`PageNumber.TOTAL_PAGES` inside a `TextRun`'s
   `children` for the live fields -- simpler than `python-docx`'s manual
   `w:fldChar` Office Open XML (OOXML) (`add_field()` in
-  `tools/create_word_doc.py` is that lower-level approach, for when
+  [`tools/create_word_doc.py`](../tools/create_word_doc.py) is that lower-level approach, for when
   `python-docx` is the tool already in use).
 
-`tools/create_word_doc.py` builds the `.docx` (real Title/Heading 1/
+[`tools/create_word_doc.py`](../tools/create_word_doc.py) builds the `.docx` (real Title/Heading 1/
 Heading 2/List Bullet structure, not paragraphs that merely look like
 headings) **and** stamps a footer on every page in the same pass, so the
 two never drift apart into "the doc" and "the doc with the footer someone
@@ -74,7 +74,7 @@ defaults to a `book-*/` ancestor directory's name (this tool's own
 manuscript-export convention -- `book-example` -> `Example`) with `--short-
 name` required whenever the source isn't under a `book-*/` directory or
 that mechanical derivation isn't what's wanted. The date defaults to
-today via `tools/precedent_time.py` (practice: timestamps-carry-offset)
+today via [`tools/precedent_time.py`](../tools/precedent_time.py) (practice: timestamps-carry-offset)
 -- a bare `date.today()` would silently stamp the container's UTC date,
 which is wrong for part of every day.
 
@@ -133,13 +133,14 @@ restarts at its own first number rather than carrying on from the last
 one. `style_list_number(doc)` styles it for a document built by hand.
 
 **Typography is always finished.** Every straight quote, single or double,
-becomes the curly one, and `--` and `---` become real dashes, by judgment
-rather than by count: `---`, and `--` between two words with no spaces
-(`word--word`), are an em dash (—); a spaced ` -- ` is a spaced en dash
-( – ); `--` between two numbers (`1990--2000`) is an en dash, for a range.
-A web link's address and a backslash-escaped character are left alone.
-`smarten(text)` does it for a document built by hand. The same rule holds
-for outward Markdown: [curly-quotes](curly-quotes.md).
+becomes the curly one; `--` and `---` always become an em dash (—); and a
+hyphen between two numbers that make a range (1990-2000, pages 10-20)
+becomes an en dash (–), while a date like 2026-10-13 keeps its hyphens. A
+web link's address and a backslash-escaped character are left alone. The
+rules are [curly-quotes](curly-quotes.md)'s, in
+[`tools/typography.py`](../tools/typography.py), shared with every other
+builder for an outside reader; `smarten(text)` does it for a document
+built by hand. The Markdown source keeps its plain quotes and hyphens.
 
 **What Markdown means, the Word file means too.** A backslash escape
 prints as its character (`\$15k` is `$15k`, `\[A\]` is `[A]`); a link
@@ -286,7 +287,7 @@ own docx reader return `None` for every paragraph's resolved style.
 practice's `ships:` (universal practice
 [practice-carries-its-files](https://github.com/alex137/BestPractice/blob/staging/practices/practice-carries-its-files.md)), so
 the materializer delivers it: every repository that resolves this set receives
-`tools/create_word_doc.py` on its next sync, alongside the check and its
+[`tools/create_word_doc.py`](../tools/create_word_doc.py) on its next sync, alongside the check and its
 test, and never copies it by hand. A repository that only ever needs the ad
 hoc, built-by-hand half can decline it in its own `precedent.json` under
 `declined_ships`, with a reason; the check below skips cleanly where the
@@ -327,7 +328,7 @@ per document.
 Same day, later: a session built a `.docx` from an unrelated brainstorm
 note (not a manuscript) with a one-off `docx-js` script, and shipped it
 with no footer at all -- the practice's `applies_to` only ever matched a
-`book-*/MANUSCRIPT.md` path or `tools/create_word_doc.py` itself, so it
+`book-*/MANUSCRIPT.md` path or [`tools/create_word_doc.py`](../tools/create_word_doc.py) itself, so it
 had no way to fire for a one-off built from an unrelated source file.
 Morgan asked why, then said `Go merge` on the Rule above: the footer
 requirement now covers every Word document built for him, not only
@@ -390,8 +391,8 @@ than the stock style's italic, because some excerpts run to several
 paragraphs, and a long run of italic tires the eye.
 
 ## Install
-`tools/checks/check_create_word_doc.py` is structural only: it confirms
-`tools/create_word_doc.py`, where vendored, is syntactically valid
+[`tools/checks/check_create_word_doc.py`](../tools/checks/check_create_word_doc.py) is structural only: it confirms
+[`tools/create_word_doc.py`](../tools/create_word_doc.py), where vendored, is syntactically valid
 Python, non-trivial in size, and cites this practice. It is SKIPPED, not
 failed, in a repo that hasn't vendored the script at all -- that repo may
 still be doing every Word export as a hand-built one-off, which this
@@ -473,3 +474,10 @@ and `--` stayed two hyphens: every Word document gets curly quotes and
 real dashes, the dashes chosen by judgment, since `--` between two words
 with no spaces is always an em dash.
 
+
+Later still, 2026-10-13: the dash rules moved into
+[`tools/typography.py`](../tools/typography.py), shared with every builder
+for an outside reader, and changed with them. `--` is now always an em
+dash, spaced or between numbers, and a hyphen between two numbers in a
+range is the en dash (Morgan: "the double dashes should always become an
+M dash"; [curly-quotes](curly-quotes.md) has the rest).
