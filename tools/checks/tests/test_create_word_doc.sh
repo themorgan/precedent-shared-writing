@@ -390,6 +390,13 @@ assert "Text — between." in text, text
 for name in ("List Bullet", "List Number"):
     pf = d.styles[name].paragraph_format
     assert abs(pf.left_indent - Inches(0.5)) < 100 and abs(pf.first_line_indent + Inches(0.25)) < 100, name
+# A list adds no space of its own: none before it, items close together,
+# so a lead-in line sits the normal paragraph gap above it (2026-10-13).
+for name in ("List Bullet", "List Number"):
+    st = d.styles[name]
+    assert st.paragraph_format.space_before == 0, (name, st.paragraph_format.space_before)
+    assert st.element.pPr.find(docx.oxml.ns.qn("w:contextualSpacing")) is not None, name
+    assert st.paragraph_format.space_after is None, (name, st.paragraph_format.space_after)
 nums = [p for p in d.paragraphs if p.style.name == "List Number"]
 assert [p.text for p in nums] == ["one", "two", "three", "four"], [p.text for p in nums]
 ids = [p._p.pPr.numPr.numId.val for p in nums]

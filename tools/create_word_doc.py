@@ -342,6 +342,10 @@ def style_list(doc, name):
     position from whichever one it happens to prefer. Returns the style."""
     style = doc.styles[name]
     pf = style.paragraph_format
+    # practice: create-word-doc -- a list takes no space of its own before
+    # it, so the gap between a lead-in line and its first item is the normal
+    # end-of-paragraph space and nothing more (Morgan, 2026-10-13).
+    pf.space_before = Pt(0)
     pf.left_indent = Inches(LIST_INDENT + LIST_HANG)
     pf.first_line_indent = Inches(-LIST_HANG)
     num_pr = style.element.pPr.numPr if style.element.pPr is not None else None
