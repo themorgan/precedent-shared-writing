@@ -86,7 +86,7 @@ a private repo-local set, alongside `create-word-
 doc` in the same reconsideration: the rule is about the craft of writing
 for a reader, not about that repo's subject. The move required real
 generalization, not a copy -- the original check imported that repo's
-own `tools/title_case.py` for its outward-file boundary and hardcoded its
+own title-case tool for its outward-file boundary and hardcoded its
 23-file grandfather list; both are repo-specific and cannot travel as
 team content. The boundary is now the `output_paths`/`internal_paths`
 `deliverables-carry-no-process` already reads generically, and the
@@ -100,7 +100,7 @@ Morgan then set the model this file now states: Markdown keeps plain
 hyphens, `--` stands for the long dash while drafting, and the conversion
 happens only when something is built for an outside reader. A real dash
 typed into Markdown stays allowed. Quotes moved to the same model, so the
-Markdown check (`check_curly_quotes.py`) and its grandfather list
+Markdown check and its grandfather list
 (`curly_quotes_grandfathered`) were removed, and the rules moved out of
 [`create_word_doc.py`](../tools/create_word_doc.py) into [`tools/typography.py`](../tools/typography.py) for every builder to share.
 The same change made `--` always an em dash, where it had been an en dash
