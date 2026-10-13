@@ -1,66 +1,67 @@
 ---
 slug:        curly-quotes
-title:       Outward-facing prose uses curly quotes and real dashes, never straight quotes or doubled hyphens
+title:       Markdown keeps plain quotes and hyphens; anything built for an outside reader gets curly quotes and real dashes
 tier:        on-demand
 severity:    default
 applies_to:  ["**"]
-occasion:    "writing a document an outside reader will see (a declared output path)"
+occasion:    "building a Word document, a web page or any other format an outside reader sees, or writing quotes and dashes in Markdown"
 gates:       []
-index_clause: "straight quotes become curly, and -- becomes a real dash, in outward prose"
-checked_by:  tools/checks/check_curly_quotes.py
+index_clause: "Markdown keeps plain quotes and hyphens; outward builds convert them"
+checked_by:  null
+ships:       ["tools/typography.py"]
 defines:     []
 status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count; Markdown keeps hyphens and straight quotes, the conversion moves to building outward formats, real dashes stay allowed in Markdown, 2026-10-13 (\"In Markdown documents, we should only use normal hyphens ... whenever we format it for external use, such as creating a [Microsoft] Word document or on a website, then the double dashes should always become an M dash\"; \"within internal markdown documents, the M-dash and N-dash can optionally be used, so their use should not cause any errors\"); quotes follow the same model, first on his go-ahead to the proposal that said so and then in his own words, 2026-10-13 (\"the same structure should apply to curly quotes as well. Anything for external use should change them. And internal use, we do not expect to use them, but there's no error if they are used\"); code is the exception, 2026-10-13 (\"make sure in code blocks that are for public use, like examples for the public, that those are not replaced, because double dashes and dashes have particular meanings in code\")"
 strength:    decided
 ---
 ## Rule
-A straight quotation mark (`"`) or straight apostrophe/single quote (`'`)
-never appears in the prose of a document under a repo's own declared
-`output_paths` (`precedent.json`) -- the same boundary
-[`deliverables-carry-no-process`](deliverables-carry-no-process.md) already reads, so "outward" never drifts
-between the two rules. Convert it to the matching typographic curly form
--- `"` / `"` for double quotes, `'` / `'` for a single quote or an
-apostrophe.
+**Markdown is typed with plain keys.** A straight quote (`"`, `'`), a hyphen,
+and two hyphens with no spaces for a long dash (`word--word`) are what a
+Markdown file is expected to hold, outward-facing ones included. A real em
+dash (—), en dash (–) or curly quote typed into one is not expected, and is
+never an error either: nothing flags either form.
 
-**The same goes for dashes:** `--` and `---` never stand in for one. Pick
-the dash by judgment, not by counting hyphens: `---`, and `--` between two
-words with no spaces (`word--word`), are an em dash (—); a spaced ` -- `
-is a spaced en dash ( – ); `--` between two numbers is an en dash, for a
-range (1990–2000). A Word document built from Markdown gets both
-conversions on its own ([create-word-doc](create-word-doc.md)).
+**Anything built from Markdown for an outside reader gets finished
+typography**: a Word document, a web page, and any format added later.
+Its builder runs the text through
+[`tools/typography.py`](../tools/typography.py)'s `smarten()`, the one copy
+of these rules, never a copy of its own:
+
+- `--` and `---` always become an em dash (—), spacing kept as typed.
+- A hyphen between two numbers that make a range becomes an en dash:
+  1990-2000, pages 10-20, 9-5, 3:00-5:00. A date (2026-10-13), a phone
+  number, and a hyphen next to a letter (PR-173, B-52) stay hyphens.
+- A range in words ("Monday-Friday") keeps its hyphen; a writer who wants
+  the en dash there types it.
+- Straight quotes become curly ones.
+- **Code never changes**: a code span (`` `git push --force` ``) and a
+  fenced code block keep every character as typed, because in code `--`
+  and `-` mean something exactly. That holds for examples written for the
+  public too.
+- A web link's address and a backslash-escaped character never change.
 
 ## Detail
-- Applies to prose, not to code: a straight quote inside a fenced or
-  inline code span, a URL, or a file path is exactly what it should be --
-  this rule is about the words a reader reads, not about literal strings.
-- A straight quote inside a directly quoted source that itself used
-  straight quotes (a court filing, a statute, program output) stays as
-  quoted -- fidelity to the source wins there, the same exception
-  `no-invented-specifics` and `quote-discipline` already carve out for
-  exact figures and wording.
-- **The backlog is the consuming repo's own, never this set's.** A repo
-  adopting this practice for the first time is very likely to find its
-  entire existing outward-facing corpus predates the convention -- this
-  is a large pre-existing-content problem, not a new-content-only rule
-  invented to dodge it. That repo declares its own `curly_quotes_
-  grandfathered` list in its `precedent.json` (an array of paths, exactly
-  like `output_paths`/`internal_paths`), and the check below skips every
-  path on it. A path drops off that list the day someone actually
-  converts it, per `no-rewrite-for-warnings` -- the backlog shrinks by
-  real cleanup, never by editing the exemption list to match new
-  violations.
+- **A builder that skips `smarten()` is the bug**, not the Markdown it
+  read. [create-word-doc](create-word-doc.md)'s
+  `tools/create_word_doc.py` calls it on every paragraph and heading; a
+  web-page or slide builder for outside readers does the same.
+- Code is never prose. `smarten()` skips a code span itself, so a
+  builder gets that for free; a fenced block never reaches `smarten()` at
+  all. `create_word_doc.py` sets both in a fixed-width face, the span
+  without its backticks.
+- **Why not convert the Markdown itself**: the source stays easy to type
+  and to search, two writers never fight over which dash key to press, and
+  the rules sit in one function that every output shares, so changing one
+  of them changes every format at once.
 
 ## Why
 Untidy typography is one of the cheapest "reads like it wasn't cared for"
-signals a reader hits, and it is entirely mechanical to avoid -- there is
-never a reason to leave a straight quote in finished prose once a
-project's own house style has settled on curly quotes. Making it a
-standing rule means every future paste or draft gets the conversion by
-default, instead of a session having to notice and fix it by eye each
-time.
+signals a reader hits, and it is entirely mechanical to avoid. It belongs
+where the reader meets the text -- the Word file, the page -- not in the
+working copy, where plain keys are faster and nobody outside sees them.
 
 ## Story
 Raised by Morgan, 2026-09-18, in a private repo, in the
@@ -91,22 +92,40 @@ a private repo-local set, alongside `create-word-
 doc` in the same reconsideration: the rule is about the craft of writing
 for a reader, not about that repo's subject. The move required real
 generalization, not a copy -- the original check imported that repo's
-own `tools/title_case.py` for its outward-file boundary and hardcoded its
+own title-case tool for its outward-file boundary and hardcoded its
 23-file grandfather list; both are repo-specific and cannot travel as
 team content. The boundary is now the `output_paths`/`internal_paths`
 `deliverables-carry-no-process` already reads generically, and the
 grandfather list is now a repo-declared `precedent.json` key the
 consuming repo owns. `Go update`.
 
+**Turned around on 2026-10-13.** The same day the dash rule was added, the
+check began flagging `--` in outward Markdown, and a consuming repo's
+README failed on a command example (`--check`) that wrapped across a line.
+Morgan then set the model this file now states: Markdown keeps plain
+hyphens, `--` stands for the long dash while drafting, and the conversion
+happens only when something is built for an outside reader. A real dash
+typed into Markdown stays allowed. Quotes moved to the same model, so the
+Markdown check and its grandfather list
+(`curly_quotes_grandfathered`) were removed, and the rules moved out of
+[`create_word_doc.py`](../tools/create_word_doc.py) into [`tools/typography.py`](../tools/typography.py) for every builder to share.
+The same change made `--` always an em dash, where it had been an en dash
+when spaced or between numbers, and made a hyphen between two numbers an
+en dash.
+
+Later the same day Morgan confirmed quotes follow the same model in his own
+words, and named the exception: code. The Word builder until then had no
+idea what code was, so a command in backticks or a fenced example would
+have had its `--` turned into a dash. `smarten()` now skips a code span,
+and `create_word_doc.py` sets fenced blocks and code spans as typed.
+
 ## Install
-Checked by [`tools/checks/check_curly_quotes.py`](../tools/checks/check_curly_quotes.py):
-reads the consuming repo's own declared `output_paths` / `internal_paths`
-and `curly_quotes_grandfathered` from its `precedent.json`, strips fenced
-code, inline code, link targets and autolinks first, and flags a
-remaining straight `"` or `'` in any in-scope, non-grandfathered tracked
-markdown file. SKIPPED (not a pass, not a violation) when the repo
-declares no `output_paths` at all, or when `output_paths` is declared but
-nothing tracked was actually in scope -- an empty scan is not a clean
-one. Exit 0 and no output when clean (including "clean because every
-current violation is grandfathered"); exit 1 naming the file and count
-otherwise.
+The set ships [`tools/typography.py`](../tools/typography.py) to every
+repository that resolves it: tracked where the repository declares the
+set, untracked where it comes through a person's individual set (engine
+from 2026-10-13 or later). A builder imports it from beside itself:
+`from typography import smarten`. `python3 tools/typography.py "text"`
+prints the converted text, for a quick look.
+[`tools/checks/tests/test_typography.sh`](../tools/checks/tests/test_typography.sh)
+holds the cases above. A repository's `precedent.json` key
+`curly_quotes_grandfathered` is no longer read by anything and can go.
