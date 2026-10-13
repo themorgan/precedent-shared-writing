@@ -671,6 +671,9 @@ def lead_into_list(paragraph):
     spacing, and the list's last item keeps its normal space after it."""
     if paragraph is not None and paragraph.style.name == "Normal":
         paragraph.paragraph_format.space_after = Pt(0)
+        # Never stranded at the foot of a page: the lead-in moves with its
+        # list's first item (Morgan, 2026-10-13).
+        paragraph.paragraph_format.keep_with_next = True
 
 
 def end_list(doc, paragraph):

@@ -402,6 +402,7 @@ paras = d.paragraphs
 for i, p in enumerate(paras[1:], 1):
     if p.style.name.startswith("List") and paras[i - 1].style.name == "Normal":
         assert paras[i - 1].paragraph_format.space_after == 0, paras[i - 1].text
+        assert paras[i - 1].paragraph_format.keep_with_next, paras[i - 1].text
     if p.style.name == "Normal" and paras[i - 1].style.name.startswith("List"):
         assert paras[i - 1].paragraph_format.space_after == Pt(5), (paras[i - 1].text, paras[i - 1].paragraph_format.space_after)
 nums = [p for p in d.paragraphs if p.style.name == "List Number"]
