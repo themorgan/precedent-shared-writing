@@ -372,8 +372,9 @@ fi
 echo "ok: escapes print as the character, web links stay links, #### is Heading 3, the footer names the document, the logo can head page one"
 
 # 12. Lists a quarter inch in, real numbered lists that restart, curly quotes
-#     and dashes (Morgan, 2026-10-13).
-printf '# T\n\nLead-in:\n\n- a "bullet" -- it'"'"'s here, word--word, 1990--2000\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
+#     and dashes (Morgan, 2026-10-13): "--" is always an em dash, and a
+#     hyphen between two numbers in a range an en dash; a date keeps its own.
+printf '# T\n\nLead-in:\n\n- a "bullet" -- it'"'"'s here, word--word, 1990-2000 on 2026-10-13\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
   > "$SCRATCH/notes/lists.md"
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/lists.md" \
   --out "$SCRATCH/out/Lists.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
@@ -385,7 +386,7 @@ d = docx.Document(path)
 xml = zipfile.ZipFile(path).read("word/document.xml").decode()
 text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
 assert '"' not in text and "'" not in text and "--" not in text, text
-assert "“bullet” – it’s here, word—word, 1990–2000" in text, text
+assert "“bullet” — it’s here, word—word, 1990–2000 on 2026-10-13" in text, text
 assert "Text — between." in text, text
 for name in ("List Bullet", "List Number"):
     pf = d.styles[name].paragraph_format
@@ -419,3 +420,30 @@ PY
   exit 1
 fi
 echo "ok: lists sit a quarter inch in, numbered lists are real and restart, quotes curl and dashes become dashes"
+
+# 13. Code is never typography (Morgan, 2026-10-13: "double dashes and
+#     dashes have particular meanings in code"): a code span keeps its
+#     characters, without backticks, in a fixed-width face; a fenced block
+#     is set line for line as typed. The prose around them still converts.
+printf '# T\n\nRun `git push --force` -- "carefully", 1990-2000.\n\n```\n$ cmd --flag "x" -- it'"'"'s\n\n  1990-2000 --- end\n```\n\nAfter -- the code.\n' \
+  > "$SCRATCH/notes/code.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/code.md" \
+  --out "$SCRATCH/out/Code.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Code.docx" <<'PY' 2>&1
+import sys, docx
+d = docx.Document(sys.argv[1])
+paras = [p for p in d.paragraphs if p.text]
+span = paras[1]
+assert span.text == "Run git push --force — “carefully”, 1990–2000.", span.text
+code_runs = [r for r in span.runs if r.text == "git push --force"]
+assert code_runs and code_runs[0].font.name == "Courier New", [(r.text, r.font.name) for r in span.runs]
+block = paras[2]
+assert block.text == "$ cmd --flag \"x\" -- it's\n\n  1990-2000 --- end", repr(block.text)
+assert all(r.font.name == "Courier New" for r in block.runs if r.text), "a code line left the code face"
+assert paras[3].text == "After — the code.", paras[3].text
+PY
+)"; then
+  echo "FAIL: code was converted or not set as code: $OUT" >&2
+  exit 1
+fi
+echo "ok: a code span and a fenced block stay exactly as typed, in a fixed-width face; the prose around them converts"
