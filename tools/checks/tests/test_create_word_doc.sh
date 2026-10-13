@@ -164,14 +164,15 @@ assert breaks(sys.argv[1]) == ["two"], f"page breaks after: {breaks(sys.argv[1])
 assert "See the notes.\nNext line." in texts, texts
 bullets = [p.text for p in d.paragraphs if p.style.name == "List Bullet"]
 assert bullets == ["one item that wraps", "two"], bullets
-# A bullet sits half an inch in, its text a quarter inch past it (Morgan,
-# 2026-10-05: the stock List Bullet put the bullets flush with the margin),
+# A bullet sits a quarter inch in, its text a quarter inch past it (Morgan,
+# 2026-10-05: the stock List Bullet put the bullets flush with the margin;
+# 2026-10-13: half an inch was "far too much"),
 # in the style and in the numbering level Word draws the bullet from.
 pf = d.styles["List Bullet"].paragraph_format
-assert (round(pf.left_indent.inches, 2), round(pf.first_line_indent.inches, 2)) == (0.75, -0.25), \
+assert (round(pf.left_indent.inches, 2), round(pf.first_line_indent.inches, 2)) == (0.5, -0.25), \
     (pf.left_indent, pf.first_line_indent)
 num_xml = d.part.numbering_part.element.xml
-assert 'w:left="1080" w:hanging="360"' in num_xml, "the bullet's numbering level is still at the margin"
+assert 'w:left="720" w:hanging="360"' in num_xml, "the bullet's numbering level is still at the margin"
 assert breaks(sys.argv[2]) == [], f"--no-section-breaks still broke after: {breaks(sys.argv[2])}"
 PY
 )"; then
@@ -333,3 +334,88 @@ PY
   exit 1
 fi
 echo "ok: crossed emphasis takes the outer form; a stray asterisk is left out and reported"
+
+# 11. A document that is no manuscript (Morgan, 2026-10-13, a proposal):
+#     backslash escapes print as the character, a web link stays a real
+#     hyperlink, "####" is a Heading 3, the footer names the document, and
+#     --header-on-first-page puts the logo on page one too.
+mkdir -p "$SCRATCH/notes"
+printf '# Proposal\n\n#### People\n\nCash is \\$15k, item \\[A\\]. See [the original](https://example.com/doc) and [a file](MAP.md).\n' \
+  > "$SCRATCH/notes/proposal.md"
+python3 -c "from PIL import Image; Image.new('RGB',(40,20),'red').save('$SCRATCH/logo.png')" 2>/dev/null \
+  || cp "$(find "$SET_ROOT" -name '*.png' | head -1)" "$SCRATCH/logo.png"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/proposal.md" \
+  --out "$SCRATCH/out/Proposal.docx" --short-name Proposal --date 2026-01-01 \
+  --footer-label "CONFIDENTIAL - PROPOSAL" --header-image "$SCRATCH/logo.png" \
+  --header-on-first-page --no-section-breaks > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Proposal.docx" <<'PY' 2>&1
+import sys, re, zipfile, docx
+path = sys.argv[1]
+d = docx.Document(path)
+xml = zipfile.ZipFile(path).read("word/document.xml").decode()
+text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
+assert "$15k" in text and "[A]" in text and "\\" not in text, text
+assert "#" not in text, text
+assert [p.text for p in d.paragraphs if p.style.name == "Heading 3"] == ["People"]
+links = [r.target_ref for r in d.part.rels.values() if r.reltype.endswith("/hyperlink")]
+assert links == ["https://example.com/doc"], links
+assert xml.count("<w:hyperlink") == 1 and "a file" in text and "MAP.md" not in text
+s = d.sections[0]
+assert [p.text for p in s.footer.paragraphs][1] == "CONFIDENTIAL - PROPOSAL - 2026-01-01"
+assert not s.different_first_page_header_footer
+assert s.header._element.xpath(".//pic:pic")
+PY
+)"; then
+  echo "FAIL: a non-manuscript export lost an escape, a web link, a Heading 3, its footer label or its first-page logo: $OUT" >&2
+  exit 1
+fi
+echo "ok: escapes print as the character, web links stay links, #### is Heading 3, the footer names the document, the logo can head page one"
+
+# 12. Lists a quarter inch in, real numbered lists that restart, curly quotes
+#     and dashes (Morgan, 2026-10-13).
+printf '# T\n\nLead-in:\n\n- a "bullet" -- it'"'"'s here, word--word, 1990--2000\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
+  > "$SCRATCH/notes/lists.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/lists.md" \
+  --out "$SCRATCH/out/Lists.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Lists.docx" <<'PY' 2>&1
+import sys, re, zipfile, docx
+from docx.shared import Inches, Pt
+path = sys.argv[1]
+d = docx.Document(path)
+xml = zipfile.ZipFile(path).read("word/document.xml").decode()
+text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
+assert '"' not in text and "'" not in text and "--" not in text, text
+assert "“bullet” – it’s here, word—word, 1990–2000" in text, text
+assert "Text — between." in text, text
+for name in ("List Bullet", "List Number"):
+    pf = d.styles[name].paragraph_format
+    assert abs(pf.left_indent - Inches(0.5)) < 100 and abs(pf.first_line_indent + Inches(0.25)) < 100, name
+# A list adds no space of its own: none before it, items close together,
+# so a lead-in line sits the normal paragraph gap above it (2026-10-13).
+for name in ("List Bullet", "List Number"):
+    st = d.styles[name]
+    assert st.paragraph_format.space_before == 0, (name, st.paragraph_format.space_before)
+    assert st.element.pPr.find(docx.oxml.ns.qn("w:contextualSpacing")) is not None, name
+    assert st.paragraph_format.space_after is None, (name, st.paragraph_format.space_after)
+# A lead-in line sits on its list; the paragraph after a list keeps its gap.
+paras = d.paragraphs
+for i, p in enumerate(paras[1:], 1):
+    if p.style.name.startswith("List") and paras[i - 1].style.name == "Normal":
+        assert paras[i - 1].paragraph_format.space_after == 0, paras[i - 1].text
+        assert paras[i - 1].paragraph_format.keep_with_next, paras[i - 1].text
+    if p.style.name == "Normal" and paras[i - 1].style.name.startswith("List"):
+        assert paras[i - 1].paragraph_format.space_after == Pt(5), (paras[i - 1].text, paras[i - 1].paragraph_format.space_after)
+nums = [p for p in d.paragraphs if p.style.name == "List Number"]
+assert [p.text for p in nums] == ["one", "two", "three", "four"], [p.text for p in nums]
+ids = [p._p.pPr.numPr.numId.val for p in nums]
+assert ids[0] == ids[1] and ids[2] == ids[3] and ids[0] != ids[2], ids
+nums_xml = re.findall(r'<w:num w:numId="(\d+)">(.*?)</w:num>',
+                      zipfile.ZipFile(path).read("word/numbering.xml").decode(), re.S)
+starts = {n: re.findall(r'<w:startOverride w:val="(\d+)"/>', body) for n, body in nums_xml}
+assert starts[str(ids[0])] == ["1"] and starts[str(ids[2])] == ["3"], starts
+PY
+)"; then
+  echo "FAIL: lists, numbering or typography wrong: $OUT" >&2
+  exit 1
+fi
+echo "ok: lists sit a quarter inch in, numbered lists are real and restart, quotes curl and dashes become dashes"
