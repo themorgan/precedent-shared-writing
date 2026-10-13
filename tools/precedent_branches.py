@@ -169,11 +169,10 @@ import time
 PRE_STAGING = 'pre-staging'
 STAGING = 'staging'
 # The staging branch's name until 2026-09-25, in the Precedent repositories.
-# Kept on origin, and fast-forwarded to staging by every Promote, so an
-# install still pinned to it takes one more update from it -- onto an
-# engine that names staging -- and then follows staging. Work pushed there
-# by a session that has not moved yet is merged into pre-staging by the
-# sync, never lost (spec/BRANCH_TIERS_PLAN.md, step 10).
+# Promote stopped keeping it in step on 2026-10-11, when Morgan retired it
+# (todo-2026-09-26-retire-precedent-beta-v01). The name is still recognized
+# as a tier and never offered for deletion, because an install may still
+# declare it as its base branch until its next Update Vendors renames it.
 LEGACY_STAGING = 'precedent-beta-v01'
 MAIN = 'main'
 BASIC = 'basic'
@@ -830,6 +829,8 @@ def merge_refusal(root, bases, heads, user_config=None, head_sha=None):
         if main_copy_current(root, head_sha, _remote_tip(root, staging),
                              _remote_tip(root, MAIN)):
             return None
+    if MAIN in bases and head_sha and red_main_fix(root, head_sha):
+        return None
     if MAIN in bases and stale:
         return (f'{stale[0]} is a copy of {staging_branch(root)} that is out of '
                 f'date: {staging_branch(root)} has moved since it was made. '
@@ -841,6 +842,40 @@ def merge_refusal(root, bases, heads, user_config=None, head_sha=None):
             f'from {" or ".join(sorted(allowed))} here -- {PROMOTE_ONLY_SETTING} '
             f'is on in {where}. Retarget it at {lower}, merge it there, '
             f'and say Promote.')
+
+
+def main_test_failed(root):
+    """True only when main's own GitHub test has run on main's tip and
+    failed. No test installed, none on this tip, still running, or GitHub
+    cannot be asked: False, so the gate stays as strict as before."""
+    try:
+        mtip = _remote_tip(root, MAIN)
+        tests = (github_tests(root, mtip)
+                 if mtip and _gets_github_test(root, MAIN) else [])
+        if not tests:
+            return False
+        return github_test_state(root, mtip, tests)[0] == 'failed'
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
+def red_main_fix(root, head_sha):
+    """promote-only's red-main exception: a pull request straight into main
+    is let through when main's own GitHub test has failed on its tip and the
+    pull request is built on that tip, so it repairs main as it stands. The
+    session brings the same fix into staging afterwards; until it does, a
+    landing into staging that lacks it is refused (main_work_missing).
+
+    Why (Morgan, 2026-10-11, strength: assented): main failed its test after
+    a Produce, the fix was refused straight into main, and went through
+    staging and a second Produce instead. Asked about the rule, he approved
+    letting a fix for a red main go straight there; every other move into
+    main still comes from staging."""
+    mtip = _remote_tip(root, MAIN)
+    if not mtip or _run(root, 'merge-base', '--is-ancestor', mtip,
+                        head_sha).returncode != 0:
+        return False
+    return main_test_failed(root)
 
 
 def tier_branches(root):
@@ -979,8 +1014,7 @@ def ensure_tiers(root, apply=False, say=print, new_install=False):
     both exist (or were just made), 1 when something is missing and
     `apply` is off, or could not be made.
 
-    A missing staging is made from the old name kept in step with it, else
-    from pre-staging, else from main; a missing pre-staging is made from
+    A missing staging is made from pre-staging, else from main; a missing pre-staging is made from
     staging. A repository whose staging tier is main (base_branch "main", no
     staging_branch) gains a `staging` branch the same way, and its
     precedent.json gains `"staging_branch": "staging"` -- written here,
@@ -1024,24 +1058,21 @@ def ensure_tiers(root, apply=False, say=print, new_install=False):
             ' -- run `python3 tools/precedent_branches.py --ensure-tiers --apply`.')
         return 1
     if wants_staging_branch or not _remote_tip(root, staging):
-        # A staging branch that has gone missing is rebuilt from the old
-        # name kept in step with it, else from main. 2026-09-26:
+        # A staging branch that has gone missing is rebuilt from
+        # pre-staging, else from main. 2026-09-26:
         # staging was deleted right after a pull request FROM staging into
         # main was merged (cause not established), and this looked for staging
         # itself to rebuild it from, found nothing and gave up. Right after
         # such a merge, main contains staging exactly.
         #
-        # Then from pre-staging, and only then from main (Morgan,
+        # From pre-staging, and only then from main (Morgan,
         # 2026-09-27, strength: decided: "copying the latest from
         # pre-staging to staging or vice versa and if neither exist then
         # copying to both the latest from main"). What lands on staging this
         # way has not had staging's full check, and it gets it on the way to
         # main: a Promote into main runs the full check on anything it has
         # not seen pass.
-        if (not wants_staging_branch and staging != LEGACY_STAGING
-                and _remote_tip(root, LEGACY_STAGING)):
-            src = LEGACY_STAGING
-        elif _remote_tip(root, PRE_STAGING):
+        if _remote_tip(root, PRE_STAGING):
             src = PRE_STAGING
         else:
             src = MAIN
@@ -2377,11 +2408,6 @@ def sync_pre_staging(root, say=print, check=False):
         return True
     _run(root, 'fetch', '-q', 'origin', PRE_STAGING)
     sources = [(staging, stip)]
-    if staging != LEGACY_STAGING:
-        ltip = _remote_tip(root, LEGACY_STAGING)
-        if ltip:
-            _run(root, 'fetch', '-q', 'origin', LEGACY_STAGING)
-            sources.append((LEGACY_STAGING, ltip))
     if staging != MAIN:
         mtip = _remote_tip(root, MAIN)
         if mtip:
@@ -2526,6 +2552,11 @@ def drift_report(root, gh=None):
 # wasted check run, never a commit: the later window's plain push to staging
 # is refused. Morgan: "Let's update that again to 15 minutes ... this should
 # be more than enough" (strength: decided).
+# The lock's name comes from precedent_data_branches.py since 2026-10-11
+# (Morgan: "'data-' for permanent branches is great and approved ... only
+# for ones done by people using the ladder", strength: decided):
+# data-promote-lock in a repository on the ladder, this old name elsewhere
+# and wherever that file is missing.
 LOCK_BRANCH = 'precedent-promote-lock'
 LOCK_STALE_SECONDS = 15 * 60
 _EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -2539,16 +2570,59 @@ def _lock_holder_name():
             or f'{socket.gethostname()} pid {os.getpid()}')
 
 
-def _lock_state(root):
+def _lock_branch(root, write=False, say=None):
+    """-> the lock's branch here (precedent_data_branches). `write` lets a
+    ladder repository's first claim copy the old branch to its data- name."""
+    try:
+        here = str(pathlib.Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import precedent_data_branches as pdb
+    except Exception:                                       # noqa: BLE001
+        return LOCK_BRANCH
+    try:
+        if write:
+            return pdb.name_for_write(root, pdb.LOCK, say=say)
+        return pdb.name(root, pdb.LOCK)[0]
+    except Exception:                                       # noqa: BLE001
+        return LOCK_BRANCH
+
+
+def _lock_state(root, branch=None):
     """-> (tip, subject, committed_at) of the lock branch on origin, or
     (None, None, None) when it does not exist yet."""
-    tip = _remote_tip(root, LOCK_BRANCH)
+    branch = branch or _lock_branch(root)
+    tip = _remote_tip(root, branch)
     if not tip:
         return None, None, None
-    _run(root, 'fetch', '-q', 'origin', LOCK_BRANCH)
+    _run(root, 'fetch', '-q', 'origin', branch)
     subject = _git(root, 'log', '-1', '--format=%s', tip) or ''
     stamp = _git(root, 'log', '-1', '--format=%ct', tip) or '0'
     return tip, subject, int(stamp) if stamp.isdigit() else 0
+
+
+def _fresh_hold(state):
+    """-> 'held by X, N min ago' for a lock state holding a claim younger
+    than LOCK_STALE_SECONDS, else None."""
+    tip, subject, at = state
+    if not tip or not (subject or '').startswith('held by') or not at:
+        return None
+    age = time.time() - at
+    if age >= LOCK_STALE_SECONDS:
+        return None
+    return f'{subject.replace(" [skip ci]", "")}, {int(age // 60)} min ago'
+
+
+def _old_name_hold(root, branch):
+    """-> a fresh hold on the lock's old name, while this repository's lock
+    is its data- name: a window on an older engine still claims the old
+    branch, and the two must not run side by side. None otherwise."""
+    if branch == LOCK_BRANCH:
+        return None
+    try:
+        return _fresh_hold(_lock_state(root, LOCK_BRANCH))
+    except Exception:                                         # noqa: BLE001
+        return None
 
 
 def promote_in_progress(root):
@@ -2564,18 +2638,13 @@ def promote_in_progress(root):
     LOCK_STALE_SECONDS is not a Promote running -- the next one takes it
     over -- so it does not count."""
     try:
-        tip, subject, at = _lock_state(root)
+        branch = _lock_branch(root)
+        return _fresh_hold(_lock_state(root, branch)) or _old_name_hold(root, branch)
     except Exception:                                         # noqa: BLE001
         return None
-    if not tip or not (subject or '').startswith('held by') or not at:
-        return None
-    age = time.time() - at
-    if age >= LOCK_STALE_SECONDS:
-        return None
-    return f'{subject.replace(" [skip ci]", "")}, {int(age // 60)} min ago'
 
 
-def _lock_push(root, parent, subject, body):
+def _lock_push(root, parent, subject, body, branch=None):
     """Commit `subject` on top of `parent` and push it to the lock branch.
     -> (ok, commit, stderr). Never forced."""
     args = ['commit-tree', _EMPTY_TREE, '-m', f'{subject} [skip ci]', '-m', body]
@@ -2585,7 +2654,8 @@ def _lock_push(root, parent, subject, body):
     commit = made.stdout.strip()
     if made.returncode != 0 or not commit:
         return False, None, made.stderr.strip()
-    p = _run(root, 'push', '-q', 'origin', f'{commit}:refs/heads/{LOCK_BRANCH}')
+    branch = branch or _lock_branch(root)
+    p = _run(root, 'push', '-q', 'origin', f'{commit}:refs/heads/{branch}')
     return p.returncode == 0, commit, p.stderr.strip()
 
 
@@ -2595,22 +2665,23 @@ def _lock_claim(root, say, what=None):
     used at all, and the Promote goes ahead without it, as before. `what`
     names a holder other than a Promote -- the merge gate's landing check
     (hold_for_landing) -- in the claim's subject."""
-    tip, subject, at = _lock_state(root)
-    age = time.time() - at if at else None
-    if tip and subject.startswith('held by') and age is not None \
-            and age < LOCK_STALE_SECONDS:
-        return 'busy', f'{subject.replace(" [skip ci]", "")}, {int(age // 60)} min ago'
+    branch = _lock_branch(root, write=True, say=say)
+    tip, subject, at = _lock_state(root, branch)
+    busy = _fresh_hold((tip, subject, at)) or _old_name_hold(root, branch)
+    if busy:
+        return 'busy', busy
     stale = ' (taking over a claim older than %d min)' % (LOCK_STALE_SECONDS // 60) \
         if tip and subject.startswith('held by') else ''
     ok, commit, err = _lock_push(
         root, tip, f'held by {_lock_holder_name()}' + (f' ({what})' if what else ''),
         f'{"A Promote" if not what else what[0].upper() + what[1:]} is running. '
         'tools/precedent_branches.py releases this when it ends; a claim older '
-        f'than {LOCK_STALE_SECONDS // 60} minutes may be taken over.{stale}')
+        f'than {LOCK_STALE_SECONDS // 60} minutes may be taken over.{stale}',
+        branch)
     if ok:
         return 'held', commit
     if any(w in err for w in ('non-fast-forward', 'fetch first', 'rejected')):
-        tip, subject, at = _lock_state(root)
+        tip, subject, at = _lock_state(root, branch)
         who = subject.replace(' [skip ci]', '') if subject else 'another window'
         return 'busy', f'{who}, just now'
     return 'none', err[:200] or 'the lock commit could not be made'
@@ -2618,11 +2689,13 @@ def _lock_claim(root, say, what=None):
 
 def _lock_release(root, held, say):
     try:
-        ok, _commit, err = _lock_push(root, held, 'free', 'No Promote is running.')
+        branch = _lock_branch(root)
+        ok, _commit, err = _lock_push(root, held, 'free', 'No Promote is running.',
+                                      branch)
     except CommitRefused as exc:
-        ok, err = False, str(exc)
+        branch, ok, err = _lock_branch(root), False, str(exc)
     if not ok:
-        say(f'NOTE: could not release {LOCK_BRANCH} ({err[:160]}); it frees '
+        say(f'NOTE: could not release {branch} ({err[:160]}); it frees '
             f'itself after {LOCK_STALE_SECONDS // 60} minutes.')
 
 
@@ -3064,7 +3137,7 @@ def _drifted_from_above(root):
 # start with the timestamps then the slug then a few random characters? ...
 # let's do that"). The fix branch and the copy a pull request into main
 # comes from were named promote-fix-DATE and to-main-DATE, outside the
-# <date>-<slug>-<id> format every other temporary branch takes from
+# <date>-<slug>-<session>-<random> format every other temporary branch takes from
 # tools/precedent_branch_name.py, so they led back to no session. They are
 # named by that tool now. The old names are still RECOGNIZED -- a branch
 # already on origin, an engine copy elsewhere -- by the is_* functions below,
@@ -3072,8 +3145,11 @@ def _drifted_from_above(root):
 FIX_SLUG = 'promote-fix'
 COPY_SLUG = 'promote-to-main'
 NOT_DUE_SLUG = 'promote-to-main-not-due'
+# The person's GitHub username may sit between the date and the slug
+# (Morgan, 2026-10-11: <date>-<username>-<slug>-<session>-<random>).
 _PROMOTE_MADE_RE = re.compile(
-    r'(?:^|/)\d{4}-\d\d-\d\d-(promote-fix|promote-to-main(?:-not-due)?)'
+    r'(?:^|/)\d{4}-\d\d-\d\d-(?:[a-z0-9][a-z0-9-]*?-)?'
+    r'(promote-fix|promote-to-main(?:-not-due)?)'
     r'-[a-z0-9]{5}(?:-[a-z0-9]{5})?$')
 # What a GitHub workflow that skips a not-due copy by its NEW name contains;
 # a workflow without it knows only the old names, so the copy keeps one.
@@ -3114,9 +3190,11 @@ def _day_and_moment(root):
 
 
 def promote_branch_name(root, slug, taken):
-    """-> <date>-<slug>-<session ID's end> from precedent_branch_name.py
-    (random characters where there is no session ID, more where the name is
-    taken), or None when that tool cannot be loaded."""
+    """-> <date>-<slug>-<session ID's end>-<random> from
+    precedent_branch_name.py (random characters in the session part too
+    where there is no session ID), or None when that tool cannot be loaded.
+    Every copy carries the random part since 2026-10-11, so a session's
+    second Promote of the day no longer gets a longer name than its first."""
     try:
         sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
         import precedent_branch_name as pbn
@@ -3766,7 +3844,7 @@ FIX_PREFIX = 'promote-fix-'
 
 def _fix_branch(root):
     """A fresh fix-branch name, in the session-branch format: e.g.
-    2026-10-06-promote-fix-y1ktn (promote_branch_name says why).
+    2026-10-11-promote-fix-y1ktn-q7m2x (promote_branch_name says why).
     The old promote-fix-DATE only where the naming tool cannot be loaded."""
     def taken(name):
         return bool(_remote_tip(root, name)) or _run(
@@ -3812,12 +3890,11 @@ def _compose(root, wt, parts, staging, say):
 
 
 def _from_above(root, staging, stip):
-    """-> [(branch, tip, commits)] for main, and staging's old name while it
-    exists, wherever its tip brings `stip` (staging's tip) a file change: the
-    work that reached them directly, without climbing. Fetches each."""
+    """-> [(branch, tip, commits)] for main, wherever its tip brings `stip`
+    (staging's tip) a file change: the work that reached it directly,
+    without climbing. Fetches it."""
     above = []
-    for branch in ((MAIN,) if staging != MAIN else ()) + (
-            (LEGACY_STAGING,) if staging != LEGACY_STAGING else ()):
+    for branch in ((MAIN,) if staging != MAIN else ()):
         tip = _remote_tip(root, branch)
         if tip:
             _run(root, 'fetch', '-q', 'origin', branch)
@@ -3986,7 +4063,6 @@ def _promote_unlocked(root, say=print, work=None):
     say(f'{staging} and {PRE_STAGING} are both at {new[:12]} now.')
     for line in review:
         say(line)
-    _mirror_legacy(root, staging, new, say)
     _verdict(f'PROMOTED at {new} ({staging} and {PRE_STAGING} are both there)',
              move=f'{staging} <- {PRE_STAGING}')
     return 0
@@ -4088,28 +4164,6 @@ def _raced(root, say, staging, stip, ptip, new, p):
         return 1
     say(f'the push was refused, so nothing moved: {p.stderr.strip()[:300]}')
     return 1
-
-
-def _mirror_legacy(root, staging, new, say):
-    """Fast-forward the pre-rename name to what staging now holds, while it
-    exists. Never forced: the sync has already merged anything pushed there
-    into pre-staging, so a legacy tip that is not an ancestor means someone
-    pushed to it during this Promote, and it is said rather than overwritten."""
-    if staging == LEGACY_STAGING:
-        return
-    ltip = _remote_tip(root, LEGACY_STAGING)
-    if not ltip or ltip == new:
-        return
-    _run(root, 'fetch', '-q', 'origin', LEGACY_STAGING)
-    if _run(root, 'merge-base', '--is-ancestor', ltip, new).returncode != 0:
-        say(f'NOTE: {LEGACY_STAGING} has commits {staging} lacks, so it was not '
-            f'moved; the next Promote brings them in through {PRE_STAGING}.')
-        return
-    p = _run(root, 'push', '-q', 'origin', f'{new}:refs/heads/{LEGACY_STAGING}')
-    if p.returncode == 0:
-        say(f'also moved {LEGACY_STAGING} to it, for installs still pinned to the old name.')
-    else:
-        say(f'NOTE: could not move {LEGACY_STAGING}: {p.stderr.strip()[:200]}')
 
 
 # --land: WORK LANDS ON STAGING, RECONCILED WITH MAIN (2026-10-09). For a

@@ -2517,17 +2517,33 @@ _FIXED_NAME_RE = re.compile(
     re.M)
 
 
+_ENGINE_FIXED = None
+
+
 def _engine_fixed_filenames():
-    names = set()
-    for f in sorted(pathlib.Path(__file__).resolve().parent.glob('*.py')):
-        try:
-            names.update(_FIXED_NAME_RE.findall(f.read_text(encoding='utf-8')))
-        except OSError:
-            continue
-    return frozenset(names)
+    """-> every fixed filename the engine's tools name. Read on first use,
+    not when this module loads (2026-10-12): it reads every tool's text, so
+    loading it made everything that imports this module depend on every
+    tool's text, and a change-scoped harness run picked a check for any
+    tool change at all. Cached by hand rather than by lru_cache, so its body
+    runs on every call and tools/harness_reach_hook.py sees which checks
+    use it (its CACHED_READERS)."""
+    global _ENGINE_FIXED
+    if _ENGINE_FIXED is None:
+        names = set()
+        for f in sorted(pathlib.Path(__file__).resolve().parent.glob('*.py')):
+            try:
+                names.update(_FIXED_NAME_RE.findall(f.read_text(encoding='utf-8')))
+            except OSError:
+                continue
+        _ENGINE_FIXED = frozenset(names)
+    return _ENGINE_FIXED
 
 
-ENGINE_FIXED_FILENAMES = _engine_fixed_filenames()
+def __getattr__(name):
+    if name == 'ENGINE_FIXED_FILENAMES':
+        return _engine_fixed_filenames()
+    raise AttributeError(name)
 
 
 def _engine_shipped_paths(root=None):
@@ -2637,7 +2653,7 @@ def _filename_separator(ctx):
         # the same reason precedent.json's exemption exists -- so it never
         # sets or breaks a directory's convention (practice: source-naming:
         # the source manifest's name is the same in every repository).
-        if path.name in ENGINE_FIXED_FILENAMES or f in shipped:
+        if path.name in _engine_fixed_filenames() or f in shipped:
             continue
         # The FIRST dot ends the stem: `a_b.md.template` is named after
         # `a_b.md`, so its separator was inherited from that name, not
@@ -3599,6 +3615,70 @@ def _orientation_map(ctx):
     if 'MAP.md' not in text:
         out.append(Finding(name, 'never mentions MAP.md, so the map is not '
                                  'reached from what a session actually reads'))
+    return out
+
+
+# An index this many rows long, still growing by a change, is the file the
+# practice is about. Twenty is where a table stops being a list one person
+# keeps and starts being one every thread appends to; it is advisory, so a
+# wrong guess costs a line of output and nothing else.
+SHARED_INDEX_ROWS = 20
+_GENERATED_SPANS = re.compile(
+    r'<!--\s*gen:([\w.-]+)\s*-->.*?<!--\s*/gen:\1\s*-->'
+    r'|<!--\s*BEGIN GENERATED.*?END GENERATED[^>]*-->', re.S)
+
+
+@check('shared-index-is-a-directory', 'change',
+       'a change that adds rows to a hand-written Markdown table already '
+       f'{SHARED_INDEX_ROWS} rows long is told the file can be kept as a '
+       'directory, one file per row, so concurrent threads stop conflicting '
+       'on it, and is given the command that splits it',
+       'whether the table really grows by many hands -- a long frozen table '
+       'gets the same note the first time a change adds to it -- and any '
+       'index that is not a Markdown pipe table (a JSON registry, a list). '
+       'It reads only the files this change touches, never their history.',
+       advisory=True,
+       advisory_term={'term': 'permanent',
+                      'why': 'whether a long table is one many threads append '
+                             'to is a judgment about how the repository is '
+                             'worked, which only its people can make'})
+def _shared_index_is_a_directory(ctx):
+    # WHY (Alex, 2026-10-12: "yes do the directory split"): a downstream
+    # branch failed to land twice on conflicts in two hand-edited tables
+    # every thread adds a row to, while the split that would have prevented
+    # it covered only MAP and GLOSSARY. Change scope, so it says so at the
+    # moment a row is added -- the moment a person can still choose.
+    try:
+        import precedent_migrate_views as mv
+    except Exception as e:                                    # noqa: BLE001
+        raise NotApplicable(f'tools/precedent_migrate_views.py did not import ({e})')
+    out = []
+    for rel in ctx.changed_matching(r'\.md$'):
+        if rel.startswith(_vendored_trees()) or rel.startswith(('templates/', 'evals/')):
+            continue
+        now = ctx.read(rel)
+        if now.startswith('---\n') and re.search(
+                r'^generated_by:', now[4:].split('\n---\n', 1)[0], re.M):
+            continue
+        was = ctx.read_base(rel)
+        if was is None:
+            continue
+
+        def rows(text):
+            # A table a script writes between markers is generated, not
+            # typed: doc_sync's <!--gen:NAME--> blocks, a BEGIN GENERATED part.
+            text = _GENERATED_SPANS.sub('', text)
+            t = mv._largest_table(text.split('\n'))
+            return 0 if t is None else t[2] - t[1]
+        before, after = rows(was), rows(now)
+        if before >= SHARED_INDEX_ROWS and after > before:
+            out.append(Finding(rel, f'this change adds {after - before} row(s) to a '
+                                    f'{before}-row table typed by hand. If many '
+                                    f'threads add rows here, keep it as a directory '
+                                    f'so they stop conflicting: python3 '
+                                    f'tools/precedent_migrate_views.py --repo . '
+                                    f'--split-file {rel} (practice: '
+                                    f'shared-index-is-a-directory)'))
     return out
 
 
@@ -6566,6 +6646,62 @@ def _speculation_is_marked(ctx):
     return findings
 
 
+# The run's full account, owed once the four hand-worked passes are in the
+# ledger (Morgan, 2026-10-11, after that day's run left it out until asked).
+# Runs dated before the rule are not judged: a consumer with an older run and
+# no account would otherwise be refused for a debt nobody owed at the time.
+_VDC_LEDGER = 'record/very-deep-check-ledger.json'
+_VDC_WRITE_UP = 'spec/VERY_DEEP_CHECK_LATEST_RUN.md'
+_VDC_PASSES = {'1', '2', '3', '4'}
+_VDC_RULE_DATE = '2026-10-11'
+
+
+@check('very-deep-check', 'tree',
+       "once the last completed very deep check in "
+       "record/very-deep-check-ledger.json has all four passes recorded, "
+       "spec/VERY_DEEP_CHECK_LATEST_RUN.md exists and its `opened:` date is "
+       "that run's date or later -- the run's full account was written, not "
+       "left for the person to ask for",
+       "whether the account is any GOOD: a file with the right date and "
+       "nothing in it passes. It also cannot see a run whose passes were "
+       "never recorded with --record-pass, which is the other half of the "
+       "same practice, and it does not judge runs dated before "
+       "2026-10-11, when the account became mandatory.")
+def _very_deep_check_write_up(ctx):
+    ledger = ROOT / _VDC_LEDGER
+    if not ledger.is_file():
+        raise NotApplicable(f'no {_VDC_LEDGER}: no very deep check has run here')
+    try:
+        runs = json.loads(ledger.read_text(encoding='utf-8')).get('runs') or []
+    except ValueError as e:
+        return [Finding(_VDC_LEDGER, f'does not parse ({e})')]
+    done = [r for r in runs if r.get('completed', True)]
+    if not done:
+        return []
+    run = done[-1]
+    date = str(run.get('date') or '')
+    recorded = {str(p.get('pass')) for p in run.get('passes') or []}
+    if date < _VDC_RULE_DATE or not _VDC_PASSES <= recorded:
+        return []                             # run predates the rule, or still in progress
+    where = f"the run of {run.get('run_id') or date}"
+    path = ROOT / _VDC_WRITE_UP
+    if not path.is_file():
+        return [Finding(_VDC_WRITE_UP, (
+            f'{where} has all four passes recorded and no account was written '
+            f'-- write this file for it before the run is called done '
+            f'(practices/very-deep-check.md)'))]
+    m = re.search(r'^opened:\s*(\S+)', path.read_text(encoding='utf-8',
+                                                      errors='ignore'), re.M)
+    opened = m.group(1).strip('"\'') if m else ''
+    if opened < date:
+        return [Finding(_VDC_WRITE_UP, (
+            f'{where} has all four passes recorded, but this account is '
+            f'still for the run opened {opened or "(no opened: date)"} -- '
+            f'rewrite it for this run, with `opened: {date}`, before the run '
+            f'is called done (practices/very-deep-check.md)'))]
+    return []
+
+
 @check('vendored-engine-file-refs-resolve', 'tree',
        "every hardcoded `_ENGINE_DIR / '<name>'` or `ROOT / 'tools' / '<name>'` "
        "path inside a tools/*.py file names a file that actually exists under "
@@ -7337,6 +7473,17 @@ def _vocabulary_reaches_the_consumer(ctx):
             'precedent_update.py does and for the same reason, and '
             'precedent_update.py imports it from there '
             '(spec/LOCAL_EDITS_TO_RECEIVED_FILES_PLAN.md)',
+        'precedent_update_all.py':
+            'Update All Vendors runs the BestPractice clone\'s copy, which '
+            'runs that clone\'s precedent_update.py against each repository '
+            'on the list, for the same reason precedent_update.py is here '
+            '(spec/UPDATE_ALL_VENDORS_PLAN.md)',
+        'precedent_update_driver.py':
+            'precedent_update.py\'s bootstrap, imported from the BestPractice '
+            'clone alongside it: it picks which commit\'s copy of the update '
+            'runs, which only means anything in a clone of the source '
+            '(todo-2026-10-11-update-vendors-runs-stale-driver-code); '
+            'precedent_local_edits.py imports it only when present',
     }
     NEVER_VENDORED = set(UPSTREAM_ONLY)
 
@@ -7760,7 +7907,15 @@ def _light_link_exempt_dirs():
 
 
 def _light_broken_links(root, rel, text):
-    base = (root / rel).parent
+    # A piece of an index kept as a directory keeps the view's links word for
+    # word, so they resolve from the view's folder; doc_lint.index_entry_base
+    # is the one place that knows both split layouts (a downstream repo's
+    # push check, 2026-10-12, flagged every link in a split glossary's rows).
+    try:
+        import doc_lint as _dl
+        base = _dl.index_entry_base(root / rel) or (root / rel).parent
+    except Exception:                               # practice: fail-gracefully
+        base = (root / rel).parent
     fence, out = None, []
     for lineno, line in enumerate(text.splitlines(), start=1):
         m = _LIGHT_FENCE_RE.match(line)
@@ -8950,8 +9105,37 @@ def _declared_base_branch(root):
     except Exception:
         return None
 
+def _landing_ref():
+    """-> origin/<the branch this person's work lands on>, when
+    precedent_branches.py sits beside this file and that branch is on
+    origin, else None."""
+    try:
+        import importlib.util as _u
+        spec = _u.spec_from_file_location(
+            '_pc_precedent_branches', pathlib.Path(__file__).resolve().parent / 'precedent_branches.py')
+        pb = _u.module_from_spec(spec)
+        spec.loader.exec_module(pb)
+        landing, _why = pb.landing_branch(ROOT)
+    except Exception:
+        return None
+    if landing and _git('rev-parse', '--verify', '--quiet',
+                        f'origin/{landing}').returncode == 0:
+        return f'origin/{landing}'
+    return None
+
+
 def _published_default_branch():
-    """origin's default branch ref, or None when there is no usable one."""
+    """The branch a change is measured against: where this person's work
+    lands, then the declared base branch, then origin's default.
+
+    WHERE THE WORK LANDS COMES FIRST (2026-10-12). A session on the direct
+    route lands on main while precedent.json still declares staging, days
+    behind it; a push check judged a branch against staging and blamed it
+    for a rename already on main. A change is what it adds to the branch
+    it will land on (checks-read-only-the-work)."""
+    landing = _landing_ref()
+    if landing:
+        return landing
     declared = _declared_base_branch(ROOT)
     if declared and _git('rev-parse', '--verify', '--quiet',
                          f'origin/{declared}').returncode == 0:
@@ -9809,6 +9993,9 @@ def _pending_approval_outlives_its_merge(ctx):
     return out
 
 
+_MANDATORY_SECTIONS = ('rule', 'why', 'story', 'install')   # 'detail' is optional
+
+
 @check('practice-file-shape', 'tree',
        'each practice file in the engine\'s own catalogue is well-formed on '
        'its own: its slug is its filename and no other file has it; a '
@@ -9816,7 +10003,8 @@ def _pending_approval_outlives_its_merge(ctx):
        'number and every [slug](slug.md) link names a real practice; it '
        'links no GitHub repository but this one; its ## Rule is non-empty '
        'and does not end on a lead-in; and an on-demand practice has a '
-       'written, complete index_clause within the length limit',
+       'written, complete index_clause within the length limit; and it '
+       'carries ## Rule, ## Why, ## Story and ## Install',
        'whether the Rule is good, or the index line apt -- only the shape a '
        'script can see. A source set or consumer is not held to it here: '
        'their practices link other sources\' slugs by URL, and a consumer\'s '
@@ -9888,6 +10076,17 @@ def _practice_file_shape(ctx):
                                            f'reader of a shipped practice has no '
                                            f'reason to be able to open -- name it '
                                            f'instead of linking it'))
+        # The four mandatory sections (## Detail is optional). Moved here from
+        # the test suite on 2026-10-11, the same move as the checks above:
+        # a new practice without ## Install passed every push check and
+        # turned main's GitHub test red, found by Update All Vendors' own
+        # Produce.
+        missing = [s for s in _MANDATORY_SECTIONS if s not in sections]
+        if missing:
+            out.append(Finding(rel(f), 'missing section(s) '
+                               + ', '.join(f'## {s.title()}' for s in missing)
+                               + ' -- or a heading with trailing whitespace, '
+                               'silently merged into the section before it'))
         rule = (sections.get('rule') or '').strip()
         if not rule:
             out.append(Finding(rel(f), 'empty ## Rule -- a practice with nothing '
@@ -10530,7 +10729,12 @@ def _scrub_gate(ctx):
         raise NotApplicable(out.strip().splitlines()[-1])
     if 'scrub' in out and 'skipped' in out:
         raise NotApplicable('practice_audit skipped the scrub: no blocklist')
-    return [Finding('', l.strip()) for l in out.splitlines() if 'SCRUB:' in l]
+    found = [Finding('', l.strip()) for l in out.splitlines() if 'SCRUB:' in l]
+    # practice_audit.EMPTY_BLOCKLIST: nothing was checked, which is not a pass.
+    empty = [l.strip() for l in out.splitlines() if 'BLOCKLIST IS EMPTY' in l]
+    if empty and not found:
+        raise NotApplicable(empty[0])
+    return found
 
 
 @check('practice-export-loop', 'tree',

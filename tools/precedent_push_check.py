@@ -88,7 +88,9 @@ decided). The record above lives in one checkout, and a person working in
 many windows has one checkout per window: a full run in one window was
 invisible to the Promote said in another, which ran the whole suite again
 on files it had already passed. So a recorded pass is also published to
-origin as a small receipt on the branch precedent-check-receipts --
+origin as a small receipt on the receipt branch (data-check-receipts in a
+repository on the ladder, precedent-check-receipts elsewhere; see
+precedent_data_branches.py) --
 receipts/<check list>/<tree>.json, naming the files by hash and carrying
 none of them, so it publishes no unpushed work. `--gate` fetches that
 branch when this checkout has no record of its own. The trade, said
@@ -142,8 +144,30 @@ LEDGER_WRITES_ENV = 'FACT_LEDGER_WRITTEN'
 # lets it push branches and nothing else, so a hidden ref namespace was
 # refused with a 403 (measured 2026-09-25). One small file per pass,
 # receipts/<check list>/<tree>.json, the newest RECEIPTS_KEPT of them.
+# Its name comes from precedent_data_branches.py since 2026-10-11:
+# data-check-receipts on the ladder, this old name everywhere else, and
+# this old name where that file is missing (a partial engine copy).
 RECEIPT_BRANCH = 'precedent-check-receipts'
 RECEIPT_REF = 'refs/precedent/receipts'
+
+
+def _receipt_branch(root, write=False):
+    """-> the branch the receipts live on here. `write` lets a ladder
+    repository's first write copy the old branch to its data- name."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import precedent_data_branches as pdb
+    except Exception:                                         # noqa: BLE001
+        return RECEIPT_BRANCH
+    finally:
+        sys.path.pop(0)
+    try:
+        if write:
+            return pdb.name_for_write(root, pdb.RECEIPTS, say=lambda m: print(
+                f'precedent_push_check: {m}'))
+        return pdb.name(root, pdb.RECEIPTS)[0]
+    except Exception:                                         # noqa: BLE001
+        return RECEIPT_BRANCH
 RECEIPTS_KEPT = 300
 EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 SHARED_ENV = {'GIT_AUTHOR_NAME': 'precedent_push_check',
@@ -394,6 +418,14 @@ PUSH_CHECKS = {
         ('views_sync', ['{engine}/precedent_sync_views.py', '--repo', '.',
                         '--check', '--skip-unresolved'],
          'nothing -- a stale view surfaced only at the full check'),
+        # Whether MAP.md and GLOSSARY.md still match their own sources
+        # (2026-10-12): a session typed a row into a consumer's MAP.md
+        # instead of MAP.source.md, every push of the branch passed, and the
+        # next Update Vendors regenerated the map and erased the row without
+        # a word. BASIC_CHECKS already named build_views for a practice set;
+        # a consumer's views have their own sources too. Two seconds.
+        ('build_views', ['{engine}/build_views.py', '--repo', '.', '--views-only', '--check'],
+         'nothing -- a hand-edited view surfaced only when a rebuild erased it'),
         # The repo's OWN light check, where it has one: what its
         # light-check.yml ran on GitHub, run here instead of there.
         ('light_check', ['tools/light_check.py'],
@@ -466,7 +498,11 @@ STAND_DOWNS = {'leak_gate': ('NOT APPLICABLE', 'stood down -- it inspected '
                # and none resolves here (build_views.individual_not_verifiable).
                'views_sync': ('NOT VERIFIABLE', 'not verified -- the views '
                               'carry practices from an individual set this '
-                              'machine cannot reach')}
+                              'machine cannot reach'),
+               # practice_audit.EMPTY_BLOCKLIST (2026-10-13).
+               'scrub_gate': ('BLOCKLIST IS EMPTY', 'not verified -- the '
+                              'blocklist has no patterns, so nothing was '
+                              'checked')}
 
 
 def git(root, *args):
@@ -896,10 +932,11 @@ def _git_env(root, args, timeout, env=None):
         return None
 
 
-def _fetch_receipts(root):
+def _fetch_receipts(root, branch=None):
     """-> the receipt branch's tip, fetched into a private ref, or None."""
+    branch = branch or _receipt_branch(root)
     f = _git_env(root, ['fetch', '-q', '--no-tags', 'origin',
-                        f'+refs/heads/{RECEIPT_BRANCH}:{RECEIPT_REF}'], 30)
+                        f'+refs/heads/{branch}:{RECEIPT_REF}'], 30)
     if f is None or f.returncode != 0:
         return None
     return git(root, 'rev-parse', '-q', '--verify', RECEIPT_REF) or None
@@ -937,8 +974,9 @@ def publish_pass(root, rec):
     env = dict(SHARED_ENV, GIT_INDEX_FILE=str(
         Path(index) if Path(index).is_absolute() else root / index))
     why = 'no attempt made'
+    branch = _receipt_branch(root, write=True)
     for _ in range(3):
-        tip = _fetch_receipts(root)
+        tip = _fetch_receipts(root, branch)
         _git_env(root, ['read-tree', tip or '--empty'], 10, env)
         order = (git(root, 'cat-file', '-p', f'{tip}:ORDER') if tip else '') or ''
         order = [l for l in order.splitlines() if l and l != path] + [path]
@@ -969,7 +1007,7 @@ def publish_pass(root, rec):
             break
         # --no-verify: a pre-push hook here is this very check.
         p = _git_env(root, ['push', '-q', '--no-verify', 'origin',
-                            f'{c.stdout.strip()}:refs/heads/{RECEIPT_BRANCH}'], 60)
+                            f'{c.stdout.strip()}:refs/heads/{branch}'], 60)
         if p is not None and p.returncode == 0:
             _git_env(root, ['update-ref', RECEIPT_REF, c.stdout.strip()], 10)
             print('precedent_push_check: receipt shared with every checkout of '
@@ -1001,6 +1039,11 @@ def _branch_name_refusal(root, argv):
     judge = getattr(precedent_branch_name, 'name_refusal', None)
     if judge is None:
         return None
+    # The naming rule is the ladder's: off it, nothing is judged (Morgan,
+    # 2026-10-11: "in force for people who use ladders, not everyone else").
+    if not getattr(precedent_branch_name, 'conventions_in_force',
+                   lambda r: True)(root):
+        return None
     for name in precedent_branches.push_targets(root, cmd) or []:
         if subprocess.run(['git', '-C', str(root), 'rev-parse', '--verify', '-q',
                            f'refs/remotes/origin/{name}'],
@@ -1010,6 +1053,36 @@ def _branch_name_refusal(root, argv):
         if why:
             return why
     return None
+
+
+
+def _branch_name_notes(root, argv):
+    """-> what to say about the branch names a push targets, never a
+    refusal: today, a push to the branch the harness named when the session
+    opened (precedent_branch_name.harness_name_note). Every push is judged,
+    not only the one that creates the branch, since that is where a session
+    that forgot act's naming keeps pushing. push-check-gate.sh hands each
+    NOTE line to the session; an engine copy without the note says nothing."""
+    if '--push-command' not in argv:
+        return []
+    i = argv.index('--push-command')
+    cmd = argv[i + 1] if i + 1 < len(argv) else ''
+    sys.path.insert(0, str(HERE))
+    try:
+        import precedent_branches
+        import precedent_branch_name
+    except ImportError:
+        return []
+    finally:
+        sys.path.pop(0)
+    note = getattr(precedent_branch_name, 'harness_name_note', None)
+    if note is None:
+        return []
+    if not getattr(precedent_branch_name, 'conventions_in_force',
+                   lambda r: True)(root):
+        return []
+    return [n for n in (note(name) for name in
+                        precedent_branches.push_targets(root, cmd) or []) if n]
 
 
 def _promote_only_refusal(root, argv):
@@ -1114,7 +1187,10 @@ CHANGED_PRACTICE_CHECK = ('changed_practice',
 #   - a changed JSON file parses;
 #   - a changed check (tools/checks/check_x.py), or its test, has that
 #     test (tools/checks/tests/test_x.sh) run -- once, the materialized
-#     copy where there is one;
+#     copy where there is one -- and every other test there that names it;
+#   - where the harness lives, a changed Python file under tools/ runs the
+#     harness tests the change reaches, within a minute, naming the rest
+#     (verify_harness.py --for-change);
 #   - a new check has that test, and defines SOURCE_ROOT;
 #   - in BestPractice, a change to the check registry or the harness leaves
 #     every registered check with a planted case (a text read, no harness
@@ -1259,6 +1335,22 @@ def changed_files_check(root, since):
             test = materialized
         if test not in tests and (root / test).is_file():
             tests.append(test)
+        # A TEST THAT NAMES THE CHECK RUNS TOO (2026-10-11). Two scripts can
+        # share one test -- the philosophy pair shares
+        # test_philosophy_scoping.sh -- and pairing by file name alone ran
+        # no test for either. A check's test must name it (check_deep_check.py),
+        # so reading the tests for that name finds every one, with no map
+        # to keep.
+        if m.group(2):
+            for other in sorted((root / f'{base}tools/checks/tests').glob('test_*.sh')):
+                if f'check_{name}.py' not in other.read_text(encoding='utf-8',
+                                                             errors='replace'):
+                    continue
+                found = f'{base}tools/checks/tests/{other.name}'
+                if base and (root / f'tools/checks/tests/{other.name}').is_file():
+                    found = f'tools/checks/tests/{other.name}'
+                if found not in tests:
+                    tests.append(found)
         # A NEW CHECK SHIPS WITH ITS TEST. check_deep_check.py (the deep-check
         # practice) refuses a check with no tests/test_x.sh, or one that does
         # not define SOURCE_ROOT -- but it judges the whole tree, so the
@@ -1327,6 +1419,35 @@ def changed_files_check(root, since):
             problems.append('GitHub\'s test and --as-ci no longer run one '
                             'split: ' + (' | '.join(said) or 'the sync checks '
                                          'failed')[:600])
+    # A CHANGED CHECK RUNS ITS OWN HARNESS TESTS (2026-10-11). a243d9c0
+    # made practice-file-shape stricter; the harness test that feeds it a
+    # good sample still had the old shape, and staging went red, because
+    # nothing here ran a precedent_check.py check's harness tests. The
+    # harness works out which tests a change reaches -- a check, what it
+    # uses, a tools/ module it imports, a check script, a harness test --
+    # and runs what fits a minute, naming the rest
+    # (spec/CHANGED_CHECK_RUNS_ITS_TESTS_PLAN.md). Only where the harness
+    # lives: a consuming repo carries this line and never runs it.
+    if (root / 'tools' / 'verify_harness.py').is_file() and any(
+            rel.endswith('.py') and rel.startswith(('tools/', 'local/tools/'))
+            for rel in files):
+        try:
+            r = subprocess.run([sys.executable, 'tools/verify_harness.py',
+                                '--for-change', since], cwd=root,
+                               capture_output=True, text=True, timeout=600)
+            # On stderr: the gate streams it, and drops a passing step's
+            # stdout -- a note about tests not run here must be seen.
+            for line in r.stdout.splitlines():
+                if line.startswith('for-change:'):
+                    print(line[:500], file=sys.stderr, flush=True)
+            if r.returncode != 0:
+                said = [l for l in r.stdout.splitlines() if l.startswith('FAIL')]
+                said = said or (r.stdout + r.stderr).strip().splitlines()[-1:]
+                problems.append('a harness test this change reaches failed -- '
+                                + ' | '.join(said)[:800])
+        except subprocess.TimeoutExpired:
+            problems.append('the harness tests this change reaches did not '
+                            'finish within 10 minutes')
     for test in tests:
         try:
             r = subprocess.run(['bash', test], cwd=root, capture_output=True,
@@ -1371,6 +1492,32 @@ def changed_files_check(root, since):
                 f'count practices were not regenerated -- run `python3 '
                 f'tools/doc_sync.py --write` and commit what it rewrites. '
                 + ' | '.join(stale)[:400])
+    # THE COUNTS PROSE QUOTES FOLLOW A CHANGED PRACTICE (2026-10-11). A
+    # sentence in spec/PRACTICE_FORMAT.md or spec/PRACTICE_ENGINE_PLAN.md
+    # restates a figure tools/catalogue_stats.py computes from the practice
+    # files (its ANCHORS), and only the full tier ran that comparison. So
+    # repo-is-memory gaining a Detail moved "practices with a Detail" from
+    # 24 to 25, every quick check passed, and the fast Produce turned main
+    # red (issue #1088). The figure has moved about ten times since
+    # 2026-09-01, each time an original practice gained a Detail. Under
+    # half a second.
+    stats = root / 'tools' / 'catalogue_stats.py'
+    anchored = practice or [f for f in files if f in (
+        'tools/catalogue_stats.py', 'spec/PRACTICE_FORMAT.md',
+        'spec/PRACTICE_ENGINE_PLAN.md')]
+    if anchored and stats.is_file():
+        r = subprocess.run([sys.executable, str(stats)], cwd=root,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fails = [l.strip()[len('FAIL'):].strip()
+                     for l in (r.stdout + r.stderr).splitlines()
+                     if l.strip().startswith('FAIL')][:3]
+            problems.append(
+                f'{anchored[0]}{" and others" if len(anchored) > 1 else ""} '
+                f'changed, and a figure the prose quotes no longer matches '
+                f'what tools/catalogue_stats.py computes -- update the '
+                f'sentence and the anchor in catalogue_stats.py together. '
+                + ' | '.join(fails)[:500])
     for line in problems:
         print(f'  {line}')
     if tests:
@@ -2043,6 +2190,8 @@ def main(argv):
     if refused:
         print(f'precedent_push_check: REFUSED -- {refused}', file=sys.stderr)
         return 1
+    for note in _branch_name_notes(root, argv):
+        print(f'precedent_push_check: NOTE -- {note}', flush=True)
     if '--tier' in argv:
         i = argv.index('--tier')
         value = argv[i + 1] if i + 1 < len(argv) else ''
@@ -2089,6 +2238,14 @@ def main(argv):
             mark = 'basic' if name in BASIC_CHECKS else 'full '
             print(f'  {name:16} [{mark}] {shown_interpreter(a)} {" ".join(a[1:])}')
             print(f'  {"":16}         replaces {replaces}')
+        wf_text = ''.join(w.read_text(encoding='utf-8', errors='replace')
+                          for w in sorted((root / '.github' / 'workflows').glob('*.y*ml')))
+        here = {c: w for c, w in GITHUB_ONLY_STEPS.items() if c in wf_text}
+        if here:
+            print('Run only on GitHub, never before a push (they change something; '
+                  'they check nothing):')
+            for cmd, why in here.items():
+                print(f'  {cmd} -- {why}')
         return 0
 
     refused = _rung_refusal(root, kind, _destination(root, argv))
@@ -2357,6 +2514,15 @@ VALUE_OPTIONS = ('--tier', '--changed-since', '--push-command', '--because',
                  '--destination')
 OPTIONAL_VALUE_OPTIONS = ('--changed-files-check',)
 FLAG_OPTIONS = ('--gate', '--list', '--help', '-h')
+
+# Workflow steps here that run a tool but test nothing, so a push never
+# runs them: named in --list, so every tool a workflow runs is accounted
+# for (check_push_check_runs_what_ci_ran).
+GITHUB_ONLY_STEPS = {
+    'python3 tools/harness_reach.py publish':
+        'stores the ledger of what each check reaches that a green whole-suite '
+        'run on GitHub recorded (2026-10-12)',
+}
 
 
 def unknown_arguments(argv):

@@ -370,6 +370,9 @@ FOLLOWED_BRANCH = followed_branch(ROOT)
 # note at their entry in ENGINE_FILES below.
 HOOK_SCRIPT_FILES = [
     'artifact-publish-gate.sh',
+    # Says once per branch when a session commits on the harness's branch
+    # name (2026-10-11); run through tools/hook_wiring.json.
+    'branch-name-commit-note.sh',
     'commit-identity-once.sh',
     'commit-identity-push-gate.sh',
     'commit-identity.sh',
@@ -774,6 +777,16 @@ ENGINE_FILES = [
     # workflow on every branch, asked of GitHub (practice:
     # ci-workflow-approved).
     'ci_fleet_audit.py',
+    # Its CONTRIBUTOR BOUNDARY section imports this beside build_codeowners
+    # (already vendored). Missing, the section printed "not checked: No
+    # module named 'precedent_boundary_check'" in every consumer and set --
+    # found 2026-10-11, the first very deep check run in a consumer. Its
+    # one import, precedent_source_credentials, is in both lists.
+    'precedent_boundary_check.py',
+    # Its WARNINGS section imports this (2026-10-11): every warning the
+    # routine checks print, matched against the repo's own
+    # tools/warning_exclusions.json, which a consumer starts without.
+    'warning_review.py',
     'parse_check.py',
     'precedent_bootstrap_source.py',
     # THE ONE CHECK THAT LOOKS OUTWARD (2026-09-21). Every other check in
@@ -887,6 +900,10 @@ ENGINE_FILES = [
     # tier of the push check a push to each one gets. precedent_push_check.py
     # asks it whenever the push gate names the push; every kind pushes.
     'precedent_branches.py',
+    # Which branch holds each long-lived engine record -- the push check's
+    # receipts, Promote's lock -- data- on the ladder, the old name
+    # elsewhere (2026-10-11). Both files above import it, guarded.
+    'precedent_data_branches.py',
     # The commit backstop's engine fixer (spec/GENERATED_FILES_PLAN.md step
     # 3): commit-identity.sh's hook runs it from the repository's own copy,
     # so every kind that receives the hook receives the script it calls.
@@ -2113,6 +2130,24 @@ def _previous_manifest(dest_root, loaded):
     return merged
 
 
+# The hooks this engine leaves unvendored, and why, as the last refresh said
+# them, in ENGINE_MANIFEST.json: a refresh says them again only when they
+# change, and `status` names them whenever it is asked.
+HOOKS_NOT_VENDORED_KEY = 'hooks_not_vendored'
+
+
+def _record_hooks_not_vendored(manifest_path, state):
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return
+    if manifest.get(HOOKS_NOT_VENDORED_KEY) == state:
+        return
+    manifest[HOOKS_NOT_VENDORED_KEY] = state
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n',
+                             encoding='utf-8')
+
+
 def _write_hook_files(dest_root, hooks_src_dir, previous=None):
     """Copy every hook script in `hooks_src_dir` into
     <dest_root>/.claude/hooks/, and record them in the SAME
@@ -2154,6 +2189,19 @@ def _write_hook_files(dest_root, hooks_src_dir, previous=None):
     # two copies of it. See _wired_hook_names_anywhere.
     elsewhere = sorted(set(skipped) & _wired_hook_names_anywhere(dest_root))
     skipped = [n for n in skipped if n not in set(elsewhere)]
+    # SAID ONCE, WHEN IT CHANGES (2026-10-12, a consuming repository's
+    # Update Vendors): the three notes below are states, never tasks, and
+    # were printed on every refresh, so every update's upstream review
+    # listed eight items with nothing to do. The last refresh's state is in
+    # the manifest; while it holds, they are left unsaid. `status` names them.
+    state = {'elsewhere': elsewhere, 'not_wired': list(skipped),
+             'adapters': {n: claimed[f'{HOOK_DEST_DIR}/{n}']
+                          for n in sorted(adapter_owned & wired)}}
+    said = previous.get(HOOKS_NOT_VENDORED_KEY) if isinstance(previous, dict) else None
+    if said == state:
+        elsewhere, skipped, quiet_adapters = [], [], True
+    else:
+        quiet_adapters = False
     if elsewhere:
         print(f"NOTE: precedent_vendor_engine: {len(elsewhere)} hook "
               f"script(s) BestPractice also ships ({', '.join(elsewhere)}) "
@@ -2178,7 +2226,7 @@ def _write_hook_files(dest_root, hooks_src_dir, previous=None):
               f"in precedent.json. A hook THIS repo's kind gets is wired and "
               f"delivered by the refresh on its own (HOOK_WIRING).",
               file=sys.stderr)
-    for n in sorted(adapter_owned & wired):
+    for n in ([] if quiet_adapters else sorted(adapter_owned & wired)):
         source_name = claimed[f'{HOOK_DEST_DIR}/{n}']
         print(f"NOTE: precedent_vendor_engine: {n} is not vendored by this "
               f"engine -- {source_name!r}'s own adapters mechanism owns "
@@ -2189,6 +2237,8 @@ def _write_hook_files(dest_root, hooks_src_dir, previous=None):
     manifest_path = dest_root / 'tools' / MANIFEST_NAME
     _remove_dropped_hook_files(dest_root, manifest_path, available,
                                hooks_src_dir, previous=previous)
+    if available:
+        _record_hooks_not_vendored(manifest_path, state)
     if not names:
         # Nothing wired here to write -- but a drop sweep may still have had
         # something to do, so this return comes AFTER it, not before. When
@@ -4267,6 +4317,10 @@ _GH_SLUG_RE = re.compile(r'github\.com[:/]([A-Za-z0-9][\w-]*)/([\w.-]+?)(?:\.git
 # What archived_declared_sources notes for a set this environment's proxy
 # would not let it ask about; retired_sources_step folds these into one line.
 PROXY_NOTE = 'not asked -- this environment\'s network proxy refuses GitHub\'s API'
+# What it notes for a set this session has no GitHub API access to. Both
+# are said by the drop-retired command, which is asked; Update Vendors says
+# neither (precedent_update.retired_sources_step).
+NO_ACCESS_NOTE = 'this session has no GitHub API access to it'
 
 
 def archived_declared_sources(dest_root):
@@ -4334,7 +4388,7 @@ def archived_declared_sources(dest_root):
             # note is one quiet line, the reason kept short.
             if getattr(_gb, 'attach_remedy', lambda *_a: '')(
                     msg, f'{m.group(1)}/{m.group(2)}'):
-                msg = 'this session has no GitHub API access to it'
+                msg = NO_ACCESS_NOTE
             notes.append(f'{name}: whether it is archived could not be read '
                          f'here ({msg[:120]}); left declared -- a set that says '
                          f'it is retired is still dropped')
@@ -4525,21 +4579,34 @@ def _rev_text(repo_dir, *args):
     return r.stdout.strip() if r.returncode == 0 else ''
 
 
-def repin_kept_section(clone, item, confirmed, dest_root=None):
+def repin_kept_section(clone, item, confirmed, dest_root=None, reason=None):
     """Re-record one kept AGENTS.md section against today's template text,
-    with who confirmed it and when. -> (ok, message).
+    with who confirmed it, when, and why it still differs. -> (ok, message).
 
     WHY A COMMAND (2026-10-07). The only way to say "still kept" was to
     paste two SHA-256 values into precedent.json by hand, and a session's
     own safety checks rightly read that as editing an audit record: a
     consuming repository's update stalled on it. This computes both pins
     the way refresh does, from the template the engine was vendored from,
-    and records the person's words beside them."""
+    and records the person's words beside them.
+
+    WHY --reason IS REQUIRED (2026-10-13, a consuming repository's Update
+    Vendors). A re-pin follows a fresh decision about the section -- the
+    person took upstream's wording for most of it -- and the reason written
+    before that decision stayed on the entry, describing a section that no
+    longer existed in that form; the session rewrote it by hand. The reason
+    is part of the decision, so it is given with it."""
     dest_root = dest_root or ROOT
     confirmed = (confirmed or '').strip()
     if not confirmed:
         return False, ('--confirmed needs the person\'s own words: a kept '
                        'section is their decision')
+    reason = (reason or '').strip()
+    if not reason:
+        return False, ('--reason needs why this repository\'s section still '
+                       'differs from the template, as of this decision: the '
+                       'reason recorded before it may describe text that is '
+                       'gone')
     key = item[len(AGENTS_MD) + 1:] if item.startswith(AGENTS_MD + ' ') else item
     item = f'{AGENTS_MD} {key}'
     path = dest_root / 'precedent.json'
@@ -4550,8 +4617,8 @@ def repin_kept_section(clone, item, confirmed, dest_root=None):
         return False, (f'{item} is not in precedent.json\'s '
                        f'{KEPT_DIVERGENCES_KEY}: record it there with a '
                        f'reason first, then re-pin it')
-    if not isinstance(entry, dict) or not str(entry.get('reason') or '').strip():
-        return False, f'{item} has no reason recorded: give it one first'
+    if not isinstance(entry, dict):
+        return False, f'{item} is not a kept entry precedent.json can re-pin'
     manifest = _load_manifest(dest_root / 'tools')
     kind = manifest.get('kind', DEFAULT_KIND)
     commit = (_rev(clone, manifest.get('source_commit') or '')
@@ -4579,7 +4646,8 @@ def repin_kept_section(clone, item, confirmed, dest_root=None):
         today = precedent_time.today()
     except Exception:                                           # noqa: BLE001
         today = None
-    entry.update({'template_sha256': _sha_text(section),
+    entry.update({'reason': reason,
+                  'template_sha256': _sha_text(section),
                   'carried_sha256': _carried_sha(section, lacks),
                   'confirmed': confirmed})
     if today:
@@ -4592,16 +4660,21 @@ def repin_kept_section(clone, item, confirmed, dest_root=None):
 
 
 def _cli_repin_kept(args):
-    """`repin-kept CLONE "AGENTS.md SECTION" --confirmed "WORDS"`."""
-    words = None
-    if '--confirmed' in args:
-        i = args.index('--confirmed')
-        words = args[i + 1] if i + 1 < len(args) else ''
-        args = args[:i] + args[i + 2:]
+    """`repin-kept CLONE "AGENTS.md SECTION" --confirmed "WORDS" --reason
+    "WHY"`."""
+    opts = {}
+    for flag in ('--confirmed', '--reason'):
+        if flag in args:
+            i = args.index(flag)
+            opts[flag] = args[i + 1] if i + 1 < len(args) else ''
+            args = args[:i] + args[i + 2:]
     if len(args) != 2:
         sys.exit('usage: precedent_vendor_engine.py repin-kept CLONE '
-                 '"AGENTS.md SECTION" --confirmed "the person\'s words"')
-    ok, msg = repin_kept_section(_clone_or_die(args[0]), args[1], words)
+                 '"AGENTS.md SECTION" --confirmed "the person\'s words" '
+                 '--reason "why the section still differs"')
+    ok, msg = repin_kept_section(_clone_or_die(args[0]), args[1],
+                                 opts.get('--confirmed'),
+                                 reason=opts.get('--reason'))
     print(msg)
     return 0 if ok else 1
 
@@ -5521,6 +5594,35 @@ def _report_dead_after_exit(rel, local):
     return True
 
 
+_HTML_COMMENT_RE = re.compile(r'<!--.*?-->', re.S)
+
+
+def template_text_at(clone, rev, path, pinned_sha, limit=200):
+    """-> the text `path` had in `clone` at the version whose sha256 (of its
+    UTF-8 text) is `pinned_sha`, searched newest first through the history
+    of `rev` (at most `limit` versions), or None when none hashes to it.
+    How a kept_template_divergences pin, which records only a hash, gets
+    back the template text its decision was made on."""
+    if not clone or not rev or not pinned_sha:
+        return None
+    for sha in _rev_text(clone, 'log', f'-{limit}', '--format=%H', rev,
+                         '--', path).split():
+        try:
+            r = subprocess.run(['git', '-C', str(clone), 'show', f'{sha}:{path}'],
+                               capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if r.returncode == 0 and hashlib.sha256(r.stdout).hexdigest() == pinned_sha:
+            return r.stdout.decode('utf-8', errors='replace')
+    return None
+
+
+def without_comments(text):
+    """`text` as a reader of the rendered Markdown sees it: HTML comments
+    out, whitespace collapsed."""
+    return ' '.join(_HTML_COMMENT_RE.sub(' ', text).split())
+
+
 def _report_diverged_template_instances(dest_root, templates_dir, plan):
     """Print, for every diverged instance, which template blocks it lacks,
     and put it on the Left-for-you list when it lacks any. Every run, the
@@ -6004,14 +6106,35 @@ def _sentences(text):
     return out
 
 
+# A placeholder joined on by ", plus", "and", "or" or a comma is an
+# addition the repo may not have: "run bare, plus `<your own audits>`". A
+# repo with none to add drops the placeholder and its joining words, and
+# until 2026-10-13 that read as a section diverging from the template -- a
+# kept entry every consumer without audits of its own needed, and every
+# later upstream edit to the section brought back to the person (a
+# consuming repository's Update Vendors).
+_DROPPABLE_JOIN_RE = re.compile(r'(?:,? (?:plus|and|or)|,) $')
+
+
 def _wildcard(text):
     """A regex for `text` in which each remaining template placeholder
-    matches whatever a repo filled it in with -- or None when the text
-    carries too few words of its own to be lacked (_MIN_LITERAL_WORDS)."""
+    matches whatever a repo filled it in with, or nothing at all, joining
+    words included, where it is joined on as an addition
+    (_DROPPABLE_JOIN_RE) -- or None when the text carries too few words of
+    its own to be lacked (_MIN_LITERAL_WORDS)."""
     pieces = _MD_WRAPPED_PLACEHOLDER_RE.split(text)
     if len(re.findall(r'[A-Za-z]{2,}', ' '.join(pieces))) < _MIN_LITERAL_WORDS:
         return None
-    return re.compile('.+?'.join(re.escape(p) for p in pieces))
+    out = re.escape(pieces[0])
+    for before, after in zip(pieces, pieces[1:]):
+        join = _DROPPABLE_JOIN_RE.search(before)
+        if join:
+            out = out[:len(out) - len(re.escape(join.group(0)))]
+            out += f'(?:{re.escape(join.group(0))}.+?)?'
+        else:
+            out += '.+?'
+        out += re.escape(after)
+    return re.compile(out)
 
 
 def missing_markdown_blocks(local_section, template_section):
@@ -6234,7 +6357,8 @@ _CLONE_ARG = '../BestPractice'
 
 def _repin_command(item):
     return (f'python3 tools/precedent_vendor_engine.py repin-kept {_CLONE_ARG} '
-            f'"{item}" --confirmed "<the person\'s words>"')
+            f'"{item}" --confirmed "<the person\'s words>" '
+            f'--reason "<why this section still differs>"')
 
 
 def _report_stale_kept(dest_root, templates_dir, key, item, what, section,
@@ -6322,7 +6446,8 @@ def _report_stale_kept(dest_root, templates_dir, key, item, what, section,
     return True
 
 
-def _report_agents_md(dest_root, templates_dir, plan, reask_absent=False):
+def _report_agents_md(dest_root, templates_dir, plan, reask_absent=False,
+                      name_absent=False):
     """Print what refresh (or status) found in AGENTS.md's template
     sections, and put what needs a person on the Left-for-you list. Every
     run, the early exit included, for the reason
@@ -6333,7 +6458,15 @@ def _report_agents_md(dest_root, templates_dir, plan, reask_absent=False):
     than 2026-09-28, recorded sections as absent and handed nothing over --
     this pass cannot tell which of them that pass recorded a moment ago, and
     asking once more about a section left out on purpose costs a re-run,
-    where staying quiet about one nobody was asked about costs the section."""
+    where staying quiet about one nobody was asked about costs the section.
+
+    `name_absent`: still name a section recorded as left out, in one NOTE.
+    Set by `status`, which is asked what the file lacks; refresh leaves it
+    unsaid. The person was told once, as MISSING on the Left-for-you list,
+    and the record is what that told them; repeating it on every update
+    after is noise a session relays (a consuming repository's Update
+    Vendors, 2026-10-12: "Once a consumer has recorded the section as left
+    out, stop printing it")."""
     if not plan:
         return
     subs = _agents_md_subs(dest_root)
@@ -6361,16 +6494,19 @@ def _report_agents_md(dest_root, templates_dir, plan, reask_absent=False):
         if action == 'missing':
             print(f"MISSING: {AGENTS_MD} has no \"{key}\" section; upstream's "
                   f"{src_rel}:{line_no} has one. Not written in: where it goes "
-                  f"in this file is a judgment. The next refresh says this in "
-                  f"one line.")
+                  f"in this file is a judgment. It is recorded as left out, so "
+                  f"the next refresh does not raise it again; `status` still "
+                  f"names it.")
             _left(f'{AGENTS_MD} "{key}"', f'the template has this section and '
                   f'this file does not -- copy it in from {src_rel}:{line_no} '
                   f'if it applies here, or leave it out on purpose '
                   f'(vendor-update-runbook step 10(d))')
             continue
         if action == 'absent':
-            print(f"  NOTE: {AGENTS_MD} still has no \"{key}\" section "
-                  f"({src_rel}:{line_no}) -- left out, as at the last refresh.")
+            if name_absent:
+                print(f"  NOTE: {AGENTS_MD} has no \"{key}\" section "
+                      f"({src_rel}:{line_no}) -- recorded as left out on "
+                      f"purpose, so refresh does not raise it.")
             continue
         if action != 'diverged':
             continue
@@ -6423,6 +6559,15 @@ def _report_agents_md(dest_root, templates_dir, plan, reask_absent=False):
               f"{', '.join(repr(k) for k in complete)} carr"
               f"{'ies' if len(complete) == 1 else 'y'} local edits and every "
               f"block of the template's version -- left as they are.")
+        # A kept entry for a section that lacks nothing decides nothing, and
+        # its reason goes on describing a difference that is gone.
+        kept = kept_template_divergences(dest_root)
+        for key in complete:
+            if f'{AGENTS_MD} {key}' in kept:
+                print(f"  NOTE: precedent.json's {KEPT_DIVERGENCES_KEY} entry "
+                      f"for {AGENTS_MD} {key} is no longer needed: the "
+                      f"section carries every block of the template's. "
+                      f"Remove it.")
 
 
 def _refresh_agents_md(dest_root, templates_dir, manifest, plan):
@@ -7011,6 +7156,19 @@ def status(clone):
               f"{claimed[f'{HOOK_DEST_DIR}/{name}']!r}'s own adapters "
               f"mechanism, not this engine -- expected divergence, not a "
               f"hand-edit; `refresh` will stop vendoring and tracking it.")
+    left = manifest.get(HOOKS_NOT_VENDORED_KEY) or {}
+    if isinstance(left, dict) and any(left.values()):
+        # What a refresh says only when it changes, said whenever asked.
+        print("  hooks this engine leaves unvendored, as the last refresh "
+              "found them (nothing to do):")
+        if left.get('elsewhere'):
+            print(f"    wired from a path of this repo's own: "
+                  f"{', '.join(left['elsewhere'])}")
+        if left.get('not_wired'):
+            print(f"    not wired here (another kind's, no kind's, or declined): "
+                  f"{', '.join(left['not_wired'])}")
+        for n, src in sorted((left.get('adapters') or {}).items()):
+            print(f"    {HOOK_DEST_DIR}/{n}: kept by {src!r}'s own adapters")
     if 'hook_files' not in manifest:
         print(f"  NOTE: this manifest has no hook_files recorded yet -- vendored before hook "
               f"scripts were tracked. `refresh` will pick them up on the next run.")
@@ -7111,7 +7269,7 @@ def _status_template_instances(clone, commit, kind, manifest):
             if action in ('refresh', 'adopt'):
                 print(f"  NOTE: {AGENTS_MD} \"{key}\" is unedited and behind "
                       f"the template -- `refresh` brings it up to date.")
-        _report_agents_md(ROOT, tmp, agents_plan)
+        _report_agents_md(ROOT, tmp, agents_plan, name_absent=True)
         _report_retired_branch_names(ROOT)
         _LEFT_FOR_YOU.clear()   # status only reports; the list is refresh's
     finally:
