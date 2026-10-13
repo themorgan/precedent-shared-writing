@@ -82,7 +82,11 @@ The hook is declared in this practice's `hooks:` field. Since 2026-10-07 a
 consuming repository's sync lists it in `process/practice_hooks.json`, which
 the fixed `precedent-hooks.sh` entry in `.claude/settings.json` runs, so a
 new hook never changes `.claude/`; a repository that already had it wired
-straight into settings.json before then keeps it there, as:
+straight into settings.json before then keeps it there. Where the set is
+brought by the person rather than declared, the session start and the sync
+list the hook in the untracked `.precedent/practice_hooks.json` instead,
+which the same entry runs (engine from 2026-10-13 or later). A repository
+that wired it by hand has it as:
 
 ```
 {"matcher": "SendUserFile", "hooks": [{"type": "command",

@@ -288,7 +288,11 @@ practice's `ships:` (universal practice
 [practice-carries-its-files](https://github.com/alex137/BestPractice/blob/staging/practices/practice-carries-its-files.md)), so
 the materializer delivers it: every repository that resolves this set receives
 [`tools/create_word_doc.py`](../tools/create_word_doc.py) on its next sync, alongside the check and its
-test, and never copies it by hand. A repository that only ever needs the ad
+test, and never copies it by hand. That copy is tracked where the
+repository declares this set. Where the set reaches it only through a
+person's individual set instead, the session start and each sync put it
+in place untracked, kept out of git by the clone's own exclude file; that
+route needs an engine from 2026-10-13 or later. A repository that only ever needs the ad
 hoc, built-by-hand half can decline it in its own `precedent.json` under
 `declined_ships`, with a reason; the check below skips cleanly where the
 script is absent, though this practice's own test then fails there, since it
