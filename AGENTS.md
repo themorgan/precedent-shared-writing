@@ -41,7 +41,7 @@ When naming a file, branch, doc or anything with a destination, in a doc, reply,
 When starting a catch-all notes file, or renaming a legacy BRAINSTORM, NOTES or IDEAS file:
   assorted-notes — one ASSORTED_NOTES.md for ideas never cited elsewhere; listing it is fine
 When writing a document an outside reader will see (a declared output path):
-  curly-quotes — straight quotes become curly in outward prose
+  curly-quotes — straight quotes become curly, and -- becomes a real dash, in outward prose
   deliverables-carry-no-process — no attribution stamps, practice slugs or convention notes in an output document
 
 (More on-demand practices are not listed here: one whose applies_to names real paths, or which declares a gate, is reached by those channels instead -- `precedent_paths.py FILE` and `precedent_gate.py MOMENT`. A trigger a PERSON SAYS cannot be reached that way and is always listed above. `precedent_show.py --index-omitted` names the omitted ones.)

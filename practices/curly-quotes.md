@@ -1,19 +1,19 @@
 ---
 slug:        curly-quotes
-title:       Outward-facing prose uses curly quotes, never straight ones
+title:       Outward-facing prose uses curly quotes and real dashes, never straight quotes or doubled hyphens
 tier:        on-demand
 severity:    default
 applies_to:  ["**"]
 occasion:    "writing a document an outside reader will see (a declared output path)"
 gates:       []
-index_clause: "straight quotes become curly in outward prose"
+index_clause: "straight quotes become curly, and -- becomes a real dash, in outward prose"
 checked_by:  tools/checks/check_curly_quotes.py
 defines:     []
 status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count"
 strength:    decided
 ---
 ## Rule
@@ -24,6 +24,13 @@ never appears in the prose of a document under a repo's own declared
 between the two rules. Convert it to the matching typographic curly form
 -- `"` / `"` for double quotes, `'` / `'` for a single quote or an
 apostrophe.
+
+**The same goes for dashes:** `--` and `---` never stand in for one. Pick
+the dash by judgment, not by counting hyphens: `---`, and `--` between two
+words with no spaces (`word--word`), are an em dash (—); a spaced ` -- `
+is a spaced en dash ( – ); `--` between two numbers is an en dash, for a
+range (1990–2000). A Word document built from Markdown gets both
+conversions on its own ([create-word-doc](create-word-doc.md)).
 
 ## Detail
 - Applies to prose, not to code: a straight quote inside a fenced or

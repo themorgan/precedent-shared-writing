@@ -71,3 +71,16 @@ if grep -q "output/GRANDFATHERED.md" <<<"$OUT"; then
   exit 1
 fi
 echo "ok: stays quiet on a straight quote in a declared-grandfathered file"
+
+git checkout -q -- . 2>/dev/null || true
+printf '# Dashes\n\n---\n\n| a | b |\n|---|---|\n\nA \xe2\x80\x9cfine\xe2\x80\x9d sentence -- with a hyphen dash.\n' > output/DASH_TEST.md
+git add output/DASH_TEST.md
+git commit -q -m "planted violation: a -- dash"
+OUT="$(python3 "$SET_ROOT/tools/checks/check_curly_quotes.py" || true)"
+if ! grep -q "output/DASH_TEST.md: 0 straight quote character(s) and 1 " <<<"$OUT"; then
+  echo "FAIL: check_curly_quotes.py did not report exactly the one -- dash (rule and table rows are not prose)" >&2
+  echo "$OUT" >&2
+  exit 1
+fi
+echo "ok: fires on a -- dash in prose, and not on a rule line or a table's separator row"
+

@@ -41,6 +41,12 @@ INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 LINK_URL_RE = re.compile(r"\]\([^)]*\)")
 AUTOLINK_RE = re.compile(r"<https?://[^>]*>")
 STRAIGHT_QUOTE_RE = re.compile(r'["\']')
+# "--" or "---" standing in for a dash (Morgan, 2026-10-13). A line made
+# only of dashes, pipes, colons and spaces -- a rule, a table's separator
+# row, a front-matter fence -- and an HTML comment are not prose.
+HYPHEN_DASH_RE = re.compile(r"(?<!-)-{2,3}(?!-)")
+RULE_LINE_RE = re.compile(r"^[\s\-|:]*$", re.M)
+COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 
 
 def rule_text() -> str:
@@ -85,6 +91,8 @@ def _tracked_markdown():
 
 def prose_only(text):
     text = FENCE_RE.sub("", text)
+    text = COMMENT_RE.sub("", text)
+    text = RULE_LINE_RE.sub("", text)
     text = INLINE_CODE_RE.sub("", text)
     text = LINK_URL_RE.sub("", text)
     text = AUTOLINK_RE.sub("", text)
@@ -116,11 +124,14 @@ def main() -> int:
             continue
         path = ROOT / rel
         text = path.read_text(encoding="utf-8", errors="replace")
-        n = len(STRAIGHT_QUOTE_RE.findall(prose_only(text)))
-        if n:
+        prose = prose_only(text)
+        n = len(STRAIGHT_QUOTE_RE.findall(prose))
+        d = len(HYPHEN_DASH_RE.findall(prose))
+        if n or d:
             findings.append(
-                f"  {rel}: {n} straight quote character(s) in prose scope "
-                f"(outside code spans, fences, and link targets)"
+                f"  {rel}: {n} straight quote character(s) and {d} \"--\" or "
+                f"\"---\" dash(es) in prose scope (outside code spans, fences, "
+                f"and link targets)"
             )
 
     if findings:

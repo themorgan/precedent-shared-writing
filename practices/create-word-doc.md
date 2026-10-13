@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2; revised again the same day at his own request, so a contents page looks like one; revised again the same day at his own request, for 0.75-inch page margins on all four sides; revised again the same day at his own request, so each contents entry is set in the footer's sans-serif face and underlined, to read as a link"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2; revised again the same day at his own request, so a contents page looks like one; revised again the same day at his own request, for 0.75-inch page margins on all four sides; revised again the same day at his own request, so each contents entry is set in the footer's sans-serif face and underlined, to read as a link; revised 2026-10-13 at Morgan F's own request (\"in precedent-shared-writing we have a bunch of rules about making .md docs into MS Word docs and let's do that with this doc - including using the Pesty logo in the header\"), for the first non-manuscript document built with it: backslash escapes, web links kept as links, #### headings, a footer label of the document's own, and the logo on page one; revised again 2026-10-13 at his own request: lists a quarter inch in (\"half an inch ... is far too much for my taste\"), real numbered lists, and curly quotes and dashes in every Word document (\"they ALWAYS should\"), dashes by judgment (\"--\" between two words without spaces is always an em dash)"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer --
@@ -107,6 +107,36 @@ would lose its "Page X of Y"). A Word document built by hand gets the
 same header from `add_header_image(section, path)`, called once its
 footer is written.
 
+**A document that is no manuscript names itself in the footer and can
+carry its logo on page one.** `--footer-label TEXT` (`footer_label=`)
+replaces the footer's second line up to the date -- `CONFIDENTIAL - CHIEF
+OF STAFF PROPOSAL - 2026-10-13` -- since "DRAFT BOOK" is the manuscript's
+own wording. `--header-on-first-page` (`header_on_first_page=`, or
+`add_header_image(..., first_page=True)`) puts the header image on page
+one as well, for a letter or proposal whose first page is no cover and
+whose logo there is the letterhead.
+
+**A `1. ` list is a real Word numbered list** (List Number), never
+numbers typed as text: it sits where a bullet list sits, and each list
+restarts at its own first number rather than carrying on from the last
+one. `style_list_number(doc)` styles it for a document built by hand.
+
+**Typography is always finished.** Every straight quote, single or double,
+becomes the curly one, and `--` and `---` become real dashes, by judgment
+rather than by count: `---`, and `--` between two words with no spaces
+(`word--word`), are an em dash (—); a spaced ` -- ` is a spaced en dash
+( – ); `--` between two numbers (`1990--2000`) is an en dash, for a range.
+A web link's address and a backslash-escaped character are left alone.
+`smarten(text)` does it for a document built by hand. The same rule holds
+for outward Markdown: [curly-quotes](curly-quotes.md).
+
+**What Markdown means, the Word file means too.** A backslash escape
+prints as its character (`\$15k` is `$15k`, `\[A\]` is `[A]`); a link
+to the web (`http:`, `https:`, `mailto:`) stays a real hyperlink, blue and
+underlined, while a link to a path in the repository still prints as its
+text alone; and a `####` heading is a real Heading 3 that flows on with
+no page break.
+
 **Heading 1 stands clearly between the title and Heading 2**: 20
 point, where Word's stock 14 point sat barely above Heading 2's 13 and
 the title is 26. `style_heading_1(doc)` sets it; `build_doc()` calls it,
@@ -137,9 +167,9 @@ letter, a speech -- as a `> ` block in the source, never as a quoted
 paragraph of body text: the block is what tells the export it is an
 excerpt.
 
-**A bullet list sits half an inch in from the margin**, never flush
-with it: the bullet at half an inch, the item's text a quarter inch past
-the bullet, and every wrapped line of an item lined up under its own
+**A bullet list and a numbered list sit a quarter inch in from the
+margin**, never flush with it and never half an inch in: the bullet or
+number at a quarter inch, the item's text a quarter inch past it, and every wrapped line of an item lined up under its own
 text. Word's stock **List Bullet** style puts the bullet right on the
 margin, which reads as a mistake, most of all beside block quotations
 indented half an inch. `style_list_bullet(doc)` moves it, in the style
@@ -413,3 +443,22 @@ Later still: Morgan asked for the contents entries in the same
 sans-serif face as the footer, and underlined, "so it's clear it's a
 link". Each entry already jumped to its heading; nothing on the page said
 so. Both go on Word's TOC 1 and TOC 2 styles, so Update Field keeps them.
+
+2026-10-13: the first document built with this script that was no
+manuscript -- a proposal to a company's CEO, with the company's logo in
+the header -- came out with four faults: every price read `\$15k`, the
+link to the original proposal lost its address, the `#### People` and
+`#### Processes` sub-headings printed their hash marks, and the footer
+called the proposal a DRAFT BOOK. The logo also skipped page one, which
+on a proposal is the letterhead, not a cover. All five were fixed here,
+in the script every repository receives, rather than in a wrapper for
+that one document.
+
+Same day, later: Morgan opened that proposal and asked for four more
+defaults. Bullets half an inch in were "far too much for my taste"; a
+quarter inch now. The numbered list of four outcomes came out as numbers
+typed as text; it is a real Word list now. And the quotes stayed straight
+and `--` stayed two hyphens: every Word document gets curly quotes and
+real dashes, the dashes chosen by judgment, since `--` between two words
+with no spaces is always an em dash.
+
