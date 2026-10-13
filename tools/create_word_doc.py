@@ -153,7 +153,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK  # noqa: E402
 from docx.oxml import OxmlElement  # noqa: E402
 from docx.oxml.ns import qn  # noqa: E402
 from docx.opc.constants import RELATIONSHIP_TYPE as RT  # noqa: E402
-from docx.shared import Inches, Mm, Pt  # noqa: E402
+from docx.shared import Emu, Inches, Mm, Pt  # noqa: E402
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import precedent_time  # noqa: E402  (practice: timestamps-carry-offset)
@@ -673,6 +673,24 @@ def lead_into_list(paragraph):
         paragraph.paragraph_format.space_after = Pt(0)
 
 
+def end_list(doc, paragraph):
+    """A list's last item keeps half the normal end-of-paragraph space
+    after it: the next paragraph starts a new thought, so it needs a break,
+    but a full one looked like a hole beside the lead-in sitting flush on
+    the list (Morgan, 2026-10-13)."""
+    paragraph.paragraph_format.space_after = Emu(paragraph_space_after(doc) // 2)
+
+
+def paragraph_space_after(doc):
+    """The body's end-of-paragraph space, in EMU: Normal's own, else the
+    document default, else Word's stock 10 points."""
+    own = doc.styles["Normal"].paragraph_format.space_after
+    if own is not None:
+        return own
+    found = doc.styles.element.xpath("./w:docDefaults/w:pPrDefault/w:pPr/w:spacing/@w:after")
+    return Pt(int(found[0]) / 20) if found else Pt(10)
+
+
 def numbered_items(block):
     """A "1. " list's (start, items), or None when the block is not one.
     Wrapping works as in bullet_items()."""
@@ -984,6 +1002,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
                     num_id = restart_numbering(doc, p, start)
                 set_num_id(p, num_id)
                 add_inline(p, [item], soft_wraps)
+            end_list(doc, p)
             last_para = p
             last_was_heading = False
             continue
@@ -994,6 +1013,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             for item in items:
                 p = doc.add_paragraph(style="List Bullet")
                 add_inline(p, [item], soft_wraps)
+            end_list(doc, p)
             last_para = p
             last_was_heading = False
             continue

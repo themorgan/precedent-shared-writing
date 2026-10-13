@@ -379,7 +379,7 @@ python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/lists.md" \
   --out "$SCRATCH/out/Lists.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
 if ! OUT="$(python3 - "$SCRATCH/out/Lists.docx" <<'PY' 2>&1
 import sys, re, zipfile, docx
-from docx.shared import Inches
+from docx.shared import Inches, Pt
 path = sys.argv[1]
 d = docx.Document(path)
 xml = zipfile.ZipFile(path).read("word/document.xml").decode()
@@ -403,7 +403,7 @@ for i, p in enumerate(paras[1:], 1):
     if p.style.name.startswith("List") and paras[i - 1].style.name == "Normal":
         assert paras[i - 1].paragraph_format.space_after == 0, paras[i - 1].text
     if p.style.name == "Normal" and paras[i - 1].style.name.startswith("List"):
-        assert paras[i - 1].paragraph_format.space_after is None, paras[i - 1].text
+        assert paras[i - 1].paragraph_format.space_after == Pt(5), (paras[i - 1].text, paras[i - 1].paragraph_format.space_after)
 nums = [p for p in d.paragraphs if p.style.name == "List Number"]
 assert [p.text for p in nums] == ["one", "two", "three", "four"], [p.text for p in nums]
 ids = [p._p.pPr.numPr.numId.val for p in nums]
