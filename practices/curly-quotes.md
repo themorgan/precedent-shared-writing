@@ -109,7 +109,9 @@ en dash.
 
 ## Install
 The set ships [`tools/typography.py`](../tools/typography.py) to every
-repository that resolves it. A builder imports it from beside itself:
+repository that resolves it: tracked where the repository declares the
+set, untracked where it comes through a person's individual set (engine
+from 2026-10-13 or later). A builder imports it from beside itself:
 `from typography import smarten`. `python3 tools/typography.py "text"`
 prints the converted text, for a quick look.
 [`tools/checks/tests/test_typography.sh`](../tools/checks/tests/test_typography.sh)
