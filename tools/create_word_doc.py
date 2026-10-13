@@ -4,7 +4,7 @@ with a confidential-draft footer stamped on every page.
 
 # practice: create-word-doc
 
-Parses the manuscript's plain Markdown (headings up to ###, **bold**,
+Parses the manuscript's plain Markdown (headings up to ####, **bold**,
 *italic* and ***both***, nested either way and carried across a wrapped
 line, as Markdown reads them, [links](...) printed as their text, "- " bullet lists whose
 items may wrap onto indented lines, "> " block quotations, and
@@ -143,6 +143,7 @@ from docx import Document  # noqa: E402
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK  # noqa: E402
 from docx.oxml import OxmlElement  # noqa: E402
 from docx.oxml.ns import qn  # noqa: E402
+from docx.opc.constants import RELATIONSHIP_TYPE as RT  # noqa: E402
 from docx.shared import Inches, Mm, Pt  # noqa: E402
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -161,6 +162,17 @@ STRAY_ASTERISKS = []
 # target is usually a path inside the source's repository, which means
 # nothing to someone reading the Word file.
 LINK_RE = re.compile(r"\[([^\]]+)\]\([^)\s]*\)")
+# practice: create-word-doc -- a link to the web, unlike a repository path,
+# means the same thing in a Word file, so it stays a link there: a proposal
+# that pointed its reader at "the original proposal" lost the address
+# (Morgan, 2026-10-13). Marked here, made a real hyperlink in add_inline().
+WEB_LINK_RE = re.compile(r"(?<!\\)\[([^\]]+)\]\(((?:https?|mailto):[^)\s]*)\)")
+LINK_OPEN, LINK_MID, LINK_CLOSE = "\x01", "\x02", "\x03"
+LINK_MARK_RE = re.compile("\x01([^\x02]*)\x02|\x03")
+# practice: create-word-doc -- Markdown's backslash escape: "\\$15k" and
+# "\\[A\\]" are "$15k" and "[A]" on the page, never with the backslash
+# (Morgan, 2026-10-13, a proposal's prices).
+ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 # An HTML comment (a file header, a generated-block marker) is never text.
 COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 BULLET_RE = re.compile(r"^\s*-\s+")
@@ -361,6 +373,8 @@ def parse_inline(text):
     The text may hold "\\n" (a line break inside the paragraph); emphasis
     carries across it, so an italic title wrapped over two source lines
     still comes out italic."""
+    text = WEB_LINK_RE.sub(
+        lambda m: LINK_OPEN + m.group(2) + LINK_MID + m.group(1) + LINK_CLOSE, text)
     text = LINK_RE.sub(r"\1", text)
     if text.endswith("\\"):
         text = text[:-1].rstrip()
@@ -370,7 +384,7 @@ def parse_inline(text):
     last = 0
     for m in STAR_RUN_RE.finditer(text):
         if m.start() > last:
-            pieces.append(text[last:m.start()])
+            pieces.append(ESCAPE_RE.sub(r"\1", text[last:m.start()]))
         if m.group(0) == "\\*":
             pieces.append("*")
         else:
@@ -381,7 +395,7 @@ def parse_inline(text):
                                can_close=not before.isspace()))
         last = m.end()
     if last < len(text):
-        pieces.append(text[last:])
+        pieces.append(ESCAPE_RE.sub(r"\1", text[last:]))
 
     # Match closers to the nearest opener still holding asterisks, two at a
     # time (bold) when both sides have two, else one (italic). When marks
@@ -467,14 +481,54 @@ def add_inline(paragraph, lines, soft_wraps):
             hard = (not soft_wraps or line.rstrip().endswith("\\")
                     or line.endswith("  "))
             joined.append("\n" if hard else " ")
+    link = None  # the w:hyperlink element runs go into, inside a web link
     for run_text, bold, italic in parse_inline("".join(joined)):
         for n, chunk in enumerate(run_text.split("\n")):
             if n:
                 paragraph.add_run().add_break(WD_BREAK.LINE)
-            if chunk:
-                r = paragraph.add_run(chunk)
-                r.bold = bold
-                r.italic = italic
+            at = 0
+            for m in list(LINK_MARK_RE.finditer(chunk)) + [None]:
+                piece = chunk[at:m.start() if m else len(chunk)]
+                if piece:
+                    if link is None:
+                        r = paragraph.add_run(piece)
+                        r.bold = bold
+                        r.italic = italic
+                    else:
+                        link.append(hyperlink_run(piece, bold, italic))
+                if m is None:
+                    break
+                at = m.end()
+                if m.group(0) == LINK_CLOSE:
+                    link = None
+                else:
+                    link = OxmlElement("w:hyperlink")
+                    link.set(qn("r:id"), paragraph.part.relate_to(
+                        m.group(1), RT.HYPERLINK, is_external=True))
+                    paragraph._p.append(link)
+
+
+def hyperlink_run(text, bold, italic):
+    """One run of a web link's text, set the way Word sets a link: blue and
+    underlined, so it reads as one (practice: create-word-doc)."""
+    run = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    if bold:
+        rpr.append(OxmlElement("w:b"))
+    if italic:
+        rpr.append(OxmlElement("w:i"))
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "0563C1")
+    rpr.append(color)
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    rpr.append(underline)
+    run.append(rpr)
+    t = OxmlElement("w:t")
+    t.set(qn("xml:space"), "preserve")
+    t.text = text
+    run.append(t)
+    return run
 
 
 def line_end(paragraph, line, soft_wraps):
@@ -514,7 +568,7 @@ def bullet_items(block):
     return items
 
 
-def add_header_image(section, image_path, height=None):
+def add_header_image(section, image_path, height=None, first_page=False):
     """A small copy of an image (a logo), HEADER_IMAGE_HEIGHT inches tall
     unless `height` says otherwise, centered in the header of every page
     but the first (practice: create-word-doc, the running header).
@@ -522,9 +576,13 @@ def add_header_image(section, image_path, height=None):
     The first page gets a header and footer of its own -- Word's "different
     first page" -- so the header there is left empty, under the cover, and
     the footer is copied onto it: without the copy, page one would lose
-    its "Page X of Y". Call this after the footer is written."""
+    its "Page X of Y". Call this after the footer is written.
+
+    With first_page, page one carries the logo too, for a document whose
+    first page is no cover -- a letter, a proposal -- where the logo at the
+    top of page one is the letterhead (Morgan, 2026-10-13)."""
     import copy
-    section.different_first_page_header_footer = True
+    section.different_first_page_header_footer = not first_page
     header = section.header
     header.is_linked_to_previous = False
     p = header.paragraphs[0]
@@ -533,6 +591,8 @@ def add_header_image(section, image_path, height=None):
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.line_spacing = 1.0  # a 1.3 line would pad the image
     p.add_run().add_picture(str(image_path), height=height or Inches(HEADER_IMAGE_HEIGHT))
+    if first_page:
+        return
 
     section.first_page_header.is_linked_to_previous = False
     first_footer = section.first_page_footer
@@ -679,7 +739,8 @@ def add_contents(doc):
 
 
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
-              section_breaks=True, header_image=None, soft_wraps=False):
+              section_breaks=True, header_image=None, soft_wraps=False,
+              header_on_first_page=False, footer_label=None):
     text = strip_comments(manuscript_path.read_text(encoding="utf-8"))
     STRAY_ASTERISKS.clear()
     lines = text.split("\n")
@@ -746,6 +807,15 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             last_was_heading = True
             continue
 
+        # practice: create-word-doc -- a "#### " sub-section heading is a
+        # real Heading 3, never text with "####" in front of it (Morgan,
+        # 2026-10-13, a proposal's People and Processes). It flows on: a
+        # page break is for a Part or a chapter, not a sub-section.
+        if re.match(r"^#### ", first) and len(block) == 1:
+            last_para = doc.add_heading(first[5:].strip(), level=3)
+            last_was_heading = True
+            continue
+
         if all(QUOTE_LINE_RE.match(l) for l in block):
             # practice: create-word-doc (block quotations)
             paras = quote_paragraphs(block)
@@ -801,12 +871,13 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
         conf_para = footer.add_paragraph(style="Footer")
         conf_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        conf_para.add_run(
-            f"CONFIDENTIAL - DRAFT BOOK: {short_name.upper()} - {date_str}"
-        )
+        # practice: create-word-doc -- "DRAFT BOOK" is a manuscript's own
+        # wording; any other document names itself (Morgan, 2026-10-13).
+        label = footer_label or f"CONFIDENTIAL - DRAFT BOOK: {short_name.upper()}"
+        conf_para.add_run(f"{label} - {date_str}")
 
     if header_image is not None:
-        add_header_image(section, header_image)
+        add_header_image(section, header_image, first_page=header_on_first_page)
 
     if contents:
         add_contents(doc)
@@ -880,6 +951,18 @@ def main():
         help="an image (a logo) to put, small and centered, in the header of "
              "every page but the first",
     )
+    ap.add_argument(
+        "--header-on-first-page",
+        action="store_true",
+        help="put the header image on page one as well, for a document whose "
+             "first page is no cover (a letter, a proposal)",
+    )
+    ap.add_argument(
+        "--footer-label",
+        default=None,
+        help='the footer\'s second line, before " - <date>" (default: '
+             '"CONFIDENTIAL - DRAFT BOOK: <SHORT NAME>")',
+    )
     args = ap.parse_args()
 
     if not args.manuscript.is_file():
@@ -896,7 +979,9 @@ def main():
                     contents=args.contents,
                     section_breaks=not args.no_section_breaks,
                     soft_wraps=args.soft_wraps,
-                    header_image=args.header_image)
+                    header_image=args.header_image,
+                    header_on_first_page=args.header_on_first_page,
+                    footer_label=args.footer_label)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(args.out)
     print(f"wrote {args.out}")

@@ -333,3 +333,39 @@ PY
   exit 1
 fi
 echo "ok: crossed emphasis takes the outer form; a stray asterisk is left out and reported"
+
+# 11. A document that is no manuscript (Morgan, 2026-10-13, a proposal):
+#     backslash escapes print as the character, a web link stays a real
+#     hyperlink, "####" is a Heading 3, the footer names the document, and
+#     --header-on-first-page puts the logo on page one too.
+mkdir -p "$SCRATCH/notes"
+printf '# Proposal\n\n#### People\n\nCash is \\$15k, item \\[A\\]. See [the original](https://example.com/doc) and [a file](MAP.md).\n' \
+  > "$SCRATCH/notes/proposal.md"
+python3 -c "from PIL import Image; Image.new('RGB',(40,20),'red').save('$SCRATCH/logo.png')" 2>/dev/null \
+  || cp "$(find "$SET_ROOT" -name '*.png' | head -1)" "$SCRATCH/logo.png"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/proposal.md" \
+  --out "$SCRATCH/out/Proposal.docx" --short-name Proposal --date 2026-01-01 \
+  --footer-label "CONFIDENTIAL - PROPOSAL" --header-image "$SCRATCH/logo.png" \
+  --header-on-first-page --no-section-breaks > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Proposal.docx" <<'PY' 2>&1
+import sys, re, zipfile, docx
+path = sys.argv[1]
+d = docx.Document(path)
+xml = zipfile.ZipFile(path).read("word/document.xml").decode()
+text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
+assert "$15k" in text and "[A]" in text and "\\" not in text, text
+assert "#" not in text, text
+assert [p.text for p in d.paragraphs if p.style.name == "Heading 3"] == ["People"]
+links = [r.target_ref for r in d.part.rels.values() if r.reltype.endswith("/hyperlink")]
+assert links == ["https://example.com/doc"], links
+assert xml.count("<w:hyperlink") == 1 and "a file" in text and "MAP.md" not in text
+s = d.sections[0]
+assert [p.text for p in s.footer.paragraphs][1] == "CONFIDENTIAL - PROPOSAL - 2026-01-01"
+assert not s.different_first_page_header_footer
+assert s.header._element.xpath(".//pic:pic")
+PY
+)"; then
+  echo "FAIL: a non-manuscript export lost an escape, a web link, a Heading 3, its footer label or its first-page logo: $OUT" >&2
+  exit 1
+fi
+echo "ok: escapes print as the character, web links stay links, #### is Heading 3, the footer names the document, the logo can head page one"
