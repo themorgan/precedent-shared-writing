@@ -193,6 +193,11 @@ Run:
       list, as markdown, and exit -- nothing else runs. The block
       tools/doc_sync.py embeds into spec/VERY_DEEP_CHECK.md, never
       truncated (practice: very-deep-check, computed-numbers-in-scripts).
+  python3 tools/very_deep_check.py --refresh-warnings
+      -- the WARNINGS section alone, after the session has fixed or
+      excluded what the run found: re-collects, prints the open groups
+      against this run's start and the previous run, and rewrites the
+      warnings block in the run's write-up. Nothing else runs.
   python3 tools/very_deep_check.py --record-pass '2=done,findings=3,tokens=120000,note=...'
       -- record a hand-worked pass's outcome against the most recent run in
       the ledger, and exit. `findings`, `tokens` and `note` are each
@@ -1118,14 +1123,18 @@ def _github_slug(repo_dir):
 # lacks. Staging and main stay here for everyone.
 NEVER_DELETE_BRANCHES = frozenset({
     'main', 'master', 'staging', 'pre-staging', 'precedent-beta-v01',
-    'precedent-promote-lock', 'precedent-check-receipts'})
+    'precedent-promote-lock', 'precedent-check-receipts',
+    'data-promote-lock', 'data-check-receipts'})
 
 # Branches that hold machinery, never work: Promote's lock (claims and
 # releases) and the push check's receipts (precedent_push_check.RECEIPT_BRANCH,
 # an orphan history). No branch's work can land on either, and neither has a
 # merge base to measure -- so "deepen and re-check", which this check used to
 # print for the receipts branch in every repo, could never resolve it.
-INFRA_BRANCHES = ('precedent-promote-lock', 'precedent-check-receipts')
+# Both names of each since 2026-10-11 (precedent_data_branches.py): data-
+# on the ladder, the old name elsewhere.
+INFRA_BRANCHES = ('precedent-promote-lock', 'precedent-check-receipts',
+                  'data-promote-lock', 'data-check-receipts')
 
 
 _NEVER_DELETABLE_CACHE = {}
@@ -2676,8 +2685,10 @@ def _check_coverage(repo_dir, timeout=300):
         key = re.sub(r'\btools/checks/[A-Za-z0-9._-]+', 'tools/checks/<file>',
                      key)
         causes[key] = causes.get(key, 0) + 1
+    # The body travels with the summary so WARNINGS reads this repo's
+    # advisory findings off the same run instead of paying for another.
     return {'counts': counts, 'violated': violated, 'skipped': len(skipped),
-            'causes': causes}, ''
+            'causes': causes, 'body': body}, ''
 
 
 def _source_check_scripts(repo_root, sources, timeout=180):
@@ -5047,6 +5058,16 @@ def _bootstrap_drift(sources, collect=None):
     prints nothing when no source resolved reads exactly like a section
     that compared everything and found it clean
     (practice: fail-gracefully)."""
+    # The generator reads templates/, which is never vendored: in a consumer
+    # or a set it cannot run, and three FINDINGs saying so read as drift in
+    # every set (seen 2026-10-11, the first run in a consumer). The sets are
+    # compared against the generator by the run in the engine's own repo,
+    # which reads every set in force.
+    if not (pathlib.Path(bootstrap_source.ROOT) / 'templates' / 'harness').is_dir():
+        return ['skip: the generator\'s templates live only in the engine\'s '
+                'own repository, so the sets are compared against it by the '
+                'very deep check run there -- not compared here, which is '
+                'not the same as clean.']
     out, seen = [], False
     for s in sources:
         level, path = pr.declared_level(s), s.get('path')
@@ -6447,6 +6468,19 @@ def unlisted_generated_candidates(repo_root):
         return []
     rc, out, _e = _run_git(repo_root, 'ls-files')
     tracked = set(out.split()) if rc == 0 else set()
+    # A vendored copy is generated or hand-kept in its upstream, and judged
+    # there; listing it here would be a second registry for someone else's
+    # file (seen 2026-10-11: a consumer's process/upstream/GLOSSARY.md).
+    vendored = set()
+    try:
+        import precedent_engine_freshness as _pef
+        _ents = _pef.vendored_entries(repo_root)
+        _vfiles = {e['local'] for e in _ents if not e['local'].endswith('/')}
+        _vtrees = tuple(e['local'] for e in _ents if e['local'].endswith('/'))
+        vendored = {t for t in tracked
+                    if t in _vfiles or (_vtrees and t.startswith(_vtrees))}
+    except Exception:                                   # noqa: BLE001
+        pass
     found = {}
     for path, reason in judged.items():
         if path not in tracked:
@@ -6464,9 +6498,10 @@ def unlisted_generated_candidates(repo_root):
         pass
     skip = re.compile(r'(practices/|todo/todo-|gotchas/gotcha-|evals/|templates/)')
     for path, why in _tool_written_paths(repo_root, tracked).items():
-        if path not in listed and path not in judged and not skip.match(path):
+        if path not in listed and path not in judged and not skip.match(path) \
+                and path not in vendored:
             found.setdefault(path, why)
-    for path in sorted(tracked):
+    for path in sorted(tracked - vendored):
         if not path.endswith('.md') or path in listed or path in judged \
                 or skip.match(path):
             continue
@@ -7754,6 +7789,16 @@ def _record_pass(value, path=None, repo=None):
     path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
     print(f"recorded: pass {name} = {status or '(no status)'} against the run "
           f"of {target.get('run_id')} in {path}.")
+    # The run's full account is owed the moment its last pass is in, and the
+    # deep check refuses a push without it (practice: very-deep-check;
+    # Morgan, 2026-10-11, after a run left it out until he asked).
+    if {'1', '2', '3', '4'} <= {str(p.get('pass')) for p in target['passes']}:
+        print(f"\n  OWED NOW: all four passes are recorded, so this run's full "
+              f"account is due. Rewrite spec/VERY_DEEP_CHECK_LATEST_RUN.md "
+              f"for it (opened: {target.get('date')}), collapse the previous "
+              f"run to one row in spec/VERY_DEEP_CHECK.md, commit both, and "
+              f"link the account in the reply. A push is refused until it is "
+              f"there (precedent_check.py --only very-deep-check).")
     return 0
 
 
@@ -8035,13 +8080,208 @@ def _vdc_embed_re(name):
                        r'(\n<!--/vdc-embed:' + n + r'-->)', re.S)
 
 
+# The heading a run's upstream Prompt Please block sits under, in the run
+# record of a repo that has an upstream (practice: very-deep-check, "Run in a
+# repo with an upstream").
+UPSTREAM_FINDINGS_HEADING = '## Upstream findings'
+
+# The run record a repo with an upstream starts from. It is written here
+# rather than shipped under templates/ because templates/ is never vendored:
+# the copy of this tool in a consumer is the only thing that can write it.
+_RECORD_SKELETON = """---
+title:         Very deep check -- run record
+kind:          record
+status:        live
+opened:        {today}
+closed:        null
+superseded_by: null
+supersedes:    []
+audience:      session
+summary:       "The run record of the very deep check in this repo: what each pass found, what was fixed here, and what belongs upstream."
+---
+# Very deep check -- run record
+
+The state of the current very deep check in this repository (practice:
+very-deep-check, carried in the vendored catalogue). A later session resumes
+at the first pass below that is not marked done.
+
+## Current run
+
+| Pass | Status | Date | Notes |
+|---|---|---|---|
+| 1 -- installs and updates | not started | | |
+| 2 -- mechanisms | not started | | |
+| 3 -- coherence read | not started | | |
+| 4 -- catalogue, backlog, branches | not started | | |
+
+{heading}
+
+Every finding of this run that is better fixed upstream, as one paste-ready
+prompt for a session rooted in the upstream repository, and what the person
+said about band-aids here until it lands. Filled in by the session during the
+run.
+
+(none yet)
+
+## Runs so far
+
+| Run | Passes completed | What it changed |
+|---|---|---|
+"""
+
+
+def upstream_scope(repo_root, sources=()):
+    """-> {'upstreams', 'vendored', 'own', 'sets', 'record'} for the
+    checked repo: what it carries from somewhere else, what it owns, and
+    where its run record lives.
+
+    A repo HAS an upstream exactly when something in it is vendored from
+    another repository -- precedent_engine_freshness.vendored_entries(), the
+    same answer upstream_fix.py and doc_lint.py read. BestPractice vendors
+    nothing, so it has none and every finding is fixed where it is found; a
+    consumer or a practice set carries the engine and has one. Asking the
+    tree rather than the repository's name is deliberate: the day something
+    is vendored INTO BestPractice, it gets an upstream here with no change
+    (Morgan, 2026-10-11).
+
+    `sources` are the run's resolved sources (enumerate_scope's). `sets`
+    are the shared and individual ones that live outside
+    this checkout: a rule they own is fixed in them, not here, though
+    nothing of theirs is copied in. `own` counts this repo's tracked files
+    by top-level directory, vendored ones excluded -- the half a very deep
+    check in a consumer must also test, and which no section above reads."""
+    root = pathlib.Path(repo_root).resolve()
+    try:
+        import precedent_engine_freshness as pef
+        entries = pef.vendored_entries(root)
+    except Exception:                                             # noqa: BLE001
+        entries = []
+    files = {e['local'] for e in entries if not e['local'].endswith('/')}
+    trees = tuple(e['local'] for e in entries if e['local'].endswith('/'))
+    upstreams = {}
+    for e in entries:
+        key = e.get('repo') or '(source not recorded)'
+        u = upstreams.setdefault(key, {'repo': key, 'files': 0, 'trees': [],
+                                       'clone': e.get('clone')})
+        if e['local'].endswith('/'):
+            u['trees'].append(e['local'])
+        else:
+            u['files'] += 1
+    rc, out, _e = _run_git(root, 'ls-files')
+    own = {}
+    vendored_count = 0
+    for path in (out.split('\n') if rc == 0 else []):
+        if not path:
+            continue
+        if path in files or path.startswith(trees):
+            vendored_count += 1
+            continue
+        top = path.split('/', 1)[0] + '/' if '/' in path else '(root files)'
+        own[top] = own.get(top, 0) + 1
+    sets = []
+    for s in sources or ():
+        if not s.get('path') or pr.declared_level(s) not in FATAL_MISSING_LEVELS:
+            continue
+        p = pathlib.Path(s['path']).resolve()
+        if not p.is_relative_to(root):
+            sets.append({'name': s.get('name'), 'level': s.get('level'),
+                         'path': str(p)})
+    return {'upstreams': list(upstreams.values()), 'vendored': vendored_count,
+            'own': own, 'sets': sets, 'record': str(root / SPEC_DOC_RELPATH)}
+
+
+def ensure_upstream_record(repo_root):
+    """Give a repo with an upstream a run record holding the
+    UPSTREAM_FINDINGS_HEADING section, so the run's upstream prompt has
+    somewhere to be kept (practice: repo-is-memory). -> 'created',
+    'section added', or None when the record already had it. Writes
+    nothing in a repo with no upstream."""
+    path = pathlib.Path(repo_root) / SPEC_DOC_RELPATH
+    if not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_RECORD_SKELETON.format(
+            today=precedent_time.today(),
+            heading=UPSTREAM_FINDINGS_HEADING), encoding='utf-8')
+        return 'created'
+    text = path.read_text(encoding='utf-8')
+    if re.search(r'^' + re.escape(UPSTREAM_FINDINGS_HEADING) + r'\s*$',
+                 text, re.M):
+        return None
+    path.write_text(text.rstrip('\n') + '\n\n' + UPSTREAM_FINDINGS_HEADING
+                    + '\n\n(none yet)\n', encoding='utf-8')
+    return 'section added'
+
+
+def _print_upstream_section(repo_root, sources=(), out=None):
+    """The UPSTREAM section: -> findings count (always 0; it hands the
+    session a procedure, not a verdict) or None when there is no upstream."""
+    out = out if out is not None else sys.stdout
+    u = upstream_scope(repo_root, sources)
+    print("UPSTREAM -- what this repo owns, what it carries, and where a "
+          "finding here is fixed\n", file=out)
+    if not u['upstreams']:
+        print("  none -- nothing here is vendored from another repository, "
+              "so this is the\n  primary repo: every finding is fixed here, "
+              "and no upstream prompt is owed.", file=out)
+        if u['sets']:
+            print("  (A rule owned by an attached set is still fixed in that "
+                  "set; ACCESS above\n  says whether this session can land "
+                  "it there.)", file=out)
+        print(file=out)
+        return None
+    for up in u['upstreams']:
+        trees = (', trees ' + ', '.join(up['trees'])) if up['trees'] else ''
+        clone = (f" -- clone at {up['clone']}"
+                 if up['clone'] and pathlib.Path(up['clone']).is_dir()
+                 else ' -- no clone beside this one')
+        print(f"  UPSTREAM  {up['repo']}: {up['files']} vendored file(s)"
+              f"{trees}{clone}", file=out)
+    for s in u['sets']:
+        print(f"  RULES     {s['level']} set {s['name']!r} ({s['path']}): a "
+              f"rule it owns is fixed there", file=out)
+    own = ', '.join(f'{k} {v}' for k, v in sorted(u['own'].items()))
+    print(f"\n  SCOPE IS EVERYTHING: {u['vendored']} vendored file(s) and "
+          f"this repo's own\n  {sum(u['own'].values())} tracked file(s) "
+          f"({own}).\n  Test both: this repo's own build and tests, and the "
+          f"vendored engine run on THIS\n  tree -- a vendored file that "
+          f"passes upstream can still break here.", file=out)
+    made = ensure_upstream_record(repo_root)
+    rel = SPEC_DOC_RELPATH.as_posix()
+    if made == 'created':
+        print(f"\n  RUN RECORD: created {rel} -- commit it with the run's "
+              f"fixes.", file=out)
+    elif made:
+        print(f"\n  RUN RECORD: added '{UPSTREAM_FINDINGS_HEADING}' to "
+              f"{rel}.", file=out)
+    else:
+        print(f"\n  RUN RECORD: {rel}", file=out)
+    print(f"""
+  BEFORE FIXING EACH FINDING, ask: is this better fixed upstream, or here?
+    - a vendored file (python3 tools/upstream_fix.py --no-branch PATH says
+      which) is upstream, always: never edit the copy;
+    - a rule a set owns is fixed in that set;
+    - anything else is upstream when every repo built from the same engine or
+      template would hit it too (an installer gap, a template line, a missing
+      practice); otherwise it is this repo's, and is fixed here.
+  Then, for the upstream ones together:
+    1. one Prompt Please block for a session rooted in the upstream repo(s),
+       written under '{UPSTREAM_FINDINGS_HEADING}' in {rel} AND given in the
+       reply;
+    2. ask the person: band-aids here until upstream lands? Follow the answer
+       and record it under the same heading. A band-aid lives in this repo's
+       own files, never in a vendored copy, says it is a band-aid and what
+       upstream fix retires it.
+""", file=out)
+    return 0
+
+
 def _update_spec_doc_block(repo_root, name, markdown):
     """Rewrite the `<!--vdc-embed:<name>:...-->` block in THIS repo's own
     spec/VERY_DEEP_CHECK.md, in place -- never in a checked repo other than
-    this one, since that document and this practice both live only here.
-    A silent no-op when the file or the named block is absent (a checked
-    repo that vendors this engine has neither, and a run against it must
-    not fail over a document it does not own)."""
+    this one. A silent no-op when the file or the named block is absent: a
+    repo that vendors this engine has its own run record (written by
+    ensure_upstream_record), with no embed blocks in it, and a run against
+    it must not fail over a block it does not carry."""
     path = pathlib.Path(repo_root) / SPEC_DOC_RELPATH
     if not path.is_file():
         return False
@@ -8055,6 +8295,108 @@ def _update_spec_doc_block(repo_root, name, markdown):
         path.write_text(new_text, encoding='utf-8')
         return True
     return False
+
+
+# --- WARNINGS (practice: very-deep-check, pass 2) -------------------------
+#
+# Every warning the routine checks print, judged: fixed, or excluded for good
+# or until a date, by the session, with a reason. tools/warning_review.py
+# collects and matches; this section prints the work list, records the open
+# count in the ledger so the next run can compare, and writes a summary into
+# the run's own write-up -- Morgan, 2026-10-11 (strength: decided): "this
+# warning information should be printed in the ... doc that details what
+# happened with this very deep check."
+WARNINGS_EMBED = 'warnings'
+LATEST_RUN_RELPATH = pathlib.Path('spec') / 'VERY_DEEP_CHECK_LATEST_RUN.md'
+
+
+def _warnings_doc_path(repo_root):
+    """The run's long-form write-up where one exists (BestPractice keeps
+    it beside the run record), else the run record itself -- a consuming
+    repo has only the one."""
+    for rel in (LATEST_RUN_RELPATH, SPEC_DOC_RELPATH):
+        path = pathlib.Path(repo_root) / rel
+        if path.is_file():
+            return path
+    return None
+
+
+def _write_warnings_block(repo_root, markdown):
+    """Rewrite the warnings block in the run's write-up, appending a
+    `## Warnings` section that carries it when the write-up has none: the
+    session rewrites that file every run, and a block it dropped must come
+    back rather than silently stop being written. -> the path written, or
+    None."""
+    path = _warnings_doc_path(repo_root)
+    if path is None:
+        return None
+    text = path.read_text(encoding='utf-8')
+    pattern = _vdc_embed_re(WARNINGS_EMBED)
+    if pattern.search(text):
+        new_text = pattern.sub(lambda m: m.group(1) + markdown + m.group(2),
+                               text, count=1)
+    else:
+        new_text = (text.rstrip('\n') + '\n\n## Warnings\n\n'
+                    + '<!--vdc-embed:' + WARNINGS_EMBED + ': never hand-edit '
+                    '-- written by tools/very_deep_check.py\'s WARNINGS section; '
+                    'refresh with --refresh-warnings -->\n' + markdown
+                    + '\n<!--/vdc-embed:' + WARNINGS_EMBED + '-->\n')
+    if new_text != text:
+        path.write_text(new_text, encoding='utf-8')
+    return path
+
+
+def _warnings_open_history(repo_root):
+    """-> [(run date, open count)] for every recorded run that had a
+    WARNINGS section, oldest first."""
+    try:
+        data = json.loads(ledger_path_for(repo_root).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for run in data.get('runs', []):
+        for comp in run.get('components') or []:
+            if comp.get('name') == 'WARNINGS' and comp.get('findings') is not None:
+                out.append((run.get('date'), comp['findings']))
+    return out
+
+
+def warnings_section(repo_root, precedent_check_output=None, refresh=False,
+                     out=None):
+    """Print the WARNINGS section and write its block. -> (open count,
+    group count). `refresh` is the run after the session's decisions: the
+    latest ledger entry is then this run's own start, not the previous
+    run."""
+    out = out or sys.stdout
+    import warning_review as wr
+    groups, collected, notes = wr.collect(
+        repo_root, precedent_check_output=precedent_check_output)
+    entries, problems = wr.load_registry(repo_root)
+    result = wr.review(groups, entries, collected)
+    history = _warnings_open_history(repo_root)
+    start = None
+    if refresh and history and history[-1][0] == result['today']:
+        start = history.pop()[1]
+    previous = history[-1][1] if history else None
+    print(wr.render_text(result, problems, notes, previous=previous), file=out)
+    if start is not None:
+        print(f'Open when this run started: {start}.', file=out)
+    print('\n  The session judges every open group: fix it, or exclude it in '
+          f'{wr.REGISTRY_RELPATH}\n  -- permanent, or temporary with a revisit '
+          'date -- with a reason and "by": "agent".\n  Ask the person only '
+          'when unsure, when the call is ambiguous, or when they may see it\n'
+          '  differently. Then `--refresh-warnings` rewrites the write-up\'s '
+          'block.', file=out)
+    written = _write_warnings_block(
+        repo_root, wr.render_markdown(result, problems, notes,
+                                      previous=previous, start=start))
+    if written:
+        print(f'  Summary written to '
+              f'{written.relative_to(pathlib.Path(repo_root).resolve()) if written.is_absolute() else written}.',
+              file=out)
+    n_open = sum(r['count'] for r in result['rows']
+                 if r['status'] in ('open', 'lapsed'))
+    return n_open, len(result['rows'])
 
 
 def _write_branch_report(branch_scans, out_path, repo_root, held_back=(),
@@ -8279,7 +8621,7 @@ BOOLEAN_FLAGS = ('--json', '--allow-missing-sources', '--skip-branch-scan',
                  '--checklist', '--with-harness', '--skip-visibility',
                  '--skip-liveness', '--landable-only', '--skip-endgame-merge',
                  '--skip-base-drift', '--skip-session-sweep', '--allow-stale',
-                 '--freshen', '--help', '-h')
+                 '--freshen', '--refresh-warnings', '--help', '-h')
 
 
 def _unknown_args(argv):
@@ -8374,6 +8716,12 @@ def _main(box):
         return _record_read(record_read, repo)
     if record_pass is not None:
         return _record_pass(record_pass, ledger_path, repo)
+    if '--refresh-warnings' in args:
+        # After the session has fixed and excluded: the WARNINGS section
+        # alone, against the same ledger, rewriting the write-up's block.
+        warnings_section(pathlib.Path(repo or ROOT).resolve(), refresh=True)
+        return 0
+
     if '--emit' in args:
         # doc_sync's own contract (practice: computed-numbers-in-scripts):
         # print exactly the named block's content and exit -- no ledger, no
@@ -8893,6 +9241,17 @@ def _main(box):
         led.end(items=c['practice_count']
                 + sum(s['practice_count'] for s in data['sources']))
 
+    # UPSTREAM (practice: very-deep-check, "Run in a repo with an
+    # upstream"; Morgan, 2026-10-11): in a consumer or a practice set the
+    # scope is everything -- its own code and the vendored engine -- and
+    # every finding is asked whether it belongs upstream before it is fixed.
+    if led:
+        led.start('UPSTREAM -- owned versus vendored, where a finding is fixed',
+                  kind='read')
+    _print_upstream_section(repo_root, data['sources'])
+    if led:
+        led.end()
+
     # PRACTICE CATALOGUE (practice: very-deep-check, added 2026-09-23 at
     # Morgan's request): every in-force practice's slug and one-sentence
     # `_index_clause`, one section per source in force, so a very deep
@@ -9092,7 +9451,10 @@ def _main(box):
               "skeleton files a set owns.")
     print()
     if led:
-        led.end(findings=len(_bd))
+        _bd_found = [m for m in _bd if m.startswith('FINDING')]
+        led.end(findings=len(_bd_found) if _bd_found or
+                not any(m.startswith('skip') or m.startswith('no shared')
+                        for m in _bd) else None)
         led.start('CONVERGENT DRIFT')
 
     # The fourth direction, and the only one that compares the sets against
@@ -9248,6 +9610,7 @@ def _main(box):
           "repo in force\n")
     _cc_findings = 0
     _cc_measured = False
+    _cc_own_body = None
     for _name, _p in _orph_targets:
         if not pathlib.Path(_p).is_dir():
             continue
@@ -9256,9 +9619,16 @@ def _main(box):
             print(f"  {_name}: not measured -- {_note}")
             continue
         _cc_measured = True
+        if pathlib.Path(_p).resolve() == pathlib.Path(repo_root).resolve():
+            _cc_own_body = _sum['body']
         _c = _sum['counts']
+        # The advisory count was read and then dropped here until
+        # 2026-10-11: a warning-only check's findings reached no section.
+        # WARNINGS now judges this checkout's; the count says the other
+        # repos have some (practice: very-deep-check).
         print(f"  {_name}: {_c.get('passed', '?')} passed, "
               f"{_c.get('violated', '?')} violated, "
+              f"{_c.get('advisory', '?')} advisory, "
               f"{_c.get('skipped', '?')} SKIPPED")
         if _sum['violated']:
             _cc_findings += len(_sum['violated'])
@@ -9914,6 +10284,15 @@ def _main(box):
     print()
     if led:
         led.end(findings=_md_count)
+        led.start('WARNINGS')
+
+    print("WARNINGS -- every warning the routine checks print, fixed or "
+          "excluded with a reason\n")
+    _w_open, _w_groups = warnings_section(
+        repo_root, precedent_check_output=_cc_own_body)
+    print()
+    if led:
+        led.end(items=_w_groups, findings=_w_open)
         led.start('CROSS-REPO LINKS')
 
     print("CROSS-REPO LINKS -- do absolute github.com links into a repo "

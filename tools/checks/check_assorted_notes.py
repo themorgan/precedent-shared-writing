@@ -75,9 +75,9 @@ def _canonical_exists() -> bool:
     """Is there an ASSORTED_NOTES.md anywhere in the tracked tree?
 
     Asked by basename, at any depth, NOT at a hardcoded `content/`. The
-    directory is this practice's *default*, not its definition -- and
-    `content-directory`, which supplies that default, says in as many words
-    that an established layout wins over it. A repo that keeps its working
+    directory is this practice's *default*, not its definition -- and the
+    practice that used to supply that default (retired 2026-09-29) said in
+    as many words that an established layout wins over it. A repo that keeps its working
     files somewhere better-named still has a catch-all, and the migration
     this check gates on is just as done there.
 
