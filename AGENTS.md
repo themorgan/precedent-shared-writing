@@ -30,6 +30,8 @@ When a standing constraint on one file gets stated a second time:
   doc-recipe — present-tense rules for one file, in doc-recipes/<name>.recipe.md
 When about to commit a document that characterizes a real, identifiable person:
   sensitive-characterization-scrub — soften or ask before committing a blunt description of a real person
+When building a Word document, a web page or any other format an outside reader sees, or writing quotes and dashes in Markdown:
+  curly-quotes — Markdown keeps plain quotes and hyphens; outward builds convert them
 When handing a person a document to download:
   dated-download-names — the date goes at the end of its name: Name-2026-12-31.docx
 When leaving a placeholder or fill-in-later note mid-draft:
@@ -41,7 +43,6 @@ When naming a file, branch, doc or anything with a destination, in a doc, reply,
 When starting a catch-all notes file, or renaming a legacy BRAINSTORM, NOTES or IDEAS file:
   assorted-notes — one ASSORTED_NOTES.md for ideas never cited elsewhere; listing it is fine
 When writing a document an outside reader will see (a declared output path):
-  curly-quotes — straight quotes become curly, and -- becomes a real dash, in outward prose
   deliverables-carry-no-process — no attribution stamps, practice slugs or convention notes in an output document
 
 (More on-demand practices are not listed here: one whose applies_to names real paths, or which declares a gate, is reached by those channels instead -- `precedent_paths.py FILE` and `precedent_gate.py MOMENT`. A trigger a PERSON SAYS cannot be reached that way and is always listed above. `precedent_show.py --index-omitted` names the omitted ones.)

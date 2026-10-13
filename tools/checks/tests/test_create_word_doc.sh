@@ -372,8 +372,9 @@ fi
 echo "ok: escapes print as the character, web links stay links, #### is Heading 3, the footer names the document, the logo can head page one"
 
 # 12. Lists a quarter inch in, real numbered lists that restart, curly quotes
-#     and dashes (Morgan, 2026-10-13).
-printf '# T\n\nLead-in:\n\n- a "bullet" -- it'"'"'s here, word--word, 1990--2000\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
+#     and dashes (Morgan, 2026-10-13): "--" is always an em dash, and a
+#     hyphen between two numbers in a range an en dash; a date keeps its own.
+printf '# T\n\nLead-in:\n\n- a "bullet" -- it'"'"'s here, word--word, 1990-2000 on 2026-10-13\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
   > "$SCRATCH/notes/lists.md"
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/lists.md" \
   --out "$SCRATCH/out/Lists.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
@@ -385,7 +386,7 @@ d = docx.Document(path)
 xml = zipfile.ZipFile(path).read("word/document.xml").decode()
 text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
 assert '"' not in text and "'" not in text and "--" not in text, text
-assert "“bullet” – it’s here, word—word, 1990–2000" in text, text
+assert "“bullet” — it’s here, word—word, 1990–2000 on 2026-10-13" in text, text
 assert "Text — between." in text, text
 for name in ("List Bullet", "List Number"):
     pf = d.styles[name].paragraph_format
