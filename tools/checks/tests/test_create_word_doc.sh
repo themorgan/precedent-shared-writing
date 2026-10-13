@@ -373,7 +373,7 @@ echo "ok: escapes print as the character, web links stay links, #### is Heading 
 
 # 12. Lists a quarter inch in, real numbered lists that restart, curly quotes
 #     and dashes (Morgan, 2026-10-13).
-printf '# T\n\n- a "bullet" -- it'"'"'s here, word--word, 1990--2000\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
+printf '# T\n\nLead-in:\n\n- a "bullet" -- it'"'"'s here, word--word, 1990--2000\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
   > "$SCRATCH/notes/lists.md"
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/lists.md" \
   --out "$SCRATCH/out/Lists.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
@@ -397,6 +397,13 @@ for name in ("List Bullet", "List Number"):
     assert st.paragraph_format.space_before == 0, (name, st.paragraph_format.space_before)
     assert st.element.pPr.find(docx.oxml.ns.qn("w:contextualSpacing")) is not None, name
     assert st.paragraph_format.space_after is None, (name, st.paragraph_format.space_after)
+# A lead-in line sits on its list; the paragraph after a list keeps its gap.
+paras = d.paragraphs
+for i, p in enumerate(paras[1:], 1):
+    if p.style.name.startswith("List") and paras[i - 1].style.name == "Normal":
+        assert paras[i - 1].paragraph_format.space_after == 0, paras[i - 1].text
+    if p.style.name == "Normal" and paras[i - 1].style.name.startswith("List"):
+        assert paras[i - 1].paragraph_format.space_after is None, paras[i - 1].text
 nums = [p for p in d.paragraphs if p.style.name == "List Number"]
 assert [p.text for p in nums] == ["one", "two", "three", "four"], [p.text for p in nums]
 ids = [p._p.pPr.numPr.numId.val for p in nums]

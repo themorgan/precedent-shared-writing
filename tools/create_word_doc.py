@@ -664,6 +664,15 @@ def bullet_items(block):
     return items
 
 
+def lead_into_list(paragraph):
+    """A body paragraph straight before a list loses its space after, so a
+    lead-in line ("I see four outcomes:") sits on its list the way the
+    items sit on each other (Morgan, 2026-10-13). A heading keeps its own
+    spacing, and the list's last item keeps its normal space after it."""
+    if paragraph is not None and paragraph.style.name == "Normal":
+        paragraph.paragraph_format.space_after = Pt(0)
+
+
 def numbered_items(block):
     """A "1. " list's (start, items), or None when the block is not one.
     Wrapping works as in bullet_items()."""
@@ -964,6 +973,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
         numbered = numbered_items(block)
         if numbered is not None:
+            lead_into_list(last_para)
             # practice: create-word-doc -- a "1. " list is a real Word list,
             # never numbers typed as text (Morgan, 2026-10-13).
             start, items = numbered
@@ -980,6 +990,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
         items = bullet_items(block)
         if items is not None:
+            lead_into_list(last_para)
             for item in items:
                 p = doc.add_paragraph(style="List Bullet")
                 add_inline(p, [item], soft_wraps)
