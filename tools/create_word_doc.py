@@ -357,8 +357,8 @@ def style_list(doc, name):
     style = doc.styles[name]
     pf = style.paragraph_format
     # practice: create-word-doc -- a list takes no space of its own before
-    # it, so the gap between a lead-in line and its first item is the normal
-    # end-of-paragraph space and nothing more (Morgan, 2026-10-13).
+    # it, so the gap between a lead-in line and its first item is exactly
+    # what lead_into_list leaves there (Morgan, 2026-10-13).
     pf.space_before = Pt(0)
     pf.left_indent = Inches(LIST_INDENT + LIST_HANG)
     pf.first_line_indent = Inches(-LIST_HANG)
@@ -642,13 +642,14 @@ def bullet_items(block):
     return items
 
 
-def lead_into_list(paragraph):
-    """A body paragraph straight before a list loses its space after, so a
-    lead-in line ("I see four outcomes:") sits on its list the way the
-    items sit on each other (Morgan, 2026-10-13). A heading keeps its own
-    spacing, and the list's last item keeps its normal space after it."""
+def lead_into_list(doc, paragraph):
+    """A body paragraph straight before a list keeps half the normal
+    end-of-paragraph space after it, the same gap a list's end leaves
+    (end_list), so a list is set off the same above and below. It was
+    flush with the list until Morgan found it too tight (2026-10-14). A
+    heading keeps its own spacing."""
     if paragraph is not None and paragraph.style.name == "Normal":
-        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.space_after = Emu(paragraph_space_after(doc) // 2)
         # Never stranded at the foot of a page: the lead-in moves with its
         # list's first item (Morgan, 2026-10-13).
         paragraph.paragraph_format.keep_with_next = True
@@ -657,8 +658,8 @@ def lead_into_list(paragraph):
 def end_list(doc, paragraph):
     """A list's last item keeps half the normal end-of-paragraph space
     after it: the next paragraph starts a new thought, so it needs a break,
-    but a full one looked like a hole beside the lead-in sitting flush on
-    the list (Morgan, 2026-10-13)."""
+    but a full one looked like a hole (Morgan, 2026-10-13). The lead-in
+    above the list gets the same half gap (lead_into_list)."""
     paragraph.paragraph_format.space_after = Emu(paragraph_space_after(doc) // 2)
 
 
@@ -1007,7 +1008,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
         numbered = numbered_items(block)
         if numbered is not None:
-            lead_into_list(last_para)
+            lead_into_list(doc, last_para)
             # practice: create-word-doc -- a "1. " list is a real Word list,
             # never numbers typed as text (Morgan, 2026-10-13).
             start, items = numbered
@@ -1025,7 +1026,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
 
         items = bullet_items(block)
         if items is not None:
-            lead_into_list(last_para)
+            lead_into_list(doc, last_para)
             for item in items:
                 p = doc.add_paragraph(style="List Bullet")
                 add_inline(p, [item], soft_wraps)
