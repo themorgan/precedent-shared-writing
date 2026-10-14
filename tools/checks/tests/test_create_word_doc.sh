@@ -392,17 +392,17 @@ for name in ("List Bullet", "List Number"):
     pf = d.styles[name].paragraph_format
     assert abs(pf.left_indent - Inches(0.5)) < 100 and abs(pf.first_line_indent + Inches(0.25)) < 100, name
 # A list adds no space of its own: none before it, items close together,
-# so a lead-in line sits the normal paragraph gap above it (2026-10-13).
+# so the gap above a list is whatever its lead-in line leaves (2026-10-13).
 for name in ("List Bullet", "List Number"):
     st = d.styles[name]
     assert st.paragraph_format.space_before == 0, (name, st.paragraph_format.space_before)
     assert st.element.pPr.find(docx.oxml.ns.qn("w:contextualSpacing")) is not None, name
     assert st.paragraph_format.space_after is None, (name, st.paragraph_format.space_after)
-# A lead-in line sits on its list; the paragraph after a list keeps its gap.
+# A list is set off by half the normal gap above and below (2026-10-14).
 paras = d.paragraphs
 for i, p in enumerate(paras[1:], 1):
     if p.style.name.startswith("List") and paras[i - 1].style.name == "Normal":
-        assert paras[i - 1].paragraph_format.space_after == 0, paras[i - 1].text
+        assert paras[i - 1].paragraph_format.space_after == Pt(5), (paras[i - 1].text, paras[i - 1].paragraph_format.space_after)
         assert paras[i - 1].paragraph_format.keep_with_next, paras[i - 1].text
     if p.style.name == "Normal" and paras[i - 1].style.name.startswith("List"):
         assert paras[i - 1].paragraph_format.space_after == Pt(5), (paras[i - 1].text, paras[i - 1].paragraph_format.space_after)
