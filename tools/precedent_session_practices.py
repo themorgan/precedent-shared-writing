@@ -304,7 +304,18 @@ def render(extra, levels, notes, repo=None):
         # ONE LINE, not a section. The deferral notes' reasons are the
         # intro's; what the reader still needs is that these sources
         # RESOLVED, as against the heading above for the ones that did not.
-        head += ['Every source this repository declares resolved.', '']
+        #
+        # "Resolved" means READABLE: its practices could be loaded. Whether
+        # this session can push to that repository is the ACCESS list
+        # precedent_access_check.py prints at session start, where HANDOFF
+        # marks one readable here but not pushable -- which, beside a bare
+        # "resolved", read as a contradiction (reported by a consuming
+        # repository, 2026-10-13). So the line names what it means and
+        # points at the list that answers the other question.
+        head += ['Every source this repository declares resolved for reading, '
+                 'so its practices are below. Whether this session can also '
+                 'push to each one is the ACCESS list printed at session '
+                 'start: HANDOFF there means readable here, not pushable.', '']
     # build_loader_block returns (text, resident_tokens, resident_count) --
     # the same renderer AGENTS.md uses, so this block cannot drift from it.
     #
@@ -558,6 +569,39 @@ def spoken_block(extra):
     return '\n'.join([SPOKEN_HEAD] + [f'- {l}' for l in sorted(lines)]) + '\n'
 
 
+def deliver_ships(repo, extra):
+    """Deliver the `ships:` files and wire the `hooks:` of the practices this
+    file carries, untracked (precedent_materialize.deliver_session_ships says
+    how). The sync delivers a tracked set's; nothing delivered these until
+    2026-10-13, when a repository given the writing set by the person's
+    individual set had neither tools/create_word_doc.py, which a practice
+    here tells every session to run, nor the hook another one needs
+    (practice: practice-carries-its-files). Never fatal: this runs at
+    session start (practice: fail-gracefully)."""
+    try:
+        import precedent_materialize as pm
+        r = pm.deliver_session_ships(repo, [(fm, f) for fm, _s, f in extra])
+    except Exception as e:                                   # noqa: BLE001
+        print(f'precedent session practices: the files the practices below '
+              f'ship were not delivered ({type(e).__name__}: {e})',
+              file=sys.stderr)
+        return None
+    for n in r['notes']:
+        print(f'precedent session practices: {n}', file=sys.stderr)
+    if r['delivered'] or r['removed']:
+        print(f'precedent session practices: '
+              + '; '.join(filter(None, [
+                  r['delivered'] and 'delivered ' + ', '.join(r['delivered']),
+                  r['removed'] and 'removed ' + ', '.join(r['removed'])]))
+              + ' -- files a set this repository does not track ships, kept '
+              'out of git by .git/info/exclude', file=sys.stderr)
+    if r['left']:
+        print(f'precedent session practices: left as they are, not this '
+              f'tool\'s copies or edited since: {", ".join(r["left"])}',
+              file=sys.stderr)
+    return r
+
+
 def main(argv=None):
     args = sys.argv[1:] if argv is None else list(argv)
     if any(a in ('--help', '-h') for a in args):
@@ -603,6 +647,7 @@ def main(argv=None):
               f'written; {n_bad} source(s) unresolved.')
         return 0
 
+    deliver_ships(repo, extra)
     text = _with_target_warning(repo, text, brought=brought_share(repo)[0])
     out_dir = pathlib.Path(repo) / OUT_DIR
     try:
