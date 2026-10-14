@@ -64,7 +64,9 @@ behavior that GitHub silently neutered):
      purchase, access (refused), test, external, pr (linked), or
      `(out of scope: why)`. Line-scoped like checks 1 and 4; the heading
      vocabulary and reasons are OPEN_* settings a host shim may change, and
-     `<!--checklist-->` marks a form's boxes as not open work.
+     `<!--checklist-->` marks a form's boxes as not open work. A file under
+     precedent.json's `content_paths` (the person's own to-do list, notes
+     or manuscript) is skipped, here and by the acronym scan of check 3.
 
 SCOPE: by default, only files CHANGED vs the default branch (the convention is
 "fix the parts you touch"; this also avoids editing frozen documents, where a
@@ -214,6 +216,31 @@ def drop_records(files):
     return [f for f in files
             if not any(f == r or (r.endswith('/') and f.startswith(r))
                        for r in records)]
+
+
+_CONTENT_PATHS = {}
+
+
+def is_content(path, root=None):
+    """True when `path` is under one of the repository's declared
+    `content_paths` (precedent.json, read by precedent_resolve, its one
+    reader): the person's own material -- a personal to-do list, notes, a
+    manuscript -- which the checks about session work skip. Here that is
+    the open-item check (practice: todo-is-a-handoff) and the
+    unglossed-acronym scan (practice: acronyms-glossary); the link,
+    strikethrough and process-residue checks still read it, since those are
+    about what a reader sees. An engine with no resolver declares nothing:
+    fewer exemptions, never more."""
+    root = pathlib.Path(root or ROOT).resolve()
+    if root not in _CONTENT_PATHS:
+        try:
+            import precedent_resolve as _pr
+            _CONTENT_PATHS[root] = (list(_pr.declared_content_paths(root)),
+                                    _pr.in_declared_paths)
+        except (ImportError, AttributeError):
+            _CONTENT_PATHS[root] = ([], None)
+    declared, match = _CONTENT_PATHS[root]
+    return bool(declared) and match(path, declared)
 
 # ---- acronym check (check 3) ----
 ACRONYM_RE = re.compile(r'\b([A-Z]{2}[A-Z0-9]{0,4})\b')   # 2-6 chars, ≥2 leading letters
@@ -687,6 +714,20 @@ def looks_like_roman_numeral(tok):
     return bool(m) and m.group(0) != ''
 
 
+def looks_like_placeholder(tok):
+    """True when `tok` is three or more letters running in alphabet order
+    (XYZ, ABC, QRST, WXYZ) -- the letters a writer reaches for to stand in
+    for "some task" or "some department", never an initialism anybody
+    could gloss. A grammar, not a stoplist: the next run nobody listed
+    (LMN) is caught too, and a real acronym (TBD, ZQX) never reads as one.
+
+    Found 2026-10-13: a proposal saying "Please do XYZ" and "don't touch
+    department QRST" failed the acronym check in a consuming repo, which
+    papered over it with two GLOSSARY rows saying "not an abbreviation"."""
+    return len(tok) >= 3 and all(
+        ord(b) - ord(a) == 1 for a, b in zip(tok, tok[1:]))
+
+
 # A code span, or one that wraps onto the next line or two: markdown lets an
 # inline code span run across a soft line break inside a paragraph, and a
 # document wrapped at 72 columns does it whenever a long command lands at
@@ -791,6 +832,10 @@ def scan_unglossed(text, known, path=None):
                 # "Part II" -- numbering notation, not an acronym. See
                 # looks_like_roman_numeral()'s own comment for why this is
                 # a grammar check and not a list of numerals.
+                continue
+            if looks_like_placeholder(tok):
+                # "Please do XYZ" -- placeholder letters, not an acronym.
+                # See looks_like_placeholder() for why this is a grammar.
                 continue
             if FILENAME_STEM_RE.match(clean, m.end()):
                 # An ALL-CAPS filename stem is a file reference, not an
@@ -1369,8 +1414,10 @@ def check_open_items(path, root=None):
     Line-attributed, so the commit gate fails only the items a change adds
     or rewrites (touched_lines); a moved item is not new. Skipped: fences
     and indented code, generated blocks, a generated file (`generated_by`
-    in its frontmatter), a received practice file, and anything marked
-    OPEN_ITEM_EXEMPT."""
+    in its frontmatter), a received practice file, a file under the
+    repository's declared `content_paths` (is_content: the person's own
+    to-do list or notes, whose boxes are theirs, not a session's queue),
+    and anything marked OPEN_ITEM_EXEMPT."""
     root = pathlib.Path(root or ROOT)
     rel = str(path).replace('\\', '/')
     try:
@@ -1381,7 +1428,8 @@ def check_open_items(path, root=None):
     fm = re.match(r'---\n(.*?)\n---\n', text, re.S)
     head = fm.group(1) if fm else ''
     if (re.search(r'^generated_by:', head, re.M) or rel in _received()
-            or rel.startswith(OPEN_ITEM_SKIP_PREFIXES)):
+            or rel.startswith(OPEN_ITEM_SKIP_PREFIXES)
+            or is_content(rel, root)):
         return []
     p = pathlib.PurePosixPath(rel)
     if (OPEN_ITEM_DIR and str(p.parent) == OPEN_ITEM_DIR
@@ -1461,7 +1509,8 @@ def check_file(path, fix=False, known=None):
     # suppresses the detector suppresses the controls that prove it works
     # (three of verify_harness.py's stated cases build tiny fixture repos
     # whose corpora are small by construction). The gate carries it.
-    if known is not None and path not in ACRONYM_SKIP_FILES:
+    if (known is not None and path not in ACRONYM_SKIP_FILES
+            and not is_content(path)):
         # One detector, shared with precedent_check.py's acronyms-glossary
         # gate — see scan_unglossed's docstring for the drift this closed.
         unglossed = scan_unglossed(
