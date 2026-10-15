@@ -104,6 +104,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_practice_refs.py](tools/precedent_practice_refs.py) | Who cites a practice, across this repo and every source it declares -- live citations vs history; the lookup behind practice-change-propagates, the merge moment and Update Vendors |
 | [tools/precedent_promote.py](tools/precedent_promote.py) | Stage 3 (phase 5) — runs a candidate against the four promotion criteria |
 | [tools/precedent_push_check.py](tools/precedent_push_check.py) | Everything GitHub CI used to run on a push, per kind of repository, run locally before it -- `push-check-gate.sh` refuses a push until it passes; a push to a working branch runs its basic tier only, and a push to main the full one |
+| [tools/precedent_python.py](tools/precedent_python.py) | precedent_python.py -- one Python per repository (practice: one-python). |
 | [tools/precedent_regenerate.py](tools/precedent_regenerate.py) | Rebuilds the generated files whose inputs a commit touches, and stages them -- run by the commit backstop, never refuses a commit |
 | [tools/precedent_reply_check.py](tools/precedent_reply_check.py) | The reply gate's BLOCKING half — refuses a stop when the reply missed what a source's reply_check.json requires |
 | [tools/precedent_resolve.py](tools/precedent_resolve.py) | Resolves the universal, shared and individual sources into one set, by precedence |
