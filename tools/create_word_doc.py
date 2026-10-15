@@ -144,16 +144,21 @@ def ensure_docx():
         pass
     print(f"create_word_doc: installing {DOCX_PACKAGE}, which this script needs...",
           file=sys.stderr)
-    cmd = [sys.executable, "-m", "pip", "install", "--quiet", DOCX_PACKAGE]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode and "externally-managed" in (r.stderr + r.stdout):
-        # A distribution's Python marks itself managed by apt (PEP 668), and
-        # pip refuses outright; in a throwaway container that is the Python
-        # we mean to use. The engine's own installer does the same
-        # (tools/precedent_python.py). Found 2026-10-15: this script's test
-        # failed on a fresh cloud container for exactly this refusal.
-        r = subprocess.run(cmd + ["--break-system-packages"],
-                           capture_output=True, text=True)
+    # The engine's one install call, beside this script in every repository
+    # that has the engine (tools/precedent_python.py, 2026-10-15): it
+    # retries pip's PEP 668 refusal, which a cloud container's system Python
+    # gives -- this script's test failed on a fresh container for exactly
+    # that. The same retry, here, for an engine that predates it.
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        from precedent_python import pip_install
+        r = pip_install(sys.executable, [DOCX_PACKAGE])
+    except ImportError:
+        cmd = [sys.executable, "-m", "pip", "install", "--quiet", DOCX_PACKAGE]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode and "externally-managed" in (r.stderr + r.stdout):
+            r = subprocess.run(cmd + ["--break-system-packages"],
+                               capture_output=True, text=True)
     # A --user install can land in a site dir that did not exist when this
     # interpreter started, so it is not on sys.path yet; add it before retrying.
     user_site = site.getusersitepackages()
