@@ -86,6 +86,20 @@ Usage:
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --contents
   python3 tools/create_word_doc.py notes/NOTES.md --out /path/to/Notes.docx --short-name Notes \
       --no-section-breaks --header-image logo.png
+  python3 tools/create_word_doc.py --rebuild old/Notes.docx --out /path/to/Notes.docx
+
+The short book name is needed only by the default footer line, so a
+document outside book-*/ that passes --footer-label or --no-footer needs
+no --short-name either.
+
+Every document records how it was built: the manuscript, the options and
+an explicit --date, as JSON in the .docx's own Comments property (File >
+Properties in Word), under the marker "create_word_doc.py build:". Paths
+are kept relative to the repository the manuscript sits in.
+--rebuild FILE.docx reads that record and builds again with the same
+options from the current source -- dated today unless the record carries
+a --date -- so a rebuild never has to guess the flags from the old file.
+Any option given beside --rebuild wins over the recorded one.
 
 The short book name defaults to the manuscript's book-*/ directory name
 with "book-" stripped and the remainder title-cased (book-joseph ->
@@ -101,6 +115,8 @@ asked for it).
 """
 import argparse
 import importlib
+import json
+import os
 import pathlib
 import re
 import site
@@ -128,10 +144,16 @@ def ensure_docx():
         pass
     print(f"create_word_doc: installing {DOCX_PACKAGE}, which this script needs...",
           file=sys.stderr)
-    r = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet", DOCX_PACKAGE],
-        capture_output=True, text=True,
-    )
+    cmd = [sys.executable, "-m", "pip", "install", "--quiet", DOCX_PACKAGE]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode and "externally-managed" in (r.stderr + r.stdout):
+        # A distribution's Python marks itself managed by apt (PEP 668), and
+        # pip refuses outright; in a throwaway container that is the Python
+        # we mean to use. The engine's own installer does the same
+        # (tools/precedent_python.py). Found 2026-10-15: this script's test
+        # failed on a fresh cloud container for exactly this refusal.
+        r = subprocess.run(cmd + ["--break-system-packages"],
+                           capture_output=True, text=True)
     # A --user install can land in a site dir that did not exist when this
     # interpreter started, so it is not on sys.path yet; add it before retrying.
     user_site = site.getusersitepackages()
@@ -1106,14 +1128,108 @@ def derive_short_name(manuscript_path):
     return book_dir[len("book-") :].capitalize()
 
 
+# practice: create-word-doc -- a document carries its own build settings, so
+# rebuilding it never means reverse-engineering the flags from the old file
+# (a consuming repository, 2026-10-15: a proposal's rebuild had to read its
+# footer text, its header image's hash and its first-page header to learn
+# how it had been built; a wrong guess ships a differently formatted
+# document to an outside reader).
+BUILD_MARK = "create_word_doc.py build: "
+# Recorded options: argparse destination -> how it is stored.
+RECORDED_PATHS = ("manuscript", "header_image")
+RECORDED_VALUES = ("short_name", "date", "footer_label")
+RECORDED_FLAGS = ("no_footer", "contents", "no_section_breaks", "soft_wraps",
+                  "header_on_first_page")
+
+
+def repo_root(start):
+    """The nearest directory at or above start holding .git, or None."""
+    start = pathlib.Path(start).resolve()
+    for d in (start, *start.parents):
+        if (d / ".git").exists():
+            return d
+    return None
+
+
+def build_record(args):
+    """The JSON a document carries: paths relative to the manuscript's
+    repository (absolute when it sits in none), and only what was set."""
+    root = repo_root(args.manuscript.resolve().parent)
+    rec = {}
+    for key in RECORDED_PATHS:
+        path = getattr(args, key)
+        if path is None:
+            continue
+        path = path.resolve()
+        if root is not None:
+            try:
+                path = path.relative_to(root)
+            except ValueError:
+                pass
+        rec[key] = path.as_posix()
+    for key in RECORDED_VALUES:
+        if getattr(args, key) is not None:
+            rec[key] = getattr(args, key)
+    for key in RECORDED_FLAGS:
+        if getattr(args, key):
+            rec[key] = True
+    return rec
+
+
+def read_record(docx_path):
+    """The recorded options of a document this script built, with paths
+    resolved against the repository the document sits in (else the
+    current directory's)."""
+    comments = Document(str(docx_path)).core_properties.comments or ""
+    if not comments.startswith(BUILD_MARK):
+        raise SystemExit(
+            f"error: {docx_path} carries no build record (built before "
+            "create_word_doc.py recorded one, or by something else) -- "
+            "build it once with its flags given in full")
+    rec = json.loads(comments[len(BUILD_MARK):])
+    root = (repo_root(pathlib.Path(docx_path).resolve().parent)
+            or repo_root(pathlib.Path.cwd()) or pathlib.Path.cwd())
+    for key in RECORDED_PATHS:
+        if key in rec:
+            path = pathlib.Path(rec[key])
+            if not path.is_absolute():
+                path = pathlib.Path(os.path.relpath(root / path))
+            rec[key] = path
+    return rec
+
+
+def command_line(rec, out):
+    """The command a record amounts to, printed on a rebuild."""
+    parts = ["python3", "tools/create_word_doc.py", str(rec["manuscript"]),
+             "--out", str(out)]
+    for key in ("header_image", *RECORDED_VALUES):
+        if rec.get(key) is not None:
+            parts += ["--" + key.replace("_", "-"), str(rec[key])]
+    for key in RECORDED_FLAGS:
+        if rec.get(key):
+            parts.append("--" + key.replace("_", "-"))
+    return " ".join(json.dumps(p) if (" " in p or not p) else p for p in parts)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("manuscript", type=pathlib.Path, help="path to a book-*/MANUSCRIPT.md")
+    ap.add_argument("manuscript", type=pathlib.Path, nargs="?",
+                    help="path to a book-*/MANUSCRIPT.md (or any Markdown "
+                         "file); omitted with --rebuild")
     ap.add_argument("--out", type=pathlib.Path, required=True, help="output .docx path")
+    ap.add_argument(
+        "--rebuild",
+        type=pathlib.Path,
+        default=None,
+        metavar="FILE.docx",
+        help="build again with the options recorded in FILE.docx, a document "
+             "this script built; options given here win over the recorded ones",
+    )
     ap.add_argument(
         "--short-name",
         default=None,
-        help="short book name for the footer (default: derived from the book-*/ directory name)",
+        help="short book name for the footer (default: derived from the book-*/ "
+             "directory name; unused with --footer-label or --no-footer)",
     )
     ap.add_argument(
         "--date",
@@ -1163,11 +1279,26 @@ def main():
              '"CONFIDENTIAL - DRAFT BOOK: <SHORT NAME>")',
     )
     args = ap.parse_args()
+    if args.rebuild is not None:
+        if not args.rebuild.is_file():
+            sys.exit(f"error: {args.rebuild} does not exist")
+        # The record becomes the defaults, so anything given here wins.
+        ap.set_defaults(**read_record(args.rebuild))
+        args = ap.parse_args()
+        print(f"rebuilding as: {command_line(vars(args), args.out)}")
+    if args.manuscript is None:
+        ap.error("the manuscript is required (or --rebuild FILE.docx)")
 
     if not args.manuscript.is_file():
         sys.exit(f"error: {args.manuscript} does not exist")
 
-    short_name = args.short_name or derive_short_name(args.manuscript)
+    # practice: create-word-doc -- the short name appears only in the default
+    # footer line, so it is derived (and its absence an error) only when that
+    # line is built (a consuming repository, 2026-10-15: a proposal outside
+    # book-*/ with --footer-label was refused for want of --short-name).
+    short_name = args.short_name
+    if not short_name and not args.no_footer and not args.footer_label:
+        short_name = derive_short_name(args.manuscript)
     # practice: timestamps-carry-offset -- one shared module resolves the zone
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     date_str = args.date or precedent_time.today(repo_root)
@@ -1181,6 +1312,12 @@ def main():
                     header_image=args.header_image,
                     header_on_first_page=args.header_on_first_page,
                     footer_label=args.footer_label)
+    # Set on the element itself: python-docx refuses any core property over
+    # 255 characters, a cap of its own -- the file format has none -- and a
+    # record with two repository paths and a footer label passes it.
+    doc.core_properties._element._get_or_add("description").text = (
+        BUILD_MARK + json.dumps(build_record(args), ensure_ascii=False,
+                                sort_keys=True))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(args.out)
     print(f"wrote {args.out}")
