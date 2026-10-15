@@ -342,8 +342,13 @@ echo "ok: crossed emphasis takes the outer form; a stray asterisk is left out an
 mkdir -p "$SCRATCH/notes"
 printf '# Proposal\n\n#### People\n\nCash is \\$15k, item \\[A\\]. See [the original](https://example.com/doc) and [a file](MAP.md).\n' \
   > "$SCRATCH/notes/proposal.md"
-python3 -c "from PIL import Image; Image.new('RGB',(40,20),'red').save('$SCRATCH/logo.png')" 2>/dev/null \
-  || cp "$(find "$SET_ROOT" -name '*.png' | head -1)" "$SCRATCH/logo.png"
+# The fixture writes its own image: Pillow is not always installed and this
+# set holds no PNG, so the old fallback copied nothing (2026-10-15).
+python3 - "$SCRATCH/logo.png" <<'PY'
+import base64, sys
+open(sys.argv[1], "wb").write(base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+PY
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/proposal.md" \
   --out "$SCRATCH/out/Proposal.docx" --short-name Proposal --date 2026-01-01 \
   --footer-label "CONFIDENTIAL - PROPOSAL" --header-image "$SCRATCH/logo.png" \
@@ -447,3 +452,68 @@ PY
   exit 1
 fi
 echo "ok: a code span and a fenced block stay exactly as typed, in a fixed-width face; the prose around them converts"
+
+# 14. The short name is needed only by the default footer line (a consuming
+#     repository, 2026-10-15): a document outside book-*/ builds without
+#     --short-name when --footer-label or --no-footer makes it unused, and
+#     is still refused when the default line would need it.
+mkdir -p "$SCRATCH/proposal"
+printf '# Proposal\n\n## Why\nBody.\n' > "$SCRATCH/proposal/proposal.md"
+if ! python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/proposal/proposal.md" \
+    --out "$SCRATCH/out/Label.docx" --date 2026-01-01 \
+    --footer-label "CONFIDENTIAL - PROPOSAL" > /dev/null; then
+  echo "FAIL: --footer-label outside book-*/ still demanded --short-name" >&2
+  exit 1
+fi
+if ! python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/proposal/proposal.md" \
+    --out "$SCRATCH/out/NoFooter.docx" --no-footer > /dev/null; then
+  echo "FAIL: --no-footer outside book-*/ still demanded --short-name" >&2
+  exit 1
+fi
+if python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/proposal/proposal.md" \
+    --out "$SCRATCH/out/Default.docx" > /dev/null 2>&1; then
+  echo "FAIL: the default footer outside book-*/ built without a short name" >&2
+  exit 1
+fi
+echo "ok: --short-name is required only when the default footer line uses it"
+
+# 15. A document records how it was built, and --rebuild FILE.docx builds
+#     again with exactly those options (a consuming repository, 2026-10-15:
+#     a proposal's flags had to be reverse-engineered from the old .docx).
+#     Paths are recorded relative to the manuscript's repository, so the
+#     rebuild works from another directory; an option given beside
+#     --rebuild wins over the recorded one.
+mkdir -p "$SCRATCH/repo/.git" "$SCRATCH/repo/prop/output" "$SCRATCH/repo/assets"
+printf '# Proposal\n\n## One\nBody.\n\n## Two\nMore.\n' > "$SCRATCH/repo/prop/p.md"
+cp "$SCRATCH/logo.png" "$SCRATCH/repo/assets/logo.png"
+(cd "$SCRATCH/repo" && python3 "$SET_ROOT/tools/create_word_doc.py" prop/p.md \
+  --out prop/output/p-1.docx --no-section-breaks --header-image assets/logo.png \
+  --header-on-first-page --footer-label "CONFIDENTIAL - PROPOSAL" > /dev/null)
+OUT="$(cd "$SCRATCH/repo/prop" && python3 "$SET_ROOT/tools/create_word_doc.py" \
+  --rebuild output/p-1.docx --out output/p-2.docx --date 2026-02-02)"
+if ! grep -q -- '--header-on-first-page' <<<"$OUT"; then
+  echo "FAIL: --rebuild did not say what it ran: $OUT" >&2
+  exit 1
+fi
+if ! OUT="$(python3 - "$SCRATCH/repo/prop/output/p-1.docx" "$SCRATCH/repo/prop/output/p-2.docx" <<'PY' 2>&1
+import json, sys, docx
+a, b = (docx.Document(p) for p in sys.argv[1:3])
+mark = "create_word_doc.py build: "
+rec_a = json.loads(a.core_properties.comments[len(mark):])
+assert rec_a == {"manuscript": "prop/p.md", "header_image": "assets/logo.png",
+                 "no_section_breaks": True, "header_on_first_page": True,
+                 "footer_label": "CONFIDENTIAL - PROPOSAL"}, rec_a
+rec_b = json.loads(b.core_properties.comments[len(mark):])
+assert rec_b == dict(rec_a, date="2026-02-02"), rec_b
+foot = [p.text for p in b.sections[0].footer.paragraphs]
+assert foot[1] == "CONFIDENTIAL - PROPOSAL - 2026-02-02", foot
+assert not b.sections[0].different_first_page_header_footer, "page one lost the logo"
+assert "graphicData" in b.sections[0].header._element.xml, "the header image was lost"
+breaks = sum('w:br w:type="page"' in p._p.xml for p in b.paragraphs)
+assert breaks == 0, f"{breaks} page break(s): --no-section-breaks was lost"
+PY
+)"; then
+  echo "FAIL: the build record or the rebuild was wrong: $OUT" >&2
+  exit 1
+fi
+echo "ok: a document records its build, and --rebuild repeats it, with an override winning"
