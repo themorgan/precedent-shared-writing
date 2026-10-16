@@ -8,9 +8,10 @@ occasion:    "building a Word document, a web page, any HTML output or any other
 gates:       []
 index_clause: "Markdown keeps plain quotes and hyphens; outward builds convert them"
 checked_by:  null
-ships:       ["tools/typography.py"]
+ships:       []
 defines:     []
-status:      active
+status:      deduplicated
+in_force_at: curly-quotes
 supersedes:  []
 overrides:   null
 added:       2026-09-18
@@ -29,7 +30,7 @@ typography**: a Word document, a web page, and any format added later.
 **Every HTML output counts**, whoever it is for: a page published as a
 Claude Artifact, a generated website, any `.html` file a script writes.
 Its builder runs the text through
-[`tools/typography.py`](../tools/typography.py)'s `smarten()`, the one copy
+[`tools/typography.py`](https://github.com/alex137/BestPractice/blob/staging/tools/typography.py)'s `smarten()`, the one copy
 of these rules, never a copy of its own; an HTML builder runs its finished
 page through `smarten_html()`, which changes the text a reader sees and
 never a tag, an attribute, a comment, a script or code:
@@ -112,7 +113,7 @@ happens only when something is built for an outside reader. A real dash
 typed into Markdown stays allowed. Quotes moved to the same model, so the
 Markdown check and its grandfather list
 (`curly_quotes_grandfathered`) were removed, and the rules moved out of
-[`create_word_doc.py`](../tools/create_word_doc.py) into [`tools/typography.py`](../tools/typography.py) for every builder to share.
+[`create_word_doc.py`](../tools/create_word_doc.py) into [`tools/typography.py`](https://github.com/alex137/BestPractice/blob/staging/tools/typography.py) for every builder to share.
 The same change made `--` always an em dash, where it had been an en dash
 when spaced or between numbers, and made a hyphen between two numbers an
 en dash.
@@ -123,16 +124,15 @@ idea what code was, so a command in backticks or a fenced example would
 have had its `--` turned into a dash. `smarten()` now skips a code span,
 and [`create_word_doc.py`](../tools/create_word_doc.py) sets fenced blocks and code spans as typed.
 
+Moved to the universal set `BestPractice` on 2026-10-16; its removal from `precedent-shared-writing` approved by Morgan F, one of that set's approvers. This copy is deduplicated; the rule stays in force under its slug, `curly-quotes`.
+
 ## Install
-The set ships [`tools/typography.py`](../tools/typography.py) to every
-repository that resolves it: tracked where the repository declares the
-set, untracked where it comes through a person's individual set (engine
-from 2026-10-13 or later). A builder imports it from beside itself:
-`from typography import smarten`. `python3 tools/typography.py "text"`
-prints the converted text, for a quick look.
-[`tools/checks/tests/test_typography.sh`](../tools/checks/tests/test_typography.sh)
-holds the cases above; a sync vendors it beside the tool (engine from
-2026-10-15 on; before that, every sync said no practice claimed it).
+[`tools/typography.py`](https://github.com/alex137/BestPractice/blob/staging/tools/typography.py) is an engine file since
+2026-10-16: every repository that vendors the engine has it, and this set
+no longer ships it -- a sync refuses a set that ships what the engine
+already installs. A builder imports it from beside itself:
+`from typography import smarten`, or `smarten_html` for a page. Its cases
+moved into the engine's own tests with it.
 
 **A repository that took this practice before 2026-10-13** loses
 the retired curly-quotes check and its test on its next update.

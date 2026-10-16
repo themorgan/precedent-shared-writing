@@ -10,14 +10,13 @@ This repository's map of the practice catalogue in force here and the engine's o
 
 ## The practice catalogue
 
-`practices/` holds 20 practice files (2 resident, 18 on-demand). One file per practice.
+`practices/` holds 19 practice files (2 resident, 17 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
 | [assorted-notes](practices/assorted-notes.md) | on-demand | starting a catch-all notes file, or renaming a legacy BRAINSTORM, NOTES or IDEAS file |
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
 | [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
-| [curly-quotes](practices/curly-quotes.md) | on-demand | building a Word document, a web page, any HTML output or any other format an outside reader sees, or writing quotes and dashes in Markdown |
 | [dated-download-names](practices/dated-download-names.md) | on-demand | handing a person a document to download |
 | [default-register](practices/default-register.md) | resident | writing any reply to the person you are working with |
 | [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing a document an outside reader will see (a declared output path) |
@@ -37,12 +36,13 @@ This repository's map of the practice catalogue in force here and the engine's o
 
 ## Withdrawn practices
 
-6 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
+7 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
 
 | Practice | Status | Now in force at | Why it was withdrawn |
 |---|---|---|---|
 | [branch-links](practices/branch-links.md) | deduplicated | [rule-links](practices/rule-links.md) | **Merged into rule-links, 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that a branch named anywhere is linked to its tree view on the host the repo lives on, a branch in another repo included. |
 | [content-subdirs](practices/content-subdirs.md) | retired | — (nowhere) | **Retired 2026-09-29** (Morgan: *"Let's eliminate that one also"*, of this rule, beside the retired `content-directory`). |
+| [curly-quotes](practices/curly-quotes.md) | deduplicated | [curly-quotes](practices/curly-quotes.md) | Raised by Morgan, 2026-09-18, in a private repo, in the same thread that produced two practices local to that repo (on glossing Hebrew terms, and on fixing typos without resolving an ambiguity), asking for a third standing practice specifically about converting straight quotes to curly ones. |
 | [doc-link-text](practices/doc-link-text.md) | deduplicated | [rule-links](practices/rule-links.md) | **Merged into rule-links, 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that a document's link text is the document's name, with the href kept as the `.md` file, the `# H1` as the name, and the filename kept for a document with no heading. |
 | [file-mention-links](practices/file-mention-links.md) | deduplicated | [rule-links](practices/rule-links.md) | **Merged into rule-links, 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that every file mention in chat, PR or commit text is a live absolute GitHub link, which branch to link, the turn-end hook detail, its `reply` gate and its `index_required: true`. |
 | [push-back](practices/push-back.md) | deduplicated | [push-back](practices/push-back.md) | Migrated here from RepoPersonalPreferences by the phase-3 private-set migration. |
