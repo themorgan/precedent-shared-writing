@@ -42,7 +42,9 @@ backslash or two spaces breaks.
 
 `--header-image PATH` puts a small copy of an image (a logo), 0.6 inch
 tall, centered in the header of every page but the first, which already carries the
-cover. add_header_image() does the same for a document built by hand.
+cover, with a small gap between it and the text. add_header_image() does
+the same for a document built by hand. A logo on a front page is
+COVER_LOGO_WIDTH (1.56 inches) wide unless a document says otherwise.
 
 A "> " block -- a long excerpt quoted from another text -- becomes a
 block quotation, the way a printed book sets one off: indented half an
@@ -252,6 +254,17 @@ PAGE_MARGIN = 0.75
 # practice: create-word-doc -- the running header's logo, in inches tall.
 # It was 0.4 until Morgan asked for it about half as big again (2026-10-05).
 HEADER_IMAGE_HEIGHT = 0.6
+# practice: create-word-doc -- where the running header's logo sits, and the
+# room between it and the page's text. Word's own 0.5-inch header distance
+# put the logo's foot right on the first line (Morgan, 2026-10-16), so the
+# logo starts a little higher and keeps a small gap under it.
+HEADER_DISTANCE = 0.35
+HEADER_IMAGE_GAP = 12  # points
+# practice: create-word-doc -- the logo on a front page, in inches wide,
+# unless a document is told otherwise. It was 4.4, then 2.6 (2026-10-05),
+# until Morgan asked for about 60% of that (2026-10-16). A builder that puts
+# a logo on its cover reads this rather than its own number.
+COVER_LOGO_WIDTH = 1.56
 
 
 def set_style_font(style, name):
@@ -758,8 +771,11 @@ def add_header_image(section, image_path, height=None, first_page=False):
     p = header.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
+    # The gap under the logo: Word starts the text below the header's full
+    # height, its spacing included, so this is room above the first line.
+    p.paragraph_format.space_after = Pt(HEADER_IMAGE_GAP)
     p.paragraph_format.line_spacing = 1.0  # a 1.3 line would pad the image
+    section.header_distance = Inches(HEADER_DISTANCE)
     p.add_run().add_picture(str(image_path), height=height or Inches(HEADER_IMAGE_HEIGHT))
     if first_page:
         return
