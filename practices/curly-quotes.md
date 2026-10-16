@@ -117,7 +117,7 @@ Later the same day Morgan confirmed quotes follow the same model in his own
 words, and named the exception: code. The Word builder until then had no
 idea what code was, so a command in backticks or a fenced example would
 have had its `--` turned into a dash. `smarten()` now skips a code span,
-and `create_word_doc.py` sets fenced blocks and code spans as typed.
+and [`create_word_doc.py`](../tools/create_word_doc.py) sets fenced blocks and code spans as typed.
 
 ## Install
 The set ships [`tools/typography.py`](../tools/typography.py) to every
@@ -127,5 +127,20 @@ from 2026-10-13 or later). A builder imports it from beside itself:
 `from typography import smarten`. `python3 tools/typography.py "text"`
 prints the converted text, for a quick look.
 [`tools/checks/tests/test_typography.sh`](../tools/checks/tests/test_typography.sh)
-holds the cases above. A repository's `precedent.json` key
-`curly_quotes_grandfathered` is no longer read by anything and can go.
+holds the cases above; a sync vendors it beside the tool (engine from
+2026-10-15 on; before that, every sync said no practice claimed it).
+
+**A repository that took this practice before 2026-10-13** loses
+the retired curly-quotes check and its test on its next update.
+Three things in its own files can still name them, and each refuses the
+landing until it goes:
+
+- the `precedent.json` key `curly_quotes_grandfathered`, which nothing
+  reads any more: delete it;
+- a repo-local stub practice that deduplicates this one: set its
+  `checked_by:` to `null`;
+- any other file, a closed open item included: drop or repoint the
+  check's name.
+
+Update Vendors lists every file of the third kind as left for the person
+(engine from 2026-10-15 on), rather than printing it and finishing.
