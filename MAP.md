@@ -62,6 +62,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/ci_fleet_audit.py](tools/ci_fleet_audit.py) | Every GitHub Actions workflow on every branch of every reachable repo, asked of GitHub: approval, triggers, schedules, 30 days of runs |
 | [tools/doc_lifecycle.py](tools/doc_lifecycle.py) | The document status header — kind, status, supersession — checked across spec/ and record/ |
 | [tools/doc_lint.py](tools/doc_lint.py) | Markdown hygiene checks — strikethrough, links, acronyms |
+| [tools/finish_html.py](tools/finish_html.py) | finish_html.py -- the last step before any engine tool writes an HTML page. |
 | [tools/frontmatter_yaml.py](tools/frontmatter_yaml.py) | The real-YAML frontmatter parser doc_lint.py and verify_harness.py both check against, shared so the two never drift |
 | [tools/full_practice_audit.py](tools/full_practice_audit.py) | The full practice audit — on-demand, whole-catalogue sweep across every source |
 | [tools/generated_blocks.py](tools/generated_blocks.py) | Whether a line is inside a generated block, in both marker styles, closing marker required -- the one answer every scan that skips generated text uses |
@@ -129,6 +130,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/todo_disposition.py](tools/todo_disposition.py) | records "Drop it" on a todo item in both places a park lives, in one go |
 | [tools/todo_migrate.py](tools/todo_migrate.py) | One-time converter from the old TODO.md/gotchas-index format into spec/OPEN_ITEM_AND_GOTCHA_PLAN.md's per-item todo/gotchas files, dry-run by default |
 | [tools/todo_progress.py](tools/todo_progress.py) | which open items a change may have moved, and which name a file that is gone -- reports a resemblance, never a verdict |
+| [tools/typography.py](tools/typography.py) | typography.py -- the one place plain Markdown typing becomes finished |
 | [tools/upstream_fix.py](tools/upstream_fix.py) | Sets up the fix to a vendored file where it comes from -- names the source repository and the file's path there, and opens a branch in that source's clone off its landing branch; never edits the copy |
 | [tools/very_deep_check.py](tools/very_deep_check.py) | The very deep check — on-demand whole-repo coherence review, distinct from full-practice-audit |
 | [tools/warning_review.py](tools/warning_review.py) | Every warning the routine checks print, gathered, matched against the |
