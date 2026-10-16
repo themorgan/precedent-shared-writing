@@ -8,7 +8,7 @@ occasion:    "producing any Word (.docx) document for someone to download -- a s
 gates:       []
 index_clause: "a Word file for a reader: a footer, and it opens without an update-fields prompt"
 checked_by:  tools/checks/check_create_word_doc.py
-ships:       ["tools/create_word_doc.py", "tools/typography.py"]
+ships:       ["tools/create_word_doc.py"]
 defines:     []
 status:      active
 supersedes:  []
@@ -139,8 +139,9 @@ hyphen between two numbers that make a range (1990-2000, pages 10-20)
 becomes an en dash (–), while a date like 2026-10-13 keeps its hyphens. A
 web link's address and a backslash-escaped character are left alone. The
 rules are [curly-quotes](curly-quotes.md)'s, in
-[`tools/typography.py`](../tools/typography.py), shared with every other
-builder for an outside reader; `smarten(text)` does it for a document
+[`tools/typography.py`](https://github.com/alex137/BestPractice/blob/staging/tools/typography.py), an engine file every
+repository has (since 2026-10-16; this set shipped it before), shared with
+every other builder for an outside reader; `smarten(text)` does it for a document
 built by hand. The Markdown source keeps its plain quotes and hyphens.
 **Code stays code:** a fenced block is set line for line as typed, and a
 code span keeps its characters without its backticks, both in a
@@ -510,7 +511,7 @@ with no spaces is always an em dash.
 
 
 Later still, 2026-10-13: the dash rules moved into
-[`tools/typography.py`](../tools/typography.py), shared with every builder
+[`tools/typography.py`](https://github.com/alex137/BestPractice/blob/staging/tools/typography.py), shared with every builder
 for an outside reader, and changed with them. `--` is now always an em
 dash, spaced or between numbers, and a hyphen between two numbers in a
 range is the en dash (Morgan: "the double dashes should always become an

@@ -4,17 +4,18 @@ title:       Markdown keeps plain quotes and hyphens; anything built for an outs
 tier:        on-demand
 severity:    default
 applies_to:  ["**"]
-occasion:    "building a Word document, a web page or any other format an outside reader sees, or writing quotes and dashes in Markdown"
+occasion:    "building a Word document, a web page, any HTML output or any other format an outside reader sees, or writing quotes and dashes in Markdown"
 gates:       []
 index_clause: "Markdown keeps plain quotes and hyphens; outward builds convert them"
 checked_by:  null
-ships:       ["tools/typography.py"]
+ships:       []
 defines:     []
-status:      active
+status:      deduplicated
+in_force_at: curly-quotes
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count; Markdown keeps hyphens and straight quotes, the conversion moves to building outward formats, real dashes stay allowed in Markdown, 2026-10-13 (\"In Markdown documents, we should only use normal hyphens ... whenever we format it for external use, such as creating a [Microsoft] Word document or on a website, then the double dashes should always become an M dash\"; \"within internal markdown documents, the M-dash and N-dash can optionally be used, so their use should not cause any errors\"); quotes follow the same model, first on his go-ahead to the proposal that said so and then in his own words, 2026-10-13 (\"the same structure should apply to curly quotes as well. Anything for external use should change them. And internal use, we do not expect to use them, but there's no error if they are used\"); code is the exception, 2026-10-13 (\"make sure in code blocks that are for public use, like examples for the public, that those are not replaced, because double dashes and dashes have particular meanings in code\")"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count; Markdown keeps hyphens and straight quotes, the conversion moves to building outward formats, real dashes stay allowed in Markdown, 2026-10-13 (\"In Markdown documents, we should only use normal hyphens ... whenever we format it for external use, such as creating a [Microsoft] Word document or on a website, then the double dashes should always become an M dash\"; \"within internal markdown documents, the M-dash and N-dash can optionally be used, so their use should not cause any errors\"); quotes follow the same model, first on his go-ahead to the proposal that said so and then in his own words, 2026-10-13 (\"the same structure should apply to curly quotes as well. Anything for external use should change them. And internal use, we do not expect to use them, but there's no error if they are used\"); code is the exception, 2026-10-13 (\"make sure in code blocks that are for public use, like examples for the public, that those are not replaced, because double dashes and dashes have particular meanings in code\"); every HTML output, 2026-10-16 (\"Note that that is an artifact web page and it applies there and also it should apply when we make real web pages as well like we do in [a project repository], basically in any html file or html output\")"
 strength:    decided
 ---
 ## Rule
@@ -26,9 +27,13 @@ never an error either: nothing flags either form.
 
 **Anything built from Markdown for an outside reader gets finished
 typography**: a Word document, a web page, and any format added later.
+**Every HTML output counts**, whoever it is for: a page published as a
+Claude Artifact, a generated website, any `.html` file a script writes.
 Its builder runs the text through
-[`tools/typography.py`](../tools/typography.py)'s `smarten()`, the one copy
-of these rules, never a copy of its own:
+[`tools/typography.py`](https://github.com/alex137/BestPractice/blob/staging/tools/typography.py)'s `smarten()`, the one copy
+of these rules, never a copy of its own; an HTML builder runs its finished
+page through `smarten_html()`, which changes the text a reader sees and
+never a tag, an attribute, a comment, a script or code:
 
 - `--` and `---` always become an em dash (—), spacing kept as typed.
 - A hyphen between two numbers that make a range becomes an en dash:
@@ -108,7 +113,7 @@ happens only when something is built for an outside reader. A real dash
 typed into Markdown stays allowed. Quotes moved to the same model, so the
 Markdown check and its grandfather list
 (`curly_quotes_grandfathered`) were removed, and the rules moved out of
-[`create_word_doc.py`](../tools/create_word_doc.py) into [`tools/typography.py`](../tools/typography.py) for every builder to share.
+[`create_word_doc.py`](../tools/create_word_doc.py) into [`tools/typography.py`](https://github.com/alex137/BestPractice/blob/staging/tools/typography.py) for every builder to share.
 The same change made `--` always an em dash, where it had been an en dash
 when spaced or between numbers, and made a hyphen between two numbers an
 en dash.
@@ -119,16 +124,15 @@ idea what code was, so a command in backticks or a fenced example would
 have had its `--` turned into a dash. `smarten()` now skips a code span,
 and [`create_word_doc.py`](../tools/create_word_doc.py) sets fenced blocks and code spans as typed.
 
+Moved to the universal set `BestPractice` on 2026-10-16; its removal from `precedent-shared-writing` approved by Morgan F, one of that set's approvers. This copy is deduplicated; the rule stays in force under its slug, `curly-quotes`.
+
 ## Install
-The set ships [`tools/typography.py`](../tools/typography.py) to every
-repository that resolves it: tracked where the repository declares the
-set, untracked where it comes through a person's individual set (engine
-from 2026-10-13 or later). A builder imports it from beside itself:
-`from typography import smarten`. `python3 tools/typography.py "text"`
-prints the converted text, for a quick look.
-[`tools/checks/tests/test_typography.sh`](../tools/checks/tests/test_typography.sh)
-holds the cases above; a sync vendors it beside the tool (engine from
-2026-10-15 on; before that, every sync said no practice claimed it).
+[`tools/typography.py`](https://github.com/alex137/BestPractice/blob/staging/tools/typography.py) is an engine file since
+2026-10-16: every repository that vendors the engine has it, and this set
+no longer ships it -- a sync refuses a set that ships what the engine
+already installs. A builder imports it from beside itself:
+`from typography import smarten`, or `smarten_html` for a page. Its cases
+moved into the engine's own tests with it.
 
 **A repository that took this practice before 2026-10-13** loses
 the retired curly-quotes check and its test on its next update.
