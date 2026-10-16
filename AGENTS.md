@@ -30,7 +30,7 @@ When a standing constraint on one file gets stated a second time:
   doc-recipe — present-tense rules for one file, in doc-recipes/<name>.recipe.md
 When about to commit a document that characterizes a real, identifiable person:
   sensitive-characterization-scrub — soften or ask before committing a blunt description of a real person
-When building a Word document, a web page or any other format an outside reader sees, or writing quotes and dashes in Markdown:
+When building a Word document, a web page, any HTML output or any other format an outside reader sees, or writing quotes and dashes in Markdown:
   curly-quotes — Markdown keeps plain quotes and hyphens; outward builds convert them
 When handing a person a document to download:
   dated-download-names — the date goes at the end of its name: Name-2026-12-31.docx
