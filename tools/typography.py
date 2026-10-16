@@ -37,6 +37,10 @@ A caller that has already pulled links out of the text marks an address
 with LINK_OPEN before it and LINK_MID after it (create_word_doc.py does).
 
     python3 tools/typography.py "a \\"quote\\" -- 1990-2000"   # prints the result
+    python3 tools/typography.py --html < page.html                # an HTML file
+
+An HTML page goes through smarten_html(), which changes the text a reader
+sees and never a tag, an attribute, a comment, or code.
 """
 import re
 import sys
@@ -59,11 +63,13 @@ def _ranges(segment):
     return RANGE_RE.sub(lambda m: m.group(1) + EN + m.group(2), segment)
 
 
-def smarten(text):
+def smarten(text, before=" "):
     """Curly quotes, em dashes for "--"/"---", en dashes for number ranges.
     An asterisk run is looked through, so '**"word"**' opens and closes
-    properly."""
-    out, prev, i, in_url = [], " ", 0, False
+    properly. `before` is the character the reader sees just ahead of
+    `text` -- smarten_html() passes the end of the previous run of text, so
+    a quote right after an inline tag opens or closes as it reads."""
+    out, prev, i, in_url = [], before, 0, False
     plain_start = 0          # where the current run of plain text began in `out`
     while i < len(text):
         ch = text[i]
@@ -134,5 +140,74 @@ def _apply_ranges(text):
     return "".join(done)
 
 
+# --- HTML -------------------------------------------------------------------
+#
+# Every HTML output gets the same finish as a Word file: a web page, a page
+# published as a Claude Artifact, a generated site (Morgan, 2026-10-16:
+# "it applies there and also it should apply when we make real web pages as
+# well ... basically in any html file or html output"). smarten_html() runs
+# smarten() over the text a reader sees and nothing else.
+
+# Elements whose text is never changed: code, and what is not prose at all.
+HTML_RAW = ("code", "pre", "kbd", "samp", "tt", "var", "script", "style",
+            "textarea", "svg", "math")
+# Tags that end a run of reading: a quote right after one opens. An inline
+# tag (<a>, <b>, <em>, <span>) is looked through instead.
+HTML_BREAKS = ("p", "br", "div", "li", "ul", "ol", "dl", "dt", "dd", "td",
+               "th", "tr", "table", "thead", "tbody", "h1", "h2", "h3", "h4",
+               "h5", "h6", "section", "article", "header", "footer", "nav",
+               "main", "aside", "blockquote", "figure", "figcaption", "hr",
+               "button", "label", "option", "title", "body", "head", "html")
+_HTML_TOKEN_RE = re.compile(r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<![^>]*>|<\?.*?\?>|"
+                            r"<(/?)([A-Za-z][\w:-]*)(?:\s[^>]*)?>", re.S)
+# The straight-quote entities a page builder writes for " and '.
+_QUOTE_ENTITY_RE = re.compile(r"&(?:quot|apos|#34|#39|#x22|#x27);", re.I)
+_ENTITY_CHAR = {"quot": '"', "#34": '"', "#x22": '"',
+                "apos": "'", "#39": "'", "#x27": "'"}
+
+
+def _plain_quotes(text):
+    return _QUOTE_ENTITY_RE.sub(
+        lambda m: _ENTITY_CHAR[m.group(0)[1:-1].lower()], text)
+
+
+def smarten_html(html):
+    """`html` with smarten() applied to its visible text only.
+
+    Never touched: a tag or any attribute in it (a link's address, a class
+    name), a comment, a doctype, and everything inside an element of
+    HTML_RAW -- code is set as typed, as in a Word file. An escaped straight
+    quote (&quot;, &#39;) in text becomes a curly one; every other entity
+    stays as written. Running it twice changes nothing more."""
+    out, raw, prev, at = [], [], " ", 0
+    for m in _HTML_TOKEN_RE.finditer(html):
+        text = html[at:m.start()]
+        if text:
+            if raw:
+                out.append(text)
+            else:
+                done = smarten(_plain_quotes(text), before=prev)
+                out.append(done)
+                prev = done[-1]
+        out.append(m.group(0))
+        closing, name = m.group(1), (m.group(2) or "").lower()
+        if name in HTML_RAW and not m.group(0).endswith("/>"):
+            if closing:
+                if name in raw:
+                    del raw[len(raw) - 1 - raw[::-1].index(name)]
+            else:
+                raw.append(name)
+            prev = " " if name not in ("code", "kbd", "samp", "tt", "var") else "`"
+        elif name in HTML_BREAKS:
+            prev = " "
+        at = m.end()
+    tail = html[at:]
+    out.append(tail if raw else smarten(_plain_quotes(tail), before=prev))
+    return "".join(out)
+
+
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--html"]:
+        print(smarten_html(sys.stdin.read()), end="")
+        sys.exit(0)
     print(smarten(" ".join(sys.argv[1:]) if len(sys.argv) > 1 else sys.stdin.read()))

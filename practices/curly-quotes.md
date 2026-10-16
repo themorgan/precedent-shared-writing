@@ -4,7 +4,7 @@ title:       Markdown keeps plain quotes and hyphens; anything built for an outs
 tier:        on-demand
 severity:    default
 applies_to:  ["**"]
-occasion:    "building a Word document, a web page or any other format an outside reader sees, or writing quotes and dashes in Markdown"
+occasion:    "building a Word document, a web page, any HTML output or any other format an outside reader sees, or writing quotes and dashes in Markdown"
 gates:       []
 index_clause: "Markdown keeps plain quotes and hyphens; outward builds convert them"
 checked_by:  null
@@ -14,7 +14,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count; Markdown keeps hyphens and straight quotes, the conversion moves to building outward formats, real dashes stay allowed in Markdown, 2026-10-13 (\"In Markdown documents, we should only use normal hyphens ... whenever we format it for external use, such as creating a [Microsoft] Word document or on a website, then the double dashes should always become an M dash\"; \"within internal markdown documents, the M-dash and N-dash can optionally be used, so their use should not cause any errors\"); quotes follow the same model, first on his go-ahead to the proposal that said so and then in his own words, 2026-10-13 (\"the same structure should apply to curly quotes as well. Anything for external use should change them. And internal use, we do not expect to use them, but there's no error if they are used\"); code is the exception, 2026-10-13 (\"make sure in code blocks that are for public use, like examples for the public, that those are not replaced, because double dashes and dashes have particular meanings in code\")"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a hardcoded directory list to a repo's own declared output_paths; dashes added 2026-10-13 at his own request (\"the same for -- and --- becoming n- and m-dashes\", \"the dashes should also be a practice\"), by judgment rather than count; Markdown keeps hyphens and straight quotes, the conversion moves to building outward formats, real dashes stay allowed in Markdown, 2026-10-13 (\"In Markdown documents, we should only use normal hyphens ... whenever we format it for external use, such as creating a [Microsoft] Word document or on a website, then the double dashes should always become an M dash\"; \"within internal markdown documents, the M-dash and N-dash can optionally be used, so their use should not cause any errors\"); quotes follow the same model, first on his go-ahead to the proposal that said so and then in his own words, 2026-10-13 (\"the same structure should apply to curly quotes as well. Anything for external use should change them. And internal use, we do not expect to use them, but there's no error if they are used\"); code is the exception, 2026-10-13 (\"make sure in code blocks that are for public use, like examples for the public, that those are not replaced, because double dashes and dashes have particular meanings in code\"); every HTML output, 2026-10-16 (\"Note that that is an artifact web page and it applies there and also it should apply when we make real web pages as well like we do in [a project repository], basically in any html file or html output\")"
 strength:    decided
 ---
 ## Rule
@@ -26,9 +26,13 @@ never an error either: nothing flags either form.
 
 **Anything built from Markdown for an outside reader gets finished
 typography**: a Word document, a web page, and any format added later.
+**Every HTML output counts**, whoever it is for: a page published as a
+Claude Artifact, a generated website, any `.html` file a script writes.
 Its builder runs the text through
 [`tools/typography.py`](../tools/typography.py)'s `smarten()`, the one copy
-of these rules, never a copy of its own:
+of these rules, never a copy of its own; an HTML builder runs its finished
+page through `smarten_html()`, which changes the text a reader sees and
+never a tag, an attribute, a comment, a script or code:
 
 - `--` and `---` always become an em dash (—), spacing kept as typed.
 - A hyphen between two numbers that make a range becomes an en dash:
