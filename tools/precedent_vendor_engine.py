@@ -370,9 +370,6 @@ FOLLOWED_BRANCH = followed_branch(ROOT)
 # note at their entry in ENGINE_FILES below.
 HOOK_SCRIPT_FILES = [
     'artifact-publish-gate.sh',
-    # Says once per branch when a session commits on the harness's branch
-    # name (2026-10-11); run through tools/hook_wiring.json.
-    'branch-name-commit-note.sh',
     'commit-identity-once.sh',
     'commit-identity-push-gate.sh',
     'commit-identity.sh',
@@ -635,6 +632,12 @@ ENGINE_FILES = [
     # The one matcher for the ladder's own words (D7), which precedent_check's
     # ladder-words-stay-in-the-ladder-set imports in every practice set.
     'ladder_words.py',
+    # Which upstream-owned files were edited here, and each one's recorded
+    # answer (practice: upstream-bug-stops-here, 2026-10-17). precedent_check
+    # imports it in every kind of repository, the edit-time hook
+    # (precedent-paths.sh) runs its --guard, and the sync asks it which
+    # edits are answered.
+    'upstream_edits.py',
     # Its second list, "Our language" (2026-09-29,
     # spec/FIVE_STAGES_AND_OUR_LANGUAGE_PLAN.md step 2): the word list and the
     # loader precedent_vocabulary.py imports to read it. They travel with it
@@ -1778,6 +1781,31 @@ def _template_settings_text(clone, commit):
     return r.stdout if r.returncode == 0 else ''
 
 
+def _read_only_allow_missing(dest_root, rules):
+    """-> the rules _apply_read_only_allow would add here now, without
+    writing anything: the refresh's early exit asks, so a change the person
+    has not committed yet is offered again on every run until it is
+    committed or declined (DECLINED_ALLOW_KEY), never left behind once the
+    engine is current (2026-10-16, a consumer's rerun reported DONE with the
+    approved allow-list change nowhere)."""
+    settings_path = pathlib.Path(dest_root) / '.claude' / 'settings.json'
+    if not rules or not settings_path.is_file():
+        return []
+    try:
+        data = json.loads(settings_path.read_text(encoding='utf-8'))
+        cfg = json.loads((pathlib.Path(dest_root) / 'precedent.json').read_text(
+            encoding='utf-8')) if (pathlib.Path(dest_root) / 'precedent.json').is_file() else {}
+    except (OSError, ValueError):
+        return []
+    perms = data.get('permissions') if isinstance(data, dict) else None
+    if not isinstance(data, dict) or (perms is not None and not isinstance(perms, dict)):
+        return []
+    declined = set(cfg.get(DECLINED_ALLOW_KEY) or []) if isinstance(cfg, dict) else set()
+    have = set((perms or {}).get('allow') or []) | set((perms or {}).get('deny') or [])
+    return [r for r in rules if r not in have and r not in declined
+            and (pathlib.Path(dest_root) / 'tools' / _ALLOW_RULE_RE.match(r).group(1)).is_file()]
+
+
 def _apply_read_only_allow(dest_root, rules):
     """ADD each of `rules` (read_only_allow_rules) this repo's
     .claude/settings.json does not already allow or deny, for a tool its
@@ -1791,19 +1819,14 @@ def _apply_read_only_allow(dest_root, rules):
     try:
         data = json.loads(settings_path.read_text(encoding='utf-8'),
                           object_pairs_hook=collections.OrderedDict)
-        cfg = json.loads((dest_root / 'precedent.json').read_text(encoding='utf-8')) \
-            if (dest_root / 'precedent.json').is_file() else {}
     except (OSError, ValueError):
         return []
     if not isinstance(data, dict):
         return []
-    declined = set(cfg.get(DECLINED_ALLOW_KEY) or []) if isinstance(cfg, dict) else set()
     perms = data.get('permissions')
     if perms is not None and not isinstance(perms, dict):
         return []
-    have = set((perms or {}).get('allow') or []) | set((perms or {}).get('deny') or [])
-    add = [r for r in rules if r not in have and r not in declined
-           and (dest_root / 'tools' / _ALLOW_RULE_RE.match(r).group(1)).is_file()]
+    add = _read_only_allow_missing(dest_root, rules)
     if not add:
         return []
     allow = data.setdefault('permissions', collections.OrderedDict()).setdefault('allow', [])
@@ -2900,6 +2923,10 @@ CI_WORKFLOW_TEMPLATES = {
     'consumer': (
         ('leak-gate.yml.template', '.github/workflows/leak-gate.yml'),
         ('light-check.yml.template', '.github/workflows/light-check.yml'),
+        # THE BRANCH CLEANUP BUTTON (2026-10-16, spec/BRANCH_CLEANUP_BUTTON_PLAN.md).
+        # Started only by a person, from the button on the branch cleanup
+        # page; no other trigger, so it bills nothing while it sits here.
+        ('branch-cleanup.yml.template', '.github/workflows/precedent-branch-cleanup.yml'),
     ),
     # A PRACTICE SOURCE RUNS NO CI AT ALL (2026-09-21, Morgan, strength:
     # decided): "the sets don't need CI; maybe we define the default to be
@@ -2939,6 +2966,59 @@ CI_WORKFLOW_TEMPLATES = {
     # while an unknown kind still triggers nothing.
     'source': (),
 }
+
+# The CI_WORKFLOW_TEMPLATES entries a refresh WRITES into a repository that
+# lacks them, when the kind's other workflows are installed there
+# (_refresh_ci_workflow_files). Every other template is written only at
+# install and kept up to date after, never put back once removed. The branch
+# cleanup workflow is here because it costs nothing until a person clicks it
+# (2026-10-16, spec/BRANCH_CLEANUP_BUTTON_PLAN.md).
+CI_ADDED_ON_REFRESH = frozenset({'branch-cleanup.yml.template'})
+
+# WHAT A REPOSITORY'S GETTING_STARTED.md SAYS ABOUT A WORKFLOW A REFRESH ADDS
+# (practice: github-setup-disclosed). One copy: the installer's paragraph
+# (precedent_install._CI_PARAGRAPH_ON) and templates/GETTING_STARTED.md carry
+# the same text, and a refresh that writes the workflow into an existing
+# repository writes this bullet into its guide in the same run -- before
+# 2026-10-16 it wrote the workflow alone, and the repository's own basic
+# check then refused it as undisclosed.
+CI_DISCLOSURES = {
+    'branch-cleanup.yml.template': (
+        "- **Old branches can be deleted in one go** (the GitHub Actions workflow\n"
+        "  `precedent-branch-cleanup.yml`). It never runs by itself: someone opens\n"
+        "  it under **Actions → Delete merged branches** and clicks **Run\n"
+        "  workflow**. It deletes only branches whose work is already in `main`,\n"
+        "  never `main` or `staging`. If a run fails on permissions, an\n"
+        "  administrator can allow it at repository **Settings → Actions → General\n"
+        "  → Workflow permissions** (\"Read and write permissions\").\n"),
+}
+# Where the bullet goes: before the first of these lines the guide has.
+_DISCLOSURE_ANCHORS = ('- **Your writing is checked before it is saved',
+                       '- **Every pull request opens with a standard template**')
+
+
+def _disclose_added_workflow(dest_root, rel, template):
+    """Write CI_DISCLOSURES[template] into dest_root's GETTING_STARTED.md
+    when the guide exists and does not name the workflow yet. -> True when
+    written. A guide with none of the anchors is left for the person, with
+    the text to add, rather than guessed at."""
+    bullet = CI_DISCLOSURES.get(template)
+    guide = dest_root / 'GETTING_STARTED.md'
+    if not bullet or not guide.is_file():
+        return False
+    text = guide.read_text(encoding='utf-8')
+    name = rel.rsplit('/', 1)[-1]
+    if name in text:
+        return False
+    for anchor in _DISCLOSURE_ANCHORS:
+        at = text.find('\n' + anchor)
+        if at >= 0:
+            guide.write_text(text[:at + 1] + bullet + text[at + 1:], encoding='utf-8')
+            return True
+    _left('GETTING_STARTED.md', f'{name} was added, and this guide has no place '
+                                f'this refresh recognises to say so: add this to '
+                                f'its administrator section --\n{bullet}')
+    return False
 
 # CI-workflow analog of RETIRED_ENGINE_FILES above -- a relative path this
 # manifest may still be tracking in ci_workflow_files/ci_workflows_sha256
@@ -5311,9 +5391,25 @@ def _refresh_ci_workflow_files(dest_root, kind, ci_workflows_dir, manifest):
             recorded.pop(rel, None)
             continue
         path = dest_root / rel
-        if not path.is_file():
-            continue
         src = ci_workflows_dir / template
+        if not path.is_file():
+            # A TEMPLATE THE KIND GAINED SINCE THIS REPO'S INSTALL is written
+            # where the kind's other workflows already are: their presence is
+            # the install's "GitHub workflows on" (ci_workflows), and without
+            # this a new engine workflow reached only fresh installs. Only
+            # the ones named in CI_ADDED_ON_REFRESH, so a workflow a person
+            # removed on purpose is not put back.
+            if not (converges and template in CI_ADDED_ON_REFRESH and src.is_file()):
+                continue
+            rendered = render_ci_workflow(dest_root, src.read_bytes())
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(rendered)
+            recorded[rel] = hashlib.sha256(rendered).hexdigest()
+            owned.append(rel)
+            refreshed.append(rel)
+            if _disclose_added_workflow(dest_root, rel, template):
+                refreshed.append('GETTING_STARTED.md')
+            continue
         if not src.is_file():
             continue                  # this commit predates the template
         rendered = render_ci_workflow(dest_root, src.read_bytes())
@@ -8254,12 +8350,15 @@ def refresh(clone, force=False, ref=None):
                           if kind in GITIGNORE_KINDS else None)
         gitignore_pending = _gitignore_missing(ROOT, gitignore_tmpl)
         individual_pending = any(_individual_hook_plan(ROOT, kind))
+        allow_pending = (manifest.get('kind') == 'consumer' and bool(_read_only_allow_missing(
+            ROOT, read_only_allow_rules(_template_settings_text(clone, new_commit)))))
 
         if new_commit == manifest.get('source_commit') and not force \
                 and not set_incomplete and not hooks_incomplete and not ci_incomplete \
                 and not engine_paths_incomplete and not template_pending \
                 and not wiring_pending and not agents_pending \
-                and not gitignore_pending and not individual_pending:
+                and not gitignore_pending and not individual_pending \
+                and not allow_pending:
             # "Nothing to do" only when nothing was done: the orphan removal
             # just above runs in this same pass, and the line said "nothing
             # to do" right under the one reporting the deletion (very deep
