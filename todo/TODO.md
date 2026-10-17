@@ -14,12 +14,6 @@ as_of: 2026-10-17
 | [`todo-2026-09-10-internal-link-pattern-assumes-section-1-layout`](todo-2026-09-10-internal-link-pattern-assumes-section-1-layout.md) | `INTERNAL_LINK` in the deliverables check names §1's paths. | 37d | wait | that upstream helper. |
 | [`todo-2026-09-10-mirrored-prefixes-helper-duplicated`](todo-2026-09-10-mirrored-prefixes-helper-duplicated.md) | The `_mirrored_prefixes()` wrapper is duplicated in two checks. | 37d | wait | a way for a check to share code with its siblings that survives being copied alo… |
 
-## Manual (Needs a Person to Act)
-
-| Item | What | Age | Disposition | Blocked on |
-|---|---|---|---|---|
-| [`todo-2026-09-10-engine-cases-need-a-bestpractice-clone`](todo-2026-09-10-engine-cases-need-a-bestpractice-clone.md) | The mirror-exclusion test cases need a BestPractice clone, and skip without one. | 37d | wait |  |
-
 ## Unblocked Work
 
 (every open, kind: analysis item with no blocked_on -- this list should be closest to empty)
