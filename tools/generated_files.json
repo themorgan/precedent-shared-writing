@@ -72,6 +72,22 @@
         "tools/build_todo_index.py",
         "--check"
       ]
+    },
+    {
+      "path": "record/stale_branches.md",
+      "generated_by": "tools/very_deep_check.py",
+      "edit_instead": null,
+      "regenerate": "python3 tools/very_deep_check.py",
+      "check": null,
+      "why_no_check": "a snapshot of live branches, rewritten by each very deep check run; nothing offline can say what it should read now"
+    },
+    {
+      "path": "record/very-deep-check-ledger.json",
+      "generated_by": "tools/very_deep_check.py",
+      "edit_instead": null,
+      "regenerate": "python3 tools/very_deep_check.py",
+      "check": null,
+      "why_no_check": "an append-only log each run adds itself to; there is nothing to regenerate it from"
     }
   ],
   "not_generated": [
