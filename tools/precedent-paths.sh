@@ -14,6 +14,12 @@
 # logic so other harnesses can share the same engine behind their own
 # wrapper. practice: engine-plus-host-shims
 #
+# ONE REFUSAL (2026-10-17, practice: upstream-bug-stops-here): an edit to a
+# file this repository received from upstream -- tools/upstream_edits.py
+# --guard says which, from the delivery records -- is denied until the
+# change has its recorded answer, with the three answers in the reason.
+# Anything else, a failure of that guard included, never blocks:
+#
 # Never blocks the tool call: every failure path below (no jq, no python3,
 # no engine present, an unparseable stdin payload, no matching practice)
 # falls through to a silent `exit 0` with no stdout, which Claude Code
@@ -21,6 +27,16 @@
 # failure on a missing dependency would be worse than the feature not
 # firing at all.
 set -euo pipefail
+
+# THE DECLARED PYTHON (2026-10-16, practice one-python). Claude Code starts
+# a hook with its own PATH, so a bare `python3` here is the image's default,
+# not the Python precedent.json declares, and lacks the packages setup put
+# there. Setup links the declared one at .precedent/python-bin; it goes
+# first on PATH here. The same block sits in every hook that starts python3;
+# verify_harness keeps the copies identical. No link: python3 as before,
+# never a refusal.
+_precedent_pybin="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/.precedent/python-bin" || true
+if [ -x "$_precedent_pybin/python3" ]; then PATH="$_precedent_pybin:$PATH"; fi
 
 input="$(cat)"
 
@@ -38,6 +54,29 @@ path="$(printf '%s' "$input" \
 [[ -n "$path" ]] || exit 0
 
 project_dir="${CLAUDE_PROJECT_DIR:-.}"
+
+guard="$project_dir/tools/upstream_edits.py"
+if [[ -f "$guard" ]]; then
+  set +e
+  why="$(cd "$project_dir" && python3 "$guard" --guard "$path" 2>/dev/null)"
+  rc=$?
+  set -e
+  if [[ $rc -eq 3 && -n "$why" ]]; then
+    python3 - "$why" <<'PYEOF'
+import json, sys
+
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": sys.argv[1],
+    }
+}))
+PYEOF
+    exit 0
+  fi
+fi
+
 script="$project_dir/tools/precedent_paths.py"
 [[ -f "$script" ]] || exit 0
 
