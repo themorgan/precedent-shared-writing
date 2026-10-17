@@ -26,7 +26,7 @@
       "term": "permanent",
       "decided": "2026-10-17",
       "by": "agent",
-      "why": "Deduplicated stub kept word for word (in_force_at: rule-links); its hits are the [GLOSSARY.md](GLOSSARY.md) examples of the link-text rule itself, which must show the bare filename to make the point."
+      "why": "Deduplicated stub kept word for word (in_force_at: rule-links); its hits are the GLOSSARY.md, MAP.md and README.md examples of the link-text rule itself, which must show the bare filename to make the point."
     },
     {
       "source": "doc_lint",
