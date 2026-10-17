@@ -1,12 +1,14 @@
 ---
 slug:        create-word-doc
-title:       Every Word (.docx) document built for a reader carries a footer -- a structured export runs tools/create_word_doc.py (footer, section page breaks, A4, 1.3 line spacing, live word count, indented block quotations and bullet lists all included); anything else still needs the same Page X of Y + title/date footer built into whatever script makes it
+title:       Every Word document built for a reader carries a Page X of Y footer and opens without asking anything; a structured export runs tools/create_word_doc.py
 tier:        on-demand
 severity:    default
 applies_to:  ["tools/create_word_doc.py"]
-occasion:    "producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc"
+applies_to_why: "The glob is where the script changes; building a Word file edits no file here, so index_required keeps the occasion-index line that reaches a session doing it. Decided 2026-10-17."
+occasion:    "building a Word (.docx) document for someone to download"
 gates:       []
 index_clause: "a Word file for a reader: a footer, and it opens without an update-fields prompt"
+index_required: true
 checked_by:  tools/checks/check_create_word_doc.py
 ships:       ["tools/create_word_doc.py"]
 defines:     []
@@ -14,16 +16,38 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2; revised again the same day at his own request, so a contents page looks like one; revised again the same day at his own request, for 0.75-inch page margins on all four sides; revised again the same day at his own request, so each contents entry is set in the footer's sans-serif face and underlined, to read as a link; revised 2026-10-13 at Morgan F's own request (\"in precedent-shared-writing we have a bunch of rules about making .md docs into MS Word docs and let's do that with this doc - including using the Pesty logo in the header\"), for the first non-manuscript document built with it: backslash escapes, web links kept as links, #### headings, a footer label of the document's own, and the logo on page one; revised again 2026-10-13 at his own request: lists a quarter inch in (\"half an inch ... is far too much for my taste\"), real numbered lists, and curly quotes and dashes in every Word document (\"they ALWAYS should\"), dashes by judgment (\"--\" between two words without spaces is always an em dash); and the same day, that a lead-in line has no space between it and its list, and a list's end half the normal space; and that a lead-in always stays on the page of its list; revised 2026-10-14 at his own request (\"I think we need that same space before the bullet list\"), so a lead-in leaves the same half gap above its list as the list leaves below it; revised 2026-10-15 from a consuming repository's root-issues handoff, which Morgan F passed to this set's maintainers without a word on approval (strength: unknown): no --short-name demanded when nothing uses it, and every document records its build for --rebuild; revised 2026-10-16 at Morgan F's own request (\"Please leave a bit more space ... this is a small tweak\"; the front-page logo \"about 60% size it is now ... consistent for ALL pages as a sort of default practice\"), for a small gap under the running header's logo and a 1.56-inch front-page logo by default"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2; revised again the same day at his own request, so a contents page looks like one; revised again the same day at his own request, for 0.75-inch page margins on all four sides; revised again the same day at his own request, so each contents entry is set in the footer's sans-serif face and underlined, to read as a link; revised 2026-10-13 at Morgan F's own request (\"in precedent-shared-writing we have a bunch of rules about making .md docs into MS Word docs and let's do that with this doc - including using the Pesty logo in the header\"), for the first non-manuscript document built with it: backslash escapes, web links kept as links, #### headings, a footer label of the document's own, and the logo on page one; revised again 2026-10-13 at his own request: lists a quarter inch in (\"half an inch ... is far too much for my taste\"), real numbered lists, and curly quotes and dashes in every Word document (\"they ALWAYS should\"), dashes by judgment (\"--\" between two words without spaces is always an em dash); and the same day, that a lead-in line has no space between it and its list, and a list's end half the normal space; and that a lead-in always stays on the page of its list; revised 2026-10-14 at his own request (\"I think we need that same space before the bullet list\"), so a lead-in leaves the same half gap above its list as the list leaves below it; revised 2026-10-15 from a consuming repository's root-issues handoff, which Morgan F passed to this set's maintainers without a word on approval (strength: unknown): no --short-name demanded when nothing uses it, and every document records its build for --rebuild; revised 2026-10-16 at Morgan F's own request (\"Please leave a bit more space ... this is a small tweak\"; the front-page logo \"about 60% size it is now ... consistent for ALL pages as a sort of default practice\"), for a small gap under the running header's logo and a 1.56-inch front-page logo by default; revised 2026-10-17 by the session under Morgan F's delegation of that day (\"Fix the other issues you found including the checks that never run. Tell me what you decide. I will be offline so don't wait for me. Approved, act, and Booked.\"): index_required, so a session building a Word file sees it; where the file goes and its name deferred to generated-docs-in-output and dated-download-names; the procedure moved from the Rule into Detail"
 ---
 ## Rule
+**Any Word document built for someone to download carries a footer -- a
+live "Page X of Y" and a line naming the document and its date -- and
+opens without asking the reader anything.** That holds for a structured
+export and a one-off alike.
+
+**A structured export runs [`tools/create_word_doc.py`](../tools/create_word_doc.py)**
+-- a manuscript, a long report, anything with real section headings --
+rather than a conversion script of its own. It builds the document and its
+footer in one pass, with the defaults `## Detail` lists. **A one-off built
+any other way puts the same footer, and the same defaults where they apply,
+into whatever script makes it.**
+
+**Where the built file goes and what it is called are other rules'.** A
+document the repository keeps is committed in its content folder's
+`output/`, per the ladder set's `generated-docs-in-output`, and every document carries its date at the end of its name
+(`Name-2026-12-31.docx`), per
+[dated-download-names](dated-download-names.md). The script writes where
+`--out` tells it to and decides neither.
+
+## Detail
+### What a Word document carries
+
 **Any Word document built for someone to download carries a footer --
 not just a structured, multi-section export.** Two paths, one
 requirement:
 
 - **A structured export** -- a manuscript, a long report, anything with
   real chapter/section headings -- runs [`tools/create_word_doc.py`](../tools/create_word_doc.py) rather
-  than a one-off conversion script; see below for what it includes in the
+  than a one-off conversion script; what follows is what it includes in the
   same pass.
 - **Anything else** -- a one-off built from a business note, a
   brainstorm doc, or any other unstructured source -- has no shared tool
@@ -225,7 +249,7 @@ of a dot leader, and Word keeps the styles when it rewrites the list. A
 document that builds its own contents list by hand calls
 `style_contents(doc)` and sets each entry in those styles. It carries no page numbers, since only Word knows where
 its pages break and the file must not ask Word to work them out on
-opening (below); a reader who wants them right-clicks the list and picks
+opening (next paragraph); a reader who wants them right-clicks the list and picks
 **Update Field**. Ask for it when the reader will move around a long
 document; a short one does not need it.
 
@@ -274,13 +298,8 @@ later rebuild has them. A guessed flag is a differently formatted document
 for an outside reader (a page break before every section, no logo on page
 one), and nothing in the old file says which flags made it.
 
-The generated `.docx` is a deliverable, not a source file: the script
-never writes into the repo, and nothing about this practice implies
-committing the output. **The file carries its date at
-the end of its name** (`Name-2026-12-31.docx`), per
-[dated-download-names](dated-download-names.md).
+### The parser, and how the script travels
 
-## Detail
 The parser handles a working subset of Markdown: `#`/`##`/`###` headings
 (even when not followed by a blank line -- some manuscripts' own section
 headers have none, and an earlier draft of this script merged the
@@ -433,6 +452,20 @@ its own build for `--rebuild`. The same pass found that the script's own
 install of python-docx failed outright on a Python that marks itself
 managed by the system (Python Enhancement Proposal (PEP) 668), as a fresh cloud container's does; it now
 retries the way the engine's own installer does.
+
+2026-10-17: the very deep check found two faults here. The practice never
+reached a session building a Word file: its `applies_to` names only the
+script, which drops it from the occasion index, and building a document
+edits no script. And its Rule said nothing implies committing the output,
+while dated-download-names and the ladder set's generated-docs-in-output,
+both from 2026-10-05, say a kept document is committed under its folder's
+`output/` with its date in its name. The session chose, under Morgan's
+delegation of that day ("Fix the other issues you found including the
+checks that never run. Tell me what you decide. I will be offline so don't
+wait for me. Approved, act, and Booked."), to set `index_required: true`,
+to defer placement and naming to those two rules, and to move the
+script's whole procedure from the Rule into `## Detail`, so the Rule says
+only what must be true.
 
 ## Install
 [`tools/checks/check_create_word_doc.py`](../tools/checks/check_create_word_doc.py) is structural only: it confirms

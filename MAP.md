@@ -16,7 +16,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 |---|---|---|
 | [assorted-notes](practices/assorted-notes.md) | on-demand | starting a catch-all notes file, or renaming a legacy BRAINSTORM, NOTES or IDEAS file |
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
-| [create-word-doc](practices/create-word-doc.md) | on-demand | producing any Word (.docx) document for someone to download -- a structured export (a manuscript, a report) or an ad hoc one-off built from a business note or brainstorm doc |
+| [create-word-doc](practices/create-word-doc.md) | on-demand | building a Word (.docx) document for someone to download |
 | [dated-download-names](practices/dated-download-names.md) | on-demand | handing a person a document to download |
 | [default-register](practices/default-register.md) | resident | writing any reply to the person you are working with |
 | [deliverables-carry-no-process](practices/deliverables-carry-no-process.md) | on-demand | writing a document an outside reader will see (a declared output path) |

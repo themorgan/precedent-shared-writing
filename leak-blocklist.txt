@@ -1,21 +1,26 @@
 # Private-term blocklist — the leak gate's VOCABULARY layer.
 #
-# This file is already in the right place: precedent-shared-writing's own shared practice
-# set. Fill it in here, then point the environment variable at it and turn
-# vocabulary checking on, in every shared project this team works in:
+# THIS SET IS PUBLIC, AND SO IS THIS FILE (precedent-source.json says
+# "visibility": "public"). A term written here is published the moment it is
+# pushed, which is the leak the list exists to stop. So a public set's
+# blocklist never holds a private term: no client name, code word, internal
+# hostname or person. Put those in a private set's blocklist instead -- the
+# individual set of the person who knows them, or a private shared set. The
+# leak gate reads that list wherever it scans: from the individual set the
+# user-level config names, from every repository checked out beside the one
+# it scans, or from PRECEDENT_LEAK_BLOCKLIST, and
+# `git config precedent.requireVocabulary true` makes a missing list fatal
+# rather than a quiet pass on the structural rules alone.
 #
-#     export PRECEDENT_LEAK_BLOCKLIST=/home/user/precedent-shared-writing/leak-blocklist.txt
-#     git config precedent.requireVocabulary true
-#
-# Without the git config line the leak gate fails OPEN (scans only the
-# structural rules, exits 0 even with this file unset).
+# What may go here is only a pattern that is safe to publish. The
+# placeholders below show the format and stay as they are.
 #
 # FORMAT. One Python regular expression per line, matched case-insensitively
 # against every file's text and every commit message in whatever the gate is
 # scanning. Blank lines and lines beginning with `#` are ignored. An invalid
 # expression fails the gate rather than being skipped.
 #
-# WHAT BELONGS IN IT. Words that are private *because of who they name*,
+# WHAT BELONGS IN A PRIVATE LIST. Words that are private *because of who they name*,
 # which no structural rule can recognise: client names, project code words,
 # internal system and service names, unreleased product names, people's
 # names where the association is the sensitive part, internal hostnames
@@ -30,9 +35,10 @@
 # name. A term that only ever appears one way in your notes today will appear
 # another way the first time it matters.
 #
-# The entries below are placeholders, and are here to show the shape. Replace
-# them with the team's own terms — and if one of these ever fires, it means
-# this file was copied and not edited.
+# The entries below are placeholders that show the shape. In a private
+# set's list they are replaced with its own terms; here, in a public set,
+# they stay placeholders -- and if one ever fires, a file was copied and
+# not edited.
 
 \bexample-client-name-goes-here\b
 \bexample-code-word-goes-here\b

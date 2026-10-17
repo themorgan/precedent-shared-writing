@@ -1,0 +1,50 @@
+{
+  "_comment": "Warnings the very deep check's WARNINGS section has decided to stop showing, each with its reason (practice: very-deep-check; tool: tools/warning_review.py). One entry excludes one group: `source` (doc_lint, precedent_check, or a line source the tool names), `kind` (doc_lint's class, the check's slug, or the line source's own kind: WARNING, or undetermined for the session check), optional `path` (a glob over the file; absent means every file) and optional `match` (a substring of the warning text). `term` is permanent, or temporary with a `revisit` date after which the warning shows again. `decided` is the date; `by` is `agent` when the session judged it alone, or the person's name with a `strength` of decided or assented when it asked. An entry that matches nothing any more is reported stale and deleted, never kept.",
+  "exclusions": [
+    {
+      "source": "doc_lint",
+      "kind": "unlinked file reference",
+      "path": "practices/assorted-notes.md",
+      "term": "permanent",
+      "decided": "2026-10-17",
+      "by": "agent",
+      "why": "Every hit is a filename the rule is about (ASSORTED_NOTES.md, the legacy BRAINSTORM/NOTES/IDEAS names, README.md and MAP.md as listing documents) or a path in another repository's story; none is a file in this repository to link to."
+    },
+    {
+      "source": "doc_lint",
+      "kind": "unlinked file reference",
+      "path": "practices/doc-recipe.md",
+      "term": "permanent",
+      "decided": "2026-10-17",
+      "by": "agent",
+      "why": "Every hit is the naming convention the rule defines (.recipe.md, book/CHAPTER1.md and its recipe), an example, not a file in this repository."
+    },
+    {
+      "source": "doc_lint",
+      "kind": "unlinked file reference",
+      "path": "practices/doc-link-text.md",
+      "term": "permanent",
+      "decided": "2026-10-17",
+      "by": "agent",
+      "why": "Deduplicated stub kept word for word (in_force_at: rule-links); its hits are the GLOSSARY.md, MAP.md and README.md examples of the link-text rule itself, which must show the bare filename to make the point."
+    },
+    {
+      "source": "doc_lint",
+      "kind": "unlinked file reference",
+      "path": "practices/dated-download-names.md",
+      "term": "permanent",
+      "decided": "2026-10-17",
+      "by": "agent",
+      "why": "OUTBOX.md is the file the rule asks a consuming repository to keep at its root; this set has none, so there is nothing here to link."
+    },
+    {
+      "source": "doc_lint",
+      "kind": "unlinked file reference",
+      "path": "practices/visual-style-guide.md",
+      "term": "permanent",
+      "decided": "2026-10-17",
+      "by": "agent",
+      "why": "VISUAL_STYLE_GUIDE.md and content/VISUAL_STYLE_GUIDE.md name the file the rule generates in a consuming project; this set has none."
+    }
+  ]
+}

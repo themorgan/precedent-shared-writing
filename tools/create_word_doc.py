@@ -111,9 +111,10 @@ the universal source's buenos-aires-dates practice), overridable with
 --date for a reproducible build.
 
 The output .docx is a generated deliverable, not a source file: this
-script never writes into the repo itself, and the caller is responsible
-for where the file goes (a scratch path, sent straight to the person who
-asked for it).
+script writes only where --out says. A document the repository keeps goes
+in its content folder's output/ (generated-docs-in-output) with its date
+at the end of its name (dated-download-names); a one-off can go to a
+scratch path and straight to the person who asked for it.
 """
 import argparse
 import importlib

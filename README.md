@@ -5,8 +5,16 @@ about **the craft of writing for a human reader**: length and emphasis,
 when a list is really a list, drafting markers, citation and linking, and
 keeping a reader's material out of a deliverable that is not for them. A
 project declares it in its `precedent.json` `sources`, and it is cloned
-beside the project. Its [`precedent-source.json`](precedent-source.json)
-says what it is, including that this repository is public.
+beside the project:
+
+```json
+{"level": "shared", "name": "precedent-shared-writing", "path": "../precedent-shared-writing"}
+```
+
+Precedent's [install guide](https://github.com/alex137/BestPractice/blob/staging/INSTALL.md)
+says how a project picks its shared sets. This set's
+[`precedent-source.json`](precedent-source.json) says what it is,
+including that this repository is public.
 
 **Renamed 2026-09-19 from `precedent-team-writing`** — the `team` level
 itself was renamed `shared`; see
@@ -19,8 +27,8 @@ Story.
 |---|---|
 | [`approvers.json`](approvers.json) | The list of people who can say yes to a change here. Run `python3 tools/build_codeowners.py` after editing it: that writes `CODEOWNERS`, which is what actually makes GitHub require an approver's review. Never hand-edit `CODEOWNERS`; it is regenerated wholesale. |
 | [`practices/`](practices/) | This set's practices, one file each — [MAP.md](MAP.md) lists them. |
-| [`leak-blocklist.txt`](leak-blocklist.txt) | The private-term blocklist for Precedent's leak gate — client names, code words, anything that must never reach a public repo. Fill it in; see the file's own header for the format and the two environment/git settings that switch it on. |
-| `tools/` | The vendored engine (`build_views.py`, `build_codeowners.py`, `precedent_gate.py`, `precedent_paths.py`, `precedent_show.py`, `split_practices.py`, `routing_scope.json`, `precedent_vendor_engine.py`) — never hand-edit these; refresh them with `python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>` (see `tools/ENGINE_MANIFEST.json` and [`spec/BOOTSTRAP_NEW_SOURCES.md`](https://github.com/alex137/BestPractice/blob/staging/spec/BOOTSTRAP_NEW_SOURCES.md#the-vendored-engine)'s "The vendored engine"). The engine files are named rather than linked because they arrive when the set is bootstrapped; nothing under `tools/` exists in this skeleton yet. |
+| [`leak-blocklist.txt`](leak-blocklist.txt) | The format of Precedent's leak-gate blocklist, and placeholders only. **This set is public, so its blocklist never holds a private term**: a client name or code word written here is published. Private terms go in a private set's blocklist, the person's individual set or a private shared set, where the leak gate reads them the same way; the file's own header says how. |
+| [`tools/`](tools/) | Mostly the vendored engine: every file [`tools/ENGINE_MANIFEST.json`](tools/ENGINE_MANIFEST.json) lists, copied from Precedent. Never hand-edit those; refresh them with `python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>` (see [`spec/BOOTSTRAP_NEW_SOURCES.md`](https://github.com/alex137/BestPractice/blob/staging/spec/BOOTSTRAP_NEW_SOURCES.md#the-vendored-engine)'s "The vendored engine"). The rest is this set's own: the checks behind its practices and their tests in [`tools/checks/`](tools/checks/), the two scripts its practices ship to every project that declares it ([`tools/create_word_doc.py`](tools/create_word_doc.py) and [`tools/dated_name.py`](tools/dated_name.py)), and its own [`tools/generated_files.json`](tools/generated_files.json) and [`tools/session_load_budgets.json`](tools/session_load_budgets.json). |
 
 ## Writing practices
 
@@ -34,7 +42,9 @@ format — frontmatter plus `## Rule` / `## Detail` / `## Why` / `## Story` /
 
 An assistant proposes a practice and asks an approver to look at it — a
 review on this repo, so the approval *is* the record. `approvers.json`
-holds the list `tools/precedent_land.py` checks a proposer's name against;
+holds the list Precedent's
+[`tools/precedent_land.py`](https://github.com/alex137/BestPractice/blob/staging/tools/precedent_land.py)
+checks a proposer's name against;
 adding or removing an approver is itself a change to that file, so it
 needs a current approver's own agreement, which is what stops someone
 quietly adding themselves.

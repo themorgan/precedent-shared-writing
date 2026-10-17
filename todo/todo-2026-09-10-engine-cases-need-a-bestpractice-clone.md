@@ -3,7 +3,7 @@ slug:              todo-2026-09-10-engine-cases-need-a-bestpractice-clone
 kind:              manual
 domain:            null
 severity:          null
-status:            open
+status:            done
 disposition:       wait
 remind_on:         null
 blocked_on:        null
@@ -12,7 +12,7 @@ decision:          null
 decision_strength: null
 waiting_on:        null
 noted:             2026-09-10
-closed:            null
+closed:            2026-10-17
 ---
 ## What
 
@@ -67,8 +67,12 @@ closed:            null
 
 ## How It Closes
 
-(not yet stated by the migration -- a session filling this in should read ## What and say what has to be true for `status` to become `done`.)
+The engine-path cases run and pass, not skip. The route this item named, a CI job, is gone with universal `source-sets-run-no-ci` (no workflow runs in a practice source), so the route that remains is a by-hand run of `tools/checks/tests/run_all.sh` with a BestPractice clone beside the set and `PRECEDENT_REQUIRE_ENGINE_CASES=1`, which turns a skip into a failure.
 
 ## Notes
 
 2026-09-19: migrated from TODO.md by tools/todo_migrate.py.
+
+2026-10-17, very deep check pass 4 (ambiguous, asked of the person): the closing route it names (a CI job) is gone with source-sets-run-no-ci; run locally on 2026-10-17 with ../BestPractice beside the set and PRECEDENT_REQUIRE_ENGINE_CASES=1, all 100 cases of tools/checks/tests/run_all.sh pass, the engine-present cases (C+, C0+) included. What is unclear is whether a by-hand run is the close. Would close it on that run and say so.
+
+2026-10-17, closed by the session under Morgan's delegation of that day ("Fix the other issues you found including the checks that never run. Tell me what you decide. I will be offline so don't wait for me. Approved, act, and Booked."), which settled the very deep check's question as "a by-hand run is the close". Run again that day on the fix branch, with `PRECEDENT_BESTPRACTICE_CLONE` set to a BestPractice clone and `PRECEDENT_REQUIRE_ENGINE_CASES=1`: `tools/checks/tests/run_all.sh` exited 0 with 100 cases ok and none skipped.

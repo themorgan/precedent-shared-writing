@@ -13,7 +13,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-29
-approved_by: "Morgan F, 2026-09-29 -- requested directly, with Go update, in the same message; sole approver in approvers.json. Rule text shortened, same meaning, on 2026-10-01 in the reduction pass Morgan approved that day: \"Question 3 - all are great, approved\" (strength: decided)."
+approved_by: "Morgan F, 2026-09-29 -- requested directly, with Go update, in the same message; sole approver in approvers.json. Rule text shortened, same meaning, on 2026-10-01 in the reduction pass Morgan approved that day: \"Question 3 - all are great, approved\" (strength: decided). Detail amended 2026-10-17 by the session under Morgan F's delegation of that day (\"Fix the other issues you found including the checks that never run. Tell me what you decide. I will be offline so don't wait for me. Approved, act, and Booked.\"): the American long date is for prose written to a reader; records keep year-month-day dates."
 strength:    decided
 ---
 ## Rule
@@ -39,7 +39,10 @@ the specifics.
 - **Grammar and punctuation:** a collective noun takes a singular verb
   (*the team is*, *the committee has decided*); *gotten* is fine; periods
   and commas go inside the closing quotation mark; double quotes outside,
-  single quotes inside. Dates read *September 29, 2026* in prose.
+  single quotes inside. **A date in prose written to a reader** -- a
+  document, a reply -- **reads *September 29, 2026*. A date in a record
+  stays year-month-day, *2026-09-29***: frontmatter, practice files, open items, logs
+  and file names, where it sorts and a tool reads it.
 
 **Argentine Spanish.**
 
@@ -86,6 +89,13 @@ session writes is in one of the two languages, so an occasion that fires on
 resident rule is paid for in every session. The meaning is unchanged: the
 examples the Rule dropped, and its "spelling, vocabulary and grammar
 alike", opened `## Detail` instead.
+
+**Amended 2026-10-17.** The Detail said dates read *September 29, 2026*
+in prose, while every practice file, this one's Story included, writes
+2026-09-29, so a session was told one thing and shown another. The very
+deep check of that day found it, and the session chose, under Morgan's
+delegation of that day ("Fix the other issues you found including the checks that never run. Tell me what you decide. I will be offline so don't wait for me. Approved, act, and Booked."), to make both true: the long form for
+prose written to a reader, year-month-day dates in records.
 
 ## Install
 Nothing to install: the rule is carried by the resident block. No

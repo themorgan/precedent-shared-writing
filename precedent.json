@@ -49,19 +49,17 @@
     }
   ],
   "_commit_author_check_comment": [
-    "check_commit_author.py and check_buenos_aires_dates.py were vendored",
-    "into this repo (tools/checks/, practices/) on 2026-09-19, but",
-    "precedent-individual is deliberately NOT added to the `sources` list",
-    "above -- build_views refuses that outright: 'A shared repository may",
-    "only name sources everyone in it can read -- naming an individual set",
-    "here leaks its existence and location to the whole team'. Identity",
-    "still resolves correctly without it: bootstrap/commit-identity.sh's own",
-    "ladder reads ~/.config/precedent/config.json (untracked, per-machine)",
-    "directly, a mechanism entirely separate from this file's `sources`,",
-    "which is only for practice TEXT reaching this repo's generated views.",
-    "Verified: the full-sweep run resolved 'Morgan F' <morgan@westegg.com>",
-    "and found the check's own violations correctly with no `sources` entry",
-    "for precedent-individual at all."
+    "The two commit checks ran from this set's own tools/checks/ copies from",
+    "2026-09-19 to 2026-09-25; since 2026-10-10 the engine ships one copy of each,",
+    "tools/check_commit_author.py and tools/check_commit_dates.py, which stand",
+    "down here because this repo has no root identity.json. precedent-individual",
+    "is still deliberately NOT in the `sources` list above -- precedent_resolve.py",
+    "refuses that outright: 'A shared repository may only name sources everyone",
+    "in it can read -- naming an individual set here leaks its existence and",
+    "location to the whole team'. Commit identity does not need it:",
+    "tools/commit-identity.sh reads ~/.config/precedent/config.json (untracked,",
+    "per-machine) directly, a mechanism separate from this file's `sources`,",
+    "which is only for practice TEXT reaching this repo's generated views."
   ],
   "_sources_comment": [
     "The universal catalogue, so a session rooted in THIS set can read it.",
@@ -84,8 +82,8 @@
     "THIS repo -- precedent_source_bootstrap.py does (repo_path / path)",
     "-- and $HOME is not where the sibling clones live: it is /root on this",
     "container while this set sits under /home/user, so a ~ path names",
-    "nothing. The clone is created there by the --sources-from step in",
-    ".claude/settings.json, which takes the URL and the pinned branch from",
+    "nothing. The clone is created there by the --sources-from step that",
+    ".claude/settings.json's precedent-universal-catalogue.sh hook runs, which takes the URL and the pinned branch from",
     "tools/ENGINE_MANIFEST.json's own source_repo/source_branch. So this",
     "needs no credential (BestPractice is public) and declares no new URL."
   ],
