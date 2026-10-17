@@ -50,4 +50,4 @@ No mechanical check, and this one resists it for a specific reason rather than a
 
 A check matching "the base branch" would fire on all of it. That is the failure `my-identity-is-not-private`'s Story records from the other direction: a gate whose findings cost real, correct content is a gate people learn to skip, and it takes the findings that mattered down with it. Distinguishing "a specific branch is meant here" from "this is a statement about any repository" is a judgment about the sentence, not a pattern in it.
 
-What stands in for a check is the `resident` tier: this rule is in the loader block of every session rather than fetched when something reminds a session to look for it, because the moment it applies is every time a branch is mentioned, with nothing to trigger a lookup.
+What stands in for a check is the occasion index: the rule is `on-demand`, and its index line reaches a session whenever it names a branch in anything written. It was resident when written and moved to on-demand on 2026-09-11, when the resident block went over its cap.

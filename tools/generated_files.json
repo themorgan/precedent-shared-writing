@@ -73,5 +73,11 @@
         "--check"
       ]
     }
+  ],
+  "not_generated": [
+    {
+      "path": "precedent.json",
+      "reason": "hand-kept declaration of this set's sources and settings; precedent_branches.py sets its one staging-branch key in place, which edits a hand-kept file rather than writing it wholesale"
+    }
   ]
 }
