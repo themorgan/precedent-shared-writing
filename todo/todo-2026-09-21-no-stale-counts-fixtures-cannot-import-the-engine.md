@@ -3,7 +3,7 @@ slug:              todo-2026-09-21-no-stale-counts-fixtures-cannot-import-the-en
 kind:              analysis
 domain:            mechanism
 severity:          notable
-status:            open
+status:            done
 disposition:       wait
 remind_on:         null
 blocked_on:        "nothing technical -- deliberately deferred on Morgan's instruction, 2026-09-21, so a leak scrub could land without a test fix riding along."
@@ -12,7 +12,7 @@ decision:          null
 decision_strength: null
 waiting_on:        null
 noted:             2026-09-21
-closed:            null
+closed:            2026-10-17
 ---
 ## What
 
@@ -63,3 +63,7 @@ fixtures the module or have them assert the skip deliberately where the skip
 is the honest answer. Worth checking whether the sibling suites that build
 the same kind of fixture have the same hole and are simply not asserting
 anything that would expose it.
+
+## Closed
+
+Closed 2026-10-17 by the very deep check, pass 4, on its own condition. Measured 2026-10-17: test_no_stale_counts.sh's cases A, C, L, M and D' all report ok, as do the engine-present cases, under PRECEDENT_REQUIRE_ENGINE_CASES=1.

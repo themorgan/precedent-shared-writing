@@ -13,7 +13,6 @@ as_of: 2026-10-17
 |---|---|---|---|---|
 | [`todo-2026-09-10-internal-link-pattern-assumes-section-1-layout`](todo-2026-09-10-internal-link-pattern-assumes-section-1-layout.md) | `INTERNAL_LINK` in the deliverables check names §1's paths. | 37d | wait | that upstream helper. |
 | [`todo-2026-09-10-mirrored-prefixes-helper-duplicated`](todo-2026-09-10-mirrored-prefixes-helper-duplicated.md) | The `_mirrored_prefixes()` wrapper is duplicated in two checks. | 37d | wait | a way for a check to share code with its siblings that survives being copied alo… |
-| [`todo-2026-09-21-no-stale-counts-fixtures-cannot-import-the-engine`](todo-2026-09-21-no-stale-counts-fixtures-cannot-import-the-engine.md) | Five of `tools/checks/tests/test_no_stale_counts.sh`'s cases fail, because the fixture repositories cannot import `prece | 26d | wait | nothing technical -- deliberately deferred on Morgan's instruction, 2026-09-21,… |
 
 ## Manual (Needs a Person to Act)
 
