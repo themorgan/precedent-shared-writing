@@ -6,7 +6,8 @@ named for a **subject** rather than for a roster. Its subject is **the craft of 
 
 **Any team whose work includes that subject declares this set alongside its
 own**, and a repo may declare several shared sets — see
-[README.md](README.md) for what is here, and Precedent's `INSTALL.md`
+[README.md](README.md) for what is here, and Precedent's
+[INSTALL.md](https://github.com/alex137/BestPractice/blob/staging/INSTALL.md)
 ("Which shared sets does this repo declare?") for how a project picks.
 
 <!-- BEGIN GENERATED: precedent-loader -->

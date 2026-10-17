@@ -10,7 +10,7 @@ blocked_on:        null
 batch:             null
 decision:          null
 decision_strength: null
-waiting_on:        null
+waiting_on:        "Morgan: whether a by-hand run with the engine beside the set closes it, now that sets run no CI (2026-10-17 very deep check asks)"
 noted:             2026-09-10
 closed:            null
 ---
@@ -72,3 +72,5 @@ closed:            null
 ## Notes
 
 2026-09-19: migrated from TODO.md by tools/todo_migrate.py.
+
+2026-10-17, very deep check pass 4 (ambiguous, asked of the person): the closing route it names (a CI job) is gone with source-sets-run-no-ci; run locally on 2026-10-17 with ../BestPractice beside the set and PRECEDENT_REQUIRE_ENGINE_CASES=1, all 100 cases of tools/checks/tests/run_all.sh pass, the engine-present cases (C+, C0+) included. What is unclear is whether a by-hand run is the close. Would close it on that run and say so.
