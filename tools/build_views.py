@@ -35,12 +35,10 @@ Run:
   python3 tools/build_views.py --check      # regenerate to memory, diff against
                                              # the committed files, exit 1 on any diff
   python3 tools/build_views.py --agents-only [--check]
-      # write (or check) only AGENTS.md's loader block. MAP.md and
-      # GLOSSARY.md's content is specific to how THIS repo is laid out
-      # (render_map_md()'s engine table, its "this repo is
-      # BestPractice itself" prose); a shared or individual source repo
-      # vendoring this same file for its own practices/ catalogue wants
-      # the resident-block/occasion-index mechanism, not those two.
+      # write (or check) only AGENTS.md's loader block, skipping MAP.md
+      # and GLOSSARY.md. A practice set does NOT use it: a set's MAP.md
+      # and GLOSSARY.md are generated views too, and its instructions file
+      # says to run the full command after any practice change.
   python3 tools/build_views.py --views-only [--check]
       # write (or check) MAP.md, GLOSSARY.md and WHERE_THINGS_ARE.md, never
       # AGENTS.md -- what a repository using Precedent runs, since its
@@ -1106,7 +1104,7 @@ def over_long_index_clauses(practices, root):
     word. The limit was a constant here and a sentence in
     spec/PRACTICE_FORMAT.md, and nothing put it in front of the writer at
     the moment of writing. Only verify_harness.py compared the two, and a
-    push to pre-staging does not run it, so the next session to run the full
+    quick-check push does not run it, so the next session to run the full
     check inherited the failure. A model cannot count characters by eye
     either, so the limit has to be measured by the tool the writer already
     runs (practice: checkable-gets-checked).
@@ -1931,7 +1929,7 @@ def _same_repository(path, root):
     reason this project already had written down: an individual source
     resolves through ~/.config/precedent/config.json, which names an absolute
     path, and that is routinely a SECOND clone rather than the checkout being
-    edited (record/GOTCHAS.md's entry on it). So a session working IN an
+    edited (gotchas/gotcha-2026-09-13-the-individual-source-resolves-to-a-clone-you-are-probably-n.md). So a session working IN an
     individual set, whose config named another clone of that same set, saw its
     own practices treated as somebody else's tree: deferred out of the tracked
     block and duplicated into .precedent/SESSION_PRACTICES.md, where they were
@@ -1943,7 +1941,7 @@ def _same_repository(path, root):
     repository at all. Normalized for the differences that are not
     differences: a trailing .git, a trailing slash, and case, since a clone
     URL is routinely lowercased by the harness while the canonical spelling
-    is not (record/GOTCHAS.md's entry on the lowercased clone URL).
+    is not (gotchas/gotcha-2026-09-13-a-repository-attached-mid-session-clones-single-branch-so-ev.md).
 
     Only trusts the origin URL for a directory that is itself a repository
     ROOT. `git -C <dir> remote get-url origin` does not stop at `<dir>` --
@@ -2075,9 +2073,10 @@ def _split_declared(root, declared):
             notes.append(
                 f"{', '.join(s['name'] + ' (' + s['level'] + ')' for s in deferred)} "
                 f"excluded from the loader block -- this repo declares "
-                f"visibility: public, and the block is a tracked file, so "
-                f"rendering a private source into it would publish its "
-                f"practice text")
+                f"visibility: public, and the block is a tracked file, so it "
+                f"carries no individual or shared set's text: those are kept "
+                f"out by level, whatever each set's own visibility, so that "
+                f"a private one is never published here")
         return tracked, deferred, notes
     return list(declared), [], notes
 
@@ -2423,8 +2422,8 @@ BUDGETS_NOT_VERIFIED = 'build_views --budgets NOT VERIFIED'
 
 
 def _over_cap_warning(msg):
-    """Say that a loader cap is exceeded, and that it is allowed onto
-    pre-staging but not staging (see render_agents_md)."""
+    """Say that a loader cap is exceeded, and that the quick check lets it
+    through but the full check does not (see render_agents_md)."""
     print(f"build_views WARNING: {msg} Written anyway: the quick check lets "
           f"it through, but the full check refuses it (loader-within-caps), "
           f"so bring it under the cap before it goes further. Tell the "
@@ -2450,15 +2449,11 @@ def render_agents_md(practices, agents_md=None, source_levels=None,
     # always this engine's own ROOT: `--repo DIR` renders another repo's
     # AGENTS.md, and a resident Rule's sibling citation has to be repointed
     # for that repo's root, not this one's.
-    # OVER A CAP, THE BLOCK IS STILL WRITTEN, with a warning (Morgan,
-    # 2026-09-30, strength: decided: "remove that limit for pre-staging and
-    # instead just have it give the session user a warning, including
-    # telling the user that it needs to be fixed before it can get onto
-    # staging; but no change for the rules for staging"). This used to exit
-    # here, so the block could not be regenerated, and the pre-staging
-    # check then refused the push as "views not regenerated": branch after
-    # branch stopped short of pre-staging on the same cap. The refusal now
-    # belongs to the full check, which runs at the Debut: its
+    # OVER A CAP, THE BLOCK IS STILL WRITTEN, with a warning that tells the
+    # person it must be fixed before it goes further (Morgan, 2026-09-30,
+    # strength: decided). This used to exit here, so the block could not be
+    # regenerated, and the quick check then refused the push as "views not
+    # regenerated". The refusal belongs to the full check: its
     # loader-within-caps check runs `build_views.py --budgets`, which is
     # the one caller still stopped here (STRICT_BUDGETS).
     resident_budget = None
@@ -3300,14 +3295,11 @@ def main():
     check = '--check' in argv
     # --agents-only: regenerate just AGENTS.md's loader block (resident
     # block, occasion index, standing instruction), skip MAP.md and
-    # GLOSSARY.md. render_map_md()'s engine table and "this repo
-    # is BestPractice itself" prose are specific to this repo; a team or
-    # individual source repo vendoring this same engine for its OWN
-    # catalogue (practice: layered-practice-packs -- every level needs the
-    # same resident/occasion-index treatment universal already gets, not
-    # just a hand-written README describing the practice list in prose)
-    # wants only the loader-block mechanism, not BestPractice's own MAP/
-    # GLOSSARY conventions.
+    # GLOSSARY.md. Not for a practice set: since the sets generate their
+    # own MAP.md and GLOSSARY.md, each set's instructions say to run the
+    # full command after any practice change, never this flag -- a run with
+    # it leaves the other views stale. (Until 2026-10-17 this comment and
+    # --help recommended it for sets.)
     agents_only = '--agents-only' in argv
     # --views-only: MAP.md, GLOSSARY.md and WHERE_THINGS_ARE.md, never
     # AGENTS.md. In a repository that uses Precedent the loader block is the
