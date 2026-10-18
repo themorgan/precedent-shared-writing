@@ -43,7 +43,7 @@ THE THIRD ROUTE EXISTS BECAUSE THE FIRST TWO ARE SKIPPABLE, 2026-09-14. A
 session read that banner, did not run this tool, and worked for hours with
 four guarantees down -- no session-practices file, no commit backstop, two
 uninstalled packages -- noticing only when the packages surfaced as three
-unrelated-looking verify_harness failures (record/GOTCHAS.md#g1). Guidance a
+unrelated-looking verify_harness failures (gotchas/gotcha-2026-09-13-pip-install-cmarkgfm-or-tools-doclint-py-s-strikethrough-che.md). Guidance a
 session can skip is not a mechanism; a gate it runs at a named moment is.
 
 Exit 0 when every guarantee holds, 1 otherwise, so it can gate a run.
@@ -141,7 +141,7 @@ def _own_new_branch(git, cur, start_sha, stamp):
     except (IndexError, ValueError, OSError):
         return False
     # Made from a declared tier branch: the ladder's own move. A cloud
-    # session starts on main and branches from origin/pre-staging, which
+    # session starts on main and branches from origin/staging, which
     # lacks main's newest merge commit until the next back-merge -- so the
     # start commit is not in it, and every ladder session was warned on
     # every prompt (2026-10-01, from a consumer's session).
@@ -152,12 +152,12 @@ def _own_new_branch(git, cur, start_sha, stamp):
             and git('merge-base', '--is-ancestor', start_sha, 'HEAD')[0] == 0)
 
 
-_TIER_NAMES = ('main', 'staging', 'pre-staging', 'precedent-beta-v01')
+_TIER_NAMES = ('main', 'staging', 'precedent-beta-v01')
 
 
 def _is_tier_ref(git, ref):
     """True when `ref` (a branch's "Created from" source) names a tier
-    branch here, local or origin's: main, staging, pre-staging, or a branch
+    branch here, local or origin's: main, staging, its old name, or a branch
     precedent.json declares as base, staging or landing branch."""
     name = ref
     for prefix in ('refs/remotes/', 'refs/heads/', 'origin/'):
@@ -167,8 +167,8 @@ def _is_tier_ref(git, ref):
 
 
 def _tier_names(git):
-    """-> every branch name that is a tier here: main, staging,
-    pre-staging, the old staging name, and whatever precedent.json declares
+    """-> every branch name that is a tier here: main, staging, the old
+    staging name, and whatever precedent.json declares
     as base, staging or landing branch."""
     names = set(_TIER_NAMES)
     rc, top, _ = git('rev-parse', '--show-toplevel')
@@ -277,6 +277,21 @@ def _session_branch_row(stamp, git):
     if started == 'HEAD' and cur != 'HEAD':
         carried = (not start_sha
                    or git('merge-base', '--is-ancestor', start_sha, 'HEAD')[0] == 0)
+        # A START COMMIT ORIGIN ALREADY HAS IS NOT STRANDED (2026-10-17). The
+        # harness checks a cloud session out detached at main's tip, a
+        # Produce merge staging lacks; the session's work is cut from
+        # origin/staging, so every turn said it "does NOT contain that
+        # commit" -- of a commit that is on origin and can be lost by
+        # nobody. Only a start commit no remote branch has is a finding.
+        published = bool(start_sha) and bool(git(
+            'for-each-ref', '--contains', start_sha, '--format=%(refname)',
+            'refs/remotes')[1])
+        if not carried and published:
+            write()
+            return (name, True, f'started detached at {start_sha[:12]}, which '
+                                f'a branch on origin already has, and moved onto '
+                                f'{cur!r} -- nothing made detached is stranded; '
+                                f'{cur!r} is now the baseline')
         if carried:
             write()
             return (name, True, f'started detached at '
@@ -296,7 +311,7 @@ def _session_branch_row(stamp, git):
     # The branch it started on is wholly inside the one it is on now: work
     # carried, not stranded. Measured 2026-10-01: a container restarted
     # while the checkout sat on a feature branch, so the stamp named that
-    # branch; after Booked merged it into pre-staging and the session moved
+    # branch; after Booked merged it into staging and the session moved
     # there, every turn said the SessionStart guarantee was not in effect.
     # The start branch's tip as it is NOW, so a commit made there after the
     # stamp counts too; its recorded commit when the branch is gone. Only a
@@ -311,7 +326,7 @@ def _session_branch_row(stamp, git):
                                 f'which carries all of it -- nothing is stranded; '
                                 f'{cur!r} is now the baseline')
     # A MOVE ONTO A TIER BRANCH IS ORDINARY PROMOTE WORK (2026-10-09). After a
-    # promote the checkout sits on main, staging or pre-staging; that is
+    # promote the checkout sits on main or staging; that is
     # the normal end of a stage, not a jump. It passes when the branch it
     # started on is held by a tier branch, here or on origin -- the work
     # landed. A start branch whose commits are on no tier is still the
@@ -481,7 +496,7 @@ def checks(offline=False):
     # applies commit-identity.sh to a LIST of repositories, and until
     # 2026-09-14 that list was the primary repo plus its siblings -- which
     # silently excluded an individual set cloned somewhere else, i.e. the one
-    # repository the block reads the identity FROM (record/GOTCHAS.md#g40).
+    # repository the block reads the identity FROM (gotchas/gotcha-2026-09-14-the-session-start-identity-block-reaches-every-precedent-rep.md).
     # Nothing reported it, because nothing had ever asked the question of any
     # repo but this one, and a normal session never commits to a source set.
     #
@@ -505,7 +520,7 @@ def checks(offline=False):
                 'be a wrong-author commit, and the global backstop will refuse '
                 'it. The session-start identity block is meant to have covered '
                 'it; a source outside the primary repo\'s own parent directory '
-                'is how it gets missed (record/GOTCHAS.md#g40)'))
+                'is how it gets missed (gotchas/gotcha-2026-09-14-the-session-start-identity-block-reaches-every-precedent-rep.md)'))
 
     # 4. The global backstop reaches repositories attached later.
     #
@@ -1199,8 +1214,14 @@ def _ci_cadence_row():
         v, bwhere = _personal('on_branches')
         branches = v is not False
     if not hours and branches:
-        return (name, True, f'every push runs CI (github_ci_every_hours is 0, from '
-                            f'{where}; github_ci_on_branches is true, from {bwhere})')
+        # "every push runs CI" was said here until 2026-10-17, which no
+        # push has done since the workflows moved to a pull request into
+        # main: this row decides only whether the commit hook adds
+        # [skip ci], and the workflows' own triggers decide the rest.
+        return (name, True, f'no commit is held back from CI by [skip ci] '
+                            f'(github_ci_every_hours is 0, from {where}; '
+                            f'github_ci_on_branches is true, from {bwhere}); '
+                            f'what runs is whatever the workflows trigger on')
     asked = []
     if hours:
         asked.append(f'github_ci_every_hours is {hours:g} (from {where})')
@@ -1208,11 +1229,11 @@ def _ci_cadence_row():
         asked.append(f'github_ci_on_branches is false (from {bwhere})')
     asked = ' and '.join(asked)
     if cfg.get('visibility') != 'private':
-        return (name, True, f'every push runs CI: {asked}, but this repo does '
+        return (name, True, f'no [skip ci] is added: {asked}, but this repo does '
                             f'not declare "visibility": "private"')
     base = cfg.get('base_branch')
     if not isinstance(base, str) or not base:
-        return (name, True, f'every push runs CI: {asked}, but this repo '
+        return (name, True, f'no [skip ci] is added: {asked}, but this repo '
                             f'declares no base_branch to apply it on')
     rc, hooks, _ = _git('config', '--get', 'core.hooksPath')
     if rc != 0 or not hooks:
@@ -1221,15 +1242,15 @@ def _ci_cadence_row():
     cad = pathlib.Path(hooks).expanduser() / 'precedent-ci-cadence' if hooks else None
     if not (cad and os.access(cad, os.X_OK)):
         return (name, False, f'{asked}, but no precedent-ci-cadence script '
-                             f'sits beside the commit hooks here, so every '
-                             f'push still runs CI. commit-identity.sh writes '
+                             f'sits beside the commit hooks here, so no '
+                             f'commit gets [skip ci]. commit-identity.sh writes '
                              f'it at session start, and only for a declared '
                              f'identity')
     on_base = (f'CI runs at most once every {hours:g}h (from {where})'
-               if hours else 'every push runs CI')
+               if hours else 'no [skip ci] on it')
     on_other = ('other branches never run CI (github_ci_on_branches false, from '
-                f'{bwhere})' if not branches else 'other branches run CI on '
-                'every push')
+                f'{bwhere})' if not branches else 'other branches get no '
+                '[skip ci]')
     return (name, True, f'private, primary branch {base}: {on_base}; '
                         f'{on_other}. PRECEDENT_CI_NOW=1 git commit ... '
                         f'forces a run')
@@ -1319,6 +1340,23 @@ def _clone_behind(path, fetch=True, branch=None):
     # it, and never by itself makes the clone stale.
     unpushed, on_origin, carrier = ahead, '0', ''
     if ahead != '0':
+        # The checked-out branch may be pushed with no tracking ref here
+        # (precedent_container_safe.fetch_missing_tracking_ref): one tool,
+        # one answer, for both checks.
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+            import precedent_container_safe as _pcs
+            cur = subprocess.run(['git', '-C', str(path), 'branch', '--show-current'],
+                                 capture_output=True, text=True).stdout.strip()
+            if cur and cur != branch:
+                _pcs.fetch_missing_tracking_ref(path, cur)
+        except (Exception, SystemExit):
+            # SystemExit too (2026-10-17): this runs inside other tools --
+            # the reply gate's advisory step among them -- and a module that
+            # exits as it loads (a test's stub scanner did) took the whole
+            # gate down with it, before it printed the archive-line verdict.
+            # An advisory lookup never ends its caller (fail-gracefully).
+            pass
         r = subprocess.run(['git', '-C', str(path), 'rev-list', '--count',
                             '--no-merges', 'HEAD', '--not', '--remotes=origin',
                             '--', '.'], capture_output=True, text=True)

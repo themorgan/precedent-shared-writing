@@ -52,6 +52,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 
 | Path | What it is |
 |---|---|
+| [tools/answer_first_gate.py](tools/answer_first_gate.py) | Refuses a change while the person's latest message asks something the |
 | [tools/artifact_publish_gate.py](tools/artifact_publish_gate.py) | The publish gate: a page reaches a link only as a fresh render of a |
 | [tools/branch_store.py](tools/branch_store.py) | Small records on a dedicated branch of a shared remote, with the push as the lock: the git plumbing shared by the lease board and the result cache |
 | [tools/build_codeowners.py](tools/build_codeowners.py) | CODEOWNERS, generated -- a practice set's from its approvers.json, a project's from the maintainers and owned_paths in its precedent.json |
@@ -60,6 +61,8 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/check_commit_author.py](tools/check_commit_author.py) | Each commit is authored as the declared person (practice commit-author) |
 | [tools/check_commit_dates.py](tools/check_commit_dates.py) | Each commit carries the declared person's time zone (practice buenos-aires-dates) |
 | [tools/ci_fleet_audit.py](tools/ci_fleet_audit.py) | Every GitHub Actions workflow on every branch of every reachable repo, asked of GitHub: approval, triggers, schedules, 30 days of runs |
+| [tools/commit_checks_common.py](tools/commit_checks_common.py) | What the two commit-identity checks share: the identity module, the grandfather list, the log reader, the Rule text |
+| [tools/declared_base_branch.py](tools/declared_base_branch.py) | The branch a repository declares its work is measured against: precedent.json's base_branch |
 | [tools/doc_lifecycle.py](tools/doc_lifecycle.py) | The document status header — kind, status, supersession — checked across spec/ and record/ |
 | [tools/doc_lint.py](tools/doc_lint.py) | Markdown hygiene checks — strikethrough, links, acronyms |
 | [tools/finish_html.py](tools/finish_html.py) | finish_html.py -- the last step before any engine tool writes an HTML page. |
@@ -67,7 +70,6 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/full_practice_audit.py](tools/full_practice_audit.py) | The full practice audit — on-demand, whole-catalogue sweep across every source |
 | [tools/generated_blocks.py](tools/generated_blocks.py) | Whether a line is inside a generated block, in both marker styles, closing marker required -- the one answer every scan that skips generated text uses |
 | [tools/github_budget.py](tools/github_budget.py) | What this account has left of GitHub's API allowances and what each tool spent -- read off the X-RateLimit headers of calls already being made, because /rate_limit answers a pristine window from inside a session |
-| [tools/ladder_words.py](tools/ladder_words.py) | The one matcher for the five-stage ladder's own words -- step labels, the release commands, the branch tiers, links to the ladder set's practices -- used by the check that keeps them out of everything outside that set and by the tests that hold engine output to the same (spec/LADDER_OPT_IN_PLAN.md D7) |
 | [tools/land_next.py](tools/land_next.py) | The lander as one command: land every queued branch on the trunk, oldest first, or say exactly why not |
 | [tools/land_queue.py](tools/land_queue.py) | The landing queue: branches waiting for the lander to merge them into the trunk, one record per branch on the coord branch |
 | [tools/leak_gate.py](tools/leak_gate.py) | The push-time leak gate — structural rules always, private-term blocklist when configured |
@@ -86,6 +88,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_check_after.py](tools/precedent_check_after.py) | The full check of a commit that already landed, run in the background; a failure is filed under todo/ and pushed |
 | [tools/precedent_clone_lock.py](tools/precedent_clone_lock.py) | One run at a time in a clone several runs share. |
 | [tools/precedent_close_detect.py](tools/precedent_close_detect.py) | Stage 1's trigger — at the close of a session that merged and is ready to archive, offers at most one practice candidate found in that session's own material |
+| [tools/precedent_commit_owners.py](tools/precedent_commit_owners.py) | Says who made each commit in a range -- a person by author email, a commit signed only by Claude by its session's owner or by whoever merged it -- and lists them by person; the daily report a set ships and Update Vendors' note of what others changed upstream both read it |
 | [tools/precedent_consumer_shape.py](tools/precedent_consumer_shape.py) | A practice source's check tests run the way a consuming repository runs them -- with git ignoring what a consumer typically ignores, in a copy without the source's own tools/ (only the engine, tools/checks/ and what practices ship) -- so a test that passes only in its home layout fails at home; a source's push check runs it |
 | [tools/precedent_container_safe.py](tools/precedent_container_safe.py) | Would anything be lost if this container went away? Scans every git checkout in it for uncommitted, untracked and unpushed work |
 | [tools/precedent_data_branches.py](tools/precedent_data_branches.py) | Which branch holds each of the engine's long-lived data -- `data-<what>` in a repository on the ladder, the old `precedent-<what>` name everywhere else -- and the rename that moves a ladder repository onto the new names |
@@ -96,11 +99,11 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_hooks.py](tools/precedent_hooks.py) | Runs the hooks listed in tools/hook_wiring.json and process/practice_hooks.json for one Claude Code hook event, and hands Claude Code one combined answer |
 | [tools/precedent_identity.py](tools/precedent_identity.py) | Resolves WHO this repo's commits belong to, from a declaration only -- an override, the repo's own identity.json, or the individual source's; raises rather than guessing |
 | [tools/precedent_ladder.py](tools/precedent_ladder.py) | Says whether the five-stage ladder is in force for the person working here -- a set they bring provides it, and PRECEDENT_NO_LADDERS is not set -- so every engine line chooses the ladder wording or the plain one from one answer (spec/LADDER_OPT_IN_PLAN.md) |
+| [tools/precedent_materialize.py](tools/precedent_materialize.py) | Bridges precedent_resolve.py's multi-source resolution to the single-tree loader tools |
 | [tools/precedent_merge_check.py](tools/precedent_merge_check.py) | The push check on the merge GitHub would make, at its base branch's tier -- `merge-check-gate.sh` runs it before a pull request is merged through GitHub, a push no push gate sees, and again on the merge commit after it, reverting a merge that fails because the base moved in between |
 | [tools/precedent_merge_vendors.py](tools/precedent_merge_vendors.py) | At a merge: when the vendored engine or catalogue is behind, runs Update Vendors from the BestPractice clone and commits the result on its own, or takes it all back and says why; never blocks the merge |
 | [tools/precedent_migrate_status.py](tools/precedent_migrate_status.py) | Classifies practices written under the old status vocabulary, where `retired` meant two different things; proposes, and refuses to guess a renamed successor |
 | [tools/precedent_migrate_views.py](tools/precedent_migrate_views.py) | Moves a hand-written MAP.md and GLOSSARY.md into their sources, and splits any index many threads add rows to into a directory of one file per row, joined back into the file people read |
-| [tools/precedent_others_did.py](tools/precedent_others_did.py) | Once a day, from the first session after 07:00 in the person's own timezone, says what OTHER people landed in this repository since that person's own last commit here -- every commit on its shared branches that is not theirs -- and hands the session a block to open its first reply with; nothing is stored on origin, only a note in the container so one session does not say it twice |
 | [tools/precedent_paths.py](tools/precedent_paths.py) | The PATH-TRIGGERED channel — matches a touched file against every practice's `applies_to` |
 | [tools/precedent_practice_refs.py](tools/precedent_practice_refs.py) | Who cites a practice, across this repo and every source it declares -- live citations vs history; the lookup behind practice-change-propagates, the merge moment and Update Vendors |
 | [tools/precedent_promote.py](tools/precedent_promote.py) | Stage 3 (phase 5) — runs a candidate against the four promotion criteria |
@@ -116,16 +119,18 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_show.py](tools/precedent_show.py) | Loads a practice's Rule/Detail/Why/Story/Install — the one code path that reads a practice file |
 | [tools/precedent_source_bootstrap.py](tools/precedent_source_bootstrap.py) | Clone-or-pull for a privately-scoped individual or shared source, used by its SessionStart hook and by precedent_resolve.py's own lazy self-heal |
 | [tools/precedent_source_credentials.py](tools/precedent_source_credentials.py) | Whether this environment can reach its private practice sources, and the git credential helper that lets a SessionStart hook clone them without add_repo |
+| [tools/precedent_source_pins.py](tools/precedent_source_pins.py) | Which commit of each live practice source a consumer's views were built |
 | [tools/precedent_stale_branches.py](tools/precedent_stale_branches.py) | precedent_stale_branches.py -- the remote branches you can delete, across |
 | [tools/precedent_time.py](tools/precedent_time.py) | The ONE emitter for every date and time this repo writes down — resolves whose zone, always carries the offset; run it bare to see which rung answered |
-| [tools/precedent_upstream_review.py](tools/precedent_upstream_review.py) | Upstream review: what a ladder step ran into, less what an earlier stage reviewed. |
 | [tools/precedent_vendor_engine.py](tools/precedent_vendor_engine.py) | Vendors the minimal source-repo engine (this file, precedent_gate/paths/show.py, split_practices.py, a trimmed routing_scope.json) into an individual or shared set, and keeps it refreshable |
 | [tools/precedent_vocabulary.py](tools/precedent_vocabulary.py) | Lists every standing command in force -- each phrase and the plain sentence a person reads -- collected from the `command:` field of every practice across every resolved source; answers the "Vocabulary" command and emits the reader-facing table |
 | [tools/precedent_whats_new.py](tools/precedent_whats_new.py) | The mechanics behind "What's new?": which finished days on main a project's running log lacks, what changed on each, today so far, and marking the log current -- the entries themselves are the session's to write |
 | [tools/precedent_which_repo.py](tools/precedent_which_repo.py) | Names the repo an engine tool reads, and warns when it is run from inside a different one -- engine tools read their own file's repo, never the current directory |
 | [tools/session_load_trend.py](tools/session_load_trend.py) | How much room every always-loaded surface has left and how fast it is going -- headroom, the hand-written/generated split, and the growth rate; its headroom_notice() is what the merge and push gates print |
+| [tools/set_words.py](tools/set_words.py) | The one matcher for a practice set's own words -- the ones a set declares in its precedent-source.json `owned_words`, which belong in that set and nowhere a person who does not bring it reads -- used by the check that holds every other set to them and by the tests that hold engine output to the same (spec/ENFORCEMENT_LIVES_WITH_ITS_PRACTICE_PLAN.md part 3) |
 | [tools/split_practices.py](tools/split_practices.py) | PRACTICES.md ↔ practices/ converter |
 | [tools/summary_text.py](tools/summary_text.py) | Turns prose into a summary field: links out first, then the cut — run bare to self-check |
+| [tools/test_review.py](tools/test_review.py) | Every test a repository runs, with what it costs and whether it still |
 | [tools/title_case.py](tools/title_case.py) | Headline (New York Times) capitalization for markdown headings — --check to gate, --write to fix |
 | [tools/todo_disposition.py](tools/todo_disposition.py) | records "Drop it" on a todo item in both places a park lives, in one go |
 | [tools/todo_migrate.py](tools/todo_migrate.py) | One-time converter from the old TODO.md/gotchas-index format into spec/OPEN_ITEM_AND_GOTCHA_PLAN.md's per-item todo/gotchas files, dry-run by default |
