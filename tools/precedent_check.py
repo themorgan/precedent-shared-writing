@@ -627,6 +627,7 @@ def register_materialized_checks():
 
         CHECKS[slug] = dict(
             slug=slug, scope='tree', fn=_run_script,
+            selects_on=script_selects_on(script),
             what=f'whatever {rel} checks — a check script supplied by one '
                  f'of this repo\'s own practice sources',
             blind_to=f"anything {rel} does not look at; its own limits are "
@@ -659,6 +660,53 @@ def register_materialized_checks():
             # path would silence every source-supplied check in every
             # consuming repo, so this keeps them all.
             judges_received=True)
+
+
+# A CHECK SCRIPT'S INPUTS. A script check is selected by its practice's
+# applies_to (tier 2 of _scoped_tree_slugs), which names the file the
+# practice is ABOUT -- not everything the script reads. A consumer's check
+# that every practice naming a page is listed on that page read the practice
+# files' applies_to; a new practice naming the page landed without its row,
+# no file the change touched matched the page's glob, the rotation left the
+# check for a later commit, and main went red after a Produce (a consumer's
+# root-issues report, 2026-10-19). Two ways in, both only ever ADDING
+# selection, like `selects_on` on a built-in check:
+#   - declared: a top-level `SELECTS_ON = ("glob", ...)` in the script,
+#     read without running it;
+#   - inferred: a script that reads practices' `applies_to` depends on every
+#     practice file, so it is selected whenever one changes.
+_PRACTICE_FILE_GLOBS = ('practices/*.md', 'local/practices/*.md')
+_READS_APPLIES_TO = re.compile(r"""['"]applies_to['"]|applies_to\s*:""")
+
+
+def script_selects_on(script):
+    """-> the globs that select check script `script` for a run: its own
+    SELECTS_ON declaration, plus the practice files when it reads
+    `applies_to`."""
+    import ast
+    try:
+        text = pathlib.Path(script).read_text(encoding='utf-8')
+    except (OSError, UnicodeDecodeError):
+        return ()
+    globs = []
+    try:
+        body = ast.parse(text).body
+    except SyntaxError:
+        body = []
+    for node in body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == 'SELECTS_ON'):
+            try:
+                value = ast.literal_eval(node.value)
+            except ValueError:
+                continue
+            if isinstance(value, str):
+                value = (value,)
+            globs += [g for g in value if isinstance(g, str) and g != '**']
+    if _READS_APPLIES_TO.search(text):
+        globs += [g for g in _PRACTICE_FILE_GLOBS if g not in globs]
+    return tuple(globs)
 
 
 # A finding line that opens with a path the repository has: `x.md:12: ...`,
@@ -1479,18 +1527,30 @@ def _set_words_stay_in_their_set(ctx):
 
 @check('ladder-set-is-brought-not-declared', 'tree',
        "no repository's precedent.json declares a set that provides the "
-       'five-stage ladder: a declared set is in force for everyone who works '
-       'there, and the ladder is something each person brings for themselves',
+       'five-stage ladder, unless one of its code owners has said, quoted '
+       'and dated in a binds_everyone entry, that it binds everyone there: '
+       'a declared set is in force for everyone who works there, and the '
+       'ladder is otherwise something each person brings for themselves',
        'a declared set whose clone is not on this machine -- what it provides '
        'cannot be read, so it is passed over. It does not look at what a '
-       'person brings: that is theirs to choose.',
+       'person brings: that is theirs to choose. It cannot prove a quote is '
+       'real, only that it names a code owner and is written down.',
        practice_backed=False,
-       selects_on=('precedent.json',))
+       selects_on=('precedent.json', 'CODEOWNERS', '.github/CODEOWNERS',
+                   'docs/CODEOWNERS'))
 def _ladder_set_is_brought_not_declared(ctx):
     """The opt-in works person by person: two people in one repository, one
     bringing the ladder set from their own individual set and one not, each
     get their own. A repository that declares the set takes that choice
-    away from everybody at once, and nothing else would say so."""
+    away from everybody at once, and nothing else would say so.
+
+    Narrowed, not dropped (2026-10-19, D18 in spec/LADDER_OPT_IN_PLAN.md):
+    one code owner may make it bind everyone, in the repository's own
+    precedent.json --
+        "binds_everyone": {"sets": ["<set>"],
+                           "approved_by": "Name, YYYY-MM-DD: \"their words\""}
+    One code owner is enough; the others are not asked. The quote shows
+    who did it."""
     try:
         import precedent_resolve as _pr
     except ImportError:
@@ -1499,6 +1559,7 @@ def _ladder_set_is_brought_not_declared(ctx):
         cfg = json.loads((ROOT / 'precedent.json').read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return []
+    bound, why_not = _binds_everyone(ROOT, cfg)
     out = []
     for entry in (cfg.get('sources') if isinstance(cfg, dict) else None) or []:
         if not isinstance(entry, dict) or not entry.get('path'):
@@ -1508,13 +1569,105 @@ def _ladder_set_is_brought_not_declared(ctx):
             continue
         path = _pr._declared_path(ROOT.resolve(), entry['path'])
         if _pr.LADDER_CAPABILITY in _pr.source_provides(path):
+            name = entry.get('name') or path.name
+            if name in bound:
+                continue
+            if why_not:
+                out.append(Finding(
+                    'precedent.json',
+                    f'declares {name}, which provides the five-stage ladder, '
+                    f'and its binds_everyone entry does not make that '
+                    f'binding: {why_not}'))
+                continue
             out.append(Finding(
                 'precedent.json',
                 f"declares {entry.get('name') or path.name}, which provides "
                 f'the five-stage ladder, so everyone who works here gets it. '
                 f'Take it out of this file; each person who wants it lists it '
                 f'under "brings" in their own individual set\'s '
-                f'precedent-source.json'))
+                f'precedent-source.json. Or, if one of this repository\'s '
+                f'code owners wants it to bind everyone here, record that in '
+                f'a "binds_everyone" entry quoting them'))
+    return out
+
+
+def _binds_everyone(root, cfg):
+    """-> (set names a code owner has bound everyone to, '' or what is
+    wrong with the entry). An absent entry is ({}, ''): the old rule."""
+    entry = cfg.get('binds_everyone') if isinstance(cfg, dict) else None
+    if entry is None:
+        return set(), ''
+    if not isinstance(entry, dict) or not isinstance(entry.get('sets'), list):
+        return set(), 'it is not an object with a "sets" list and "approved_by"'
+    by = str(entry.get('approved_by') or '')
+    if not _APPROVAL_DATE.search(by):
+        return set(), 'approved_by carries no date (YYYY-MM-DD)'
+    if not _APPROVAL_QUOTE.search(by):
+        return set(), ('approved_by quotes nobody -- it must carry the code '
+                       'owner\'s own words, in double quotes')
+    who = by.split(',', 1)[0].strip().lstrip('@').lower()
+    logins, where = _code_owner_logins(root, cfg)
+    if who not in logins:
+        return set(), (f'{who!r} is not one of this repository\'s code owners '
+                       f'({where or "none are named"})')
+    return {str(n) for n in entry['sets']}, ''
+
+
+def _code_owner_logins(root, cfg):
+    """-> (every way a code owner may be named, lowercased: their login and,
+    from precedent.json's maintainers, their name; where they were read).
+    The code owners are precedent_audience.owners(): CODEOWNERS, else the
+    registry it is generated from, else the repository's GitHub owner."""
+    try:
+        import precedent_audience as _aud
+        found, where = _aud.owners(root)
+    except Exception:                                         # noqa: BLE001
+        found, where = None, None
+    logins = {str(o).lstrip('@').lower() for o in (found or ())}
+    names = set(logins)
+    for m in (cfg.get('maintainers') or []) if isinstance(cfg, dict) else []:
+        if isinstance(m, dict) and str(m.get('github') or '').lstrip(
+                '@').lower() in logins and m.get('name'):
+            names.add(str(m['name']).strip().lower())
+    return names, where
+
+
+@check('copied-in-set-fits-visibility', 'tree',
+       'a set this repository copies in ("vendored": true in precedent.json) '
+       'is private only when the repository is: a private set\'s rules in a '
+       'public tree are a leak, and the copy is the leak',
+       'a copy that is not on disk yet -- there is no precedent-source.json '
+       'to say whether the set is private, and Update Vendors refuses the '
+       'copy itself when it would not fit.',
+       practice_backed=False,
+       selects_on=('precedent.json', 'process/*/precedent-source.json'))
+def _copied_in_set_fits_visibility(ctx):
+    """Update Vendors refuses to make such a copy (checkin.py); this catches
+    one made another way, or a repository turned public after the copy."""
+    try:
+        import precedent_resolve as _pr
+        from leak_gate import declared_visibility, manifest_says_private
+    except ImportError:
+        raise NotApplicable('the resolver or the leak gate did not import')
+    copies = [(pathlib.Path(p), n) for p, _l, n, note in
+              _pr.vendored_source_paths(ROOT) if not note]
+    if not copies:
+        raise NotApplicable('this repository copies no set in')
+    if declared_visibility(ROOT)[0] == 'private':
+        return []
+    out = []
+    for path, name in copies:
+        try:
+            text = (path / _pr.SOURCE_MANIFEST).read_text(encoding='utf-8')
+        except OSError:
+            text = '{}'
+        if manifest_says_private(text):
+            out.append(Finding(
+                'precedent.json',
+                f'copies in {name}, a private set (its precedent-source.json '
+                f'does not say "visibility": "public"), and this repository '
+                f'does not say "visibility": "private". Remove the copy and '
+                f'the "vendored" flag, or make the repository private'))
     return out
 
 
@@ -1823,25 +1976,14 @@ def _sibling_not_in_force(pdir, base):
             f'where that rule went -- settle that before linking it')
 
 
-def _shipped_link_branch():
-    """The branch a shipped link to this repo names: precedent.json's
-    base_branch, which practice-links-travel requires of practice files."""
-    try:
-        return json.loads((ROOT / 'precedent.json').read_text(
-            encoding='utf-8')).get('base_branch') or 'staging'
-    except (OSError, ValueError):
-        return 'staging'
-
-
-_MD_LINK_TARGET = re.compile(r'\]\(([^)\s#]+)(?:#[^)\s]*)?\)')
-
-
 @check('shipped-links-travel', 'tree',
        'no file this repo ships in its catalogue copy links relatively to a '
        'file the copy leaves out (tools/checkin.py\'s VENDORING_RULES): '
        'such a link is broken in every consumer, under process/upstream/, '
        'where the consumer may not fix it. A doc of ours a consumer\'s reader '
-       'needs is linked on GitHub instead',
+       'needs is linked on GitHub instead; the commit backstop '
+       '(precedent_regenerate.py, by checkin.ship_links) repoints such a link '
+       'as the file is committed, so this finds a commit made without it',
        'a link that is not Markdown link syntax (a bare path in backticks, '
        'an HTML anchor), and a relative link that climbs out of the repo; '
        'practice files are judged more closely by practice-links-travel. '
@@ -1852,9 +1994,10 @@ def _shipped_links_travel(ctx):
     # templates/harness/LEDGER.md, a file the copy leaves out, were broken
     # in every consumer, and the full set was 195 links in 65 files.
     # 2026-10-08: judged by checkin.in_shipped_copy, the copy's own rule.
-    # This asked vendoring_rule(), which still counts tools/ as shipped
-    # though since 2026-09-30 a consumer's copy leaves tools/ at home, so
-    # 320 links into tools/ passed here and broke in every consumer.
+    # 2026-10-19: the commit backstop now repoints these links itself
+    # (checkin.ship_links, the one answer, applied by
+    # precedent_regenerate.py), so what this finds is a commit made without
+    # the backstop -- GitHub's web editor, a machine without the hooks.
     if (ROOT / 'tools' / 'ENGINE_MANIFEST.json').is_file():
         raise NotApplicable('a vendored engine: this repo receives the '
                             'catalogue copy, it does not ship one')
@@ -1862,36 +2005,23 @@ def _shipped_links_travel(ctx):
         import checkin
     except Exception as e:                                    # noqa: BLE001
         raise NotApplicable(f'tools/checkin.py did not import: {e}')
-    if not hasattr(checkin, 'vendoring_rule'):
-        raise NotApplicable('this checkin.py predates VENDORING_RULES')
-    import posixpath
+    if not hasattr(checkin, 'ship_links'):
+        raise NotApplicable('this checkin.py predates ship_links')
     out = []
     for rel in _git('ls-files', '*.md').stdout.split():
-        rule = checkin.vendoring_rule(rel)
-        if not (rule and rule[1]):
-            continue
         try:
             text = (ROOT / rel).read_text(encoding='utf-8', errors='ignore')
         except OSError:
             continue
-        for i, line in enumerate(text.splitlines(), 1):
-            for m in _MD_LINK_TARGET.finditer(line):
-                t = m.group(1)
-                if re.match(r'^[a-z]+:', t) or t.startswith('/'):
-                    continue
-                tgt = posixpath.normpath(posixpath.join(posixpath.dirname(rel), t))
-                if tgt.startswith('..'):
-                    continue
-                # A target missing here is doc_lint's broken link, not this.
-                if not (ROOT / tgt).exists() or checkin.in_shipped_copy(tgt, ROOT):
-                    continue
-                kind = 'tree' if (ROOT / tgt).is_dir() else 'blob'
-                out.append(Finding(
-                    f'{rel}:{i}', f'links to {tgt}, which the catalogue '
-                    f'copy leaves out, so the link is broken in every '
-                    f'consumer -- link it on GitHub instead '
-                    f'(https://github.com/alex137/BestPractice/{kind}/'
-                    f'{_shipped_link_branch()}/{tgt})'))
+        for line, tgt in checkin.ship_links(rel, text, ROOT)[1]:
+            kind = 'tree' if (ROOT / tgt).is_dir() else 'blob'
+            out.append(Finding(
+                f'{rel}:{line}', f'links to {tgt}, which the catalogue '
+                f'copy leaves out, so the link is broken in every '
+                f'consumer -- the commit backstop repoints it '
+                f'(python3 tools/precedent_regenerate.py --staged), or link '
+                f'it on GitHub ({checkin.SHIPPED_LINK_REPO}/{kind}/'
+                f'{checkin.shipped_link_branch(ROOT)}/{tgt})'))
     return out
 
 
@@ -9771,6 +9901,21 @@ def _strip_other_repo_urls(line, own_slug):
     return _REPO_URL_RE.sub(keep, line)
 
 
+def _names_another_repo(line, path, own_slug):
+    """qualified_mention's rule, loaded lazily so a checkout without the
+    module still runs this check (reading every mention as plain). It was
+    reached through precedent_materialize until 2026-10-19, whose own
+    imports failed in a partial checkout and errored this whole check."""
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    try:
+        import qualified_mention
+    except ImportError:
+        return False
+    finally:
+        sys.path.pop(0)
+    return qualified_mention.mention_names_another_repo(line, path, own_slug)
+
+
 @check('rename-updates-links', 'tree',
        'no tracked file still references a path this branch renamed away '
        'or deleted',
@@ -9786,7 +9931,8 @@ def _strip_other_repo_urls(line, own_slug):
        'by one -- or about a path inside a permalink pinned to a 40-hex '
        'commit, which cites the file as it was and cannot go stale, or '
        'inside a URL into another repository, which names that '
-       'repository\'s file rather than this one\'s. Nor '
+       'repository\'s file rather than this one\'s, or on a line that '
+       'qualifies it by another repository ("OtherSet\'s tools/x.py"). Nor '
        'about history, which names a path as it was: a generated view (its '
        'source is read), a closed todo item, a `## Story` section, or a '
        'record file precedent.json declares in `record_paths`.',
@@ -9945,8 +10091,13 @@ def _rename_updates_links(ctx):
                 # branch later deleted).
                 if rel.endswith('.json') and line.lstrip().startswith('"notes"'):
                     continue
+                # And a mention the line itself qualifies by another
+                # repository ("OtherSet's tools/x.py") names that
+                # repository's file: the same rule the sync uses before it
+                # removes a file no source ships any more (2026-10-19).
                 if old in line and _names_path(_strip_other_repo_urls(
-                        PINNED_PERMALINK_RE.sub('', line), _own_slug), old):
+                        PINNED_PERMALINK_RE.sub('', line), _own_slug), old) \
+                        and not _names_another_repo(line, old, _own_slug):
                     if moved and is_guarded_fallback(rel, line, old):
                         continue  # the fallback beside tools/, as templates write it
                     where = f'renamed to {new_path}' if new_path else 'deleted'
@@ -11020,6 +11171,23 @@ def _ledger_change_cells(ledger_text):
     return cells
 
 
+def _ledger_rows(ledger_text):
+    """-> [(line number, cells, header width)] for every row of the ledger
+    table: the lines from its `| Date |` header on that start with a pipe,
+    the separator left out, split as _ledger_change_cells splits them."""
+    split = lambda line: re.split(r'(?<!\\)\|', line.rstrip())[1:-1]
+    rows, width = [], None
+    for line_no, line in enumerate(ledger_text.splitlines(), 1):
+        if line.startswith('| Date |'):
+            width = len(split(line))
+            continue
+        if width is None or not line.startswith('|') \
+                or re.match(r'^\|[-|: ]+\|\s*$', line):
+            continue
+        rows.append((line_no, split(line), width))
+    return rows
+
+
 def _shallow_boundary_commits():
     """Commits git's OWN `.git/shallow` file records as grafted boundaries --
     ground truth, unlike `git rev-list --max-parents=0` (used below to
@@ -11097,10 +11265,11 @@ def _shallow_boundary_commits():
        'named in exactly one row\'s `Originating change` cell, or added its '
        'own row in the same commit (a commit cannot name its own ID) -- a '
        'mention in another row\'s prose is a citation, not that commit\'s '
-       'own row',
+       'own row -- and every row under the table header has as many '
+       'non-empty cells as the header',
        'whether a referenced row is actually CORRECT -- the right verdict '
-       'per member, not a rubber-stamped one -- only that a row exists for '
-       'every commit that changed a member, the "any marked date without a '
+       'per member, not a rubber-stamped one -- only that a complete row '
+       'exists for every commit that changed a member, the "any marked date without a '
        'complete ledger row fails" half of the practice, added 2026-09-05 '
        'after a routing-audit run found the ledger itself had no audit. '
        'Enforcing; the 2026-09-05 advisory downgrade was lifted 2026-09-06 '
@@ -11121,6 +11290,7 @@ def _parallel_artifact_ledger(ctx):
             '), so there is no parallel-artifact family here for it to '
             'ledger. A family of its own still needs one -- that half is '
             'a review judgment, not something this check can find')
+    incomplete = []
     ledger_path = ROOT / 'templates' / 'harness' / 'LEDGER.md'
     if not ledger_path.exists():
         return [Finding('templates/harness/LEDGER.md',
@@ -11128,6 +11298,22 @@ def _parallel_artifact_ledger(ctx):
                         'names a ledger table as this practice\'s Install')]
     ledger_text = ledger_path.read_text(encoding='utf-8', errors='ignore')
     change_cells = _ledger_change_cells(ledger_text)
+    # A ROW IS COMPLETE OR IT IS NOT A VERDICT (2026-10-19). The 2026-10-18
+    # row stopped after its Originating change cell, with no member cell at
+    # all, and this check only asked whether a row named the commit. An
+    # unescaped `|` in a code span splits a row into one cell too many,
+    # which GitHub renders shifted the same way.
+    for line_no, cells, want in _ledger_rows(ledger_text):
+        empty = sum(1 for c in cells if not c.strip())
+        if len(cells) == want and not empty:
+            continue
+        what = (f'{len(cells)} cells, not {want}' if len(cells) != want
+                else f'{empty} empty cell(s)')
+        incomplete.append(Finding(
+            f'templates/harness/LEDGER.md:{line_no}',
+            f'a ledger row with {what} -- each row carries a date, its '
+            f'change, and a verdict for every member; a literal pipe in a '
+            f'cell is written \\|'))
     # A repo's (or a test scratch copy's) root commit -- the tree coming
     # into existence, zero parents -- is inception, not "a change to any
     # member" the practice's Rule is about; exclude it, or every squashed-
@@ -11245,7 +11431,7 @@ def _parallel_artifact_ledger(ctx):
                 f'gets one dated row, so a reader can tell which transfer '
                 f'verdict was the considered one; merge them'))
 
-    return findings
+    return incomplete + findings
 
 
 @check('search-by-purpose', 'change',

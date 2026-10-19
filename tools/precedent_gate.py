@@ -516,6 +516,45 @@ def record_turn_start_unlanded(root, records):
         pass
 
 
+def _session_roots(root, siblings=True):
+    """-> [Path] this checkout, then each sibling Precedent repo this session
+    may also have committed in: a `precedent-*` clone beside it or in the
+    home directory.
+
+    `siblings=False` is for a test fixture, which must see only itself.
+    The scan includes the home directory, so a harness run on a machine
+    whose real practice sets carried unmerged work failed on THEIR state
+    -- found 2026-09-25, the first time the harness gated a push, with the
+    push check's own rollout commits sitting on the sets' working branches.
+    Shared since 2026-10-19 with the reply check's delete links, which ask
+    the same question of the same repositories.
+
+    A session rooted ABOVE its repositories (a cloud session holding
+    several, whose root is their parent folder) is no checkout itself: its
+    repositories are the folders inside it. Without them the not-landed
+    lines and the reply check's branch facts saw nothing at all, and a
+    Boildown naming `staging` while four pull requests were open passed
+    unchecked (2026-10-19)."""
+    roots = [pathlib.Path(root)]
+    if siblings and not (pathlib.Path(root) / '.git').exists():
+        try:
+            roots += [d for d in sorted(pathlib.Path(root).iterdir())
+                      if d.is_dir() and (d / '.git').exists()]
+        except OSError:
+            pass
+    for parent in ({pathlib.Path(root).parent, pathlib.Path.home()}
+                   if siblings else ()):
+        try:
+            entries = sorted(parent.iterdir())
+        except OSError:
+            continue
+        for d in entries:
+            if d.name.startswith('precedent-') and (d / '.git').exists():
+                if d.resolve() not in {r.resolve() for r in roots}:
+                    roots.append(d)
+    return roots
+
+
 def _unlanded_work(root, siblings=True, records=None):
     """-> [str] one line per repo in this session whose committed work is not
     on the branch that repo actually merges into -- and only where those
@@ -550,28 +589,7 @@ def _unlanded_work(root, siblings=True, records=None):
         return r.stdout.strip() if r.returncode == 0 else ''
 
     out = []
-    roots = [pathlib.Path(root)]
-    # Sibling Precedent repos this session may also have committed in. A
-    # session that made a commit in a source set and left it on a branch has
-    # the same problem, and nothing else in this preamble looks there.
-    #
-    # `siblings=False` is for a test fixture, which must see only itself.
-    # The scan includes the home directory, so a harness run on a machine
-    # whose real practice sets carried unmerged work failed on THEIR state
-    # -- found 2026-09-25, the first time the harness gated a push, with the
-    # push check's own rollout commits sitting on the sets' working branches.
-    for parent in ({pathlib.Path(root).parent, pathlib.Path.home()}
-                   if siblings else ()):
-        try:
-            entries = sorted(parent.iterdir())
-        except OSError:
-            continue
-        for d in entries:
-            if d.name.startswith('precedent-') and (d / '.git').exists():
-                if d.resolve() not in {r.resolve() for r in roots}:
-                    roots.append(d)
-
-    for repo in roots:
+    for repo in _session_roots(root, siblings):
         head = _git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')
         if not head or head == 'HEAD':
             continue
@@ -719,6 +737,36 @@ def _unlanded_work(root, siblings=True, records=None):
     return out
 
 
+def _print_advisories_missed(reqs, prc):
+    """Name what the LAST reply left out of an advisory requirement, here at
+    turn start, where the session reads it before writing the next one.
+
+    An advisory requirement never refuses a turn (Morgan, 2026-09-17: "an
+    absent one must never refuse the turn"), and the stop hook's refusal is
+    the only thing a session sees from it, so until 2026-10-19 an unmet one
+    reached nobody -- though violations()'s docstring says "a session should
+    still hear about it" (Morgan, 2026-10-19: "make them visible"). Printing
+    it here keeps both: nothing is refused, and the miss is in front of the
+    session one turn later. Nothing prints without the transcript."""
+    path = os.environ.get('PRECEDENT_TRANSCRIPT_PATH', '').strip()
+    soft = [r for r in reqs if r.get('advisory')]
+    if not path or not soft or not os.path.isfile(path):
+        return
+    try:
+        text = prc.last_assistant_text(path)
+        if not text or not text.strip() or prc.is_trivial_checkin(text):
+            return
+        missed = [v for v in prc.violations(text, soft, prc.assistant_timeline(path))
+                  if v.get('advisory')]
+    except Exception:                                        # noqa: BLE001
+        return
+    if missed:
+        print("\n## Your last reply left these out -- recommendations, never "
+              "refused; include them this time if they apply\n")
+        for v in missed:
+            print(f"- {v['message']}")
+
+
 def _print_size_conditioned(src, r, one_of, every, prc):
     """A requirement owed only once the conversation has grown `every`
     tokens: print the ANSWER, owed or not, not the rule.
@@ -848,6 +896,7 @@ def _print_hard_requirements(root):
         # ever be said to a non technical person." Printed first, every
         # turn, so it governs how everything below reaches the reply.
         print(NOT_A_CODE_OWNER)
+    _print_advisories_missed(reqs, prc)
     print("\n## Hard requirements — the stop hook REFUSES the turn without "
           "these\n")
     for r in reqs:
@@ -922,6 +971,17 @@ def _print_hard_requirements(root):
                   f"line, such as \"(Waiting on <what>.)\": no status report, "
                   f"no Boildown. Report once, when the last job ends or one "
                   f"fails. A wake that reports a failure may speak.")
+        # require_plan_done_if_says (2026-10-19): the session has to know to
+        # name its plan before the reply is written, or the check never sees
+        # it.
+        for _ph in (r.get('require_plan_done_if_says') or []):
+            print(f"- [{src}] a session following a multi-step plan names it "
+                  f"in The Boildown on a line opening **Plan:** and its link, "
+                  f"with the steps left. \"{_ph}\" is refused while that "
+                  f"plan has an unticked `- [ ]` box, unless the person is "
+                  f"quoted ending it early on a **Plan ended early:** line, "
+                  f"or it is handed to a session `get_session` confirms is "
+                  f"running with it, linked on a **Plan handed to:** line.")
         for pair in (r.get('require_paired_with') or []):
             if pair.get('if_matches') and pair.get('must_also_match'):
                 print(f"- [{src}] a reply matching /{pair['if_matches']}/ "

@@ -130,7 +130,11 @@ def session_start_commands(repo):
 
 
 def repos_under(root):
-    """-> the git repositories directly under `root` that declare hooks."""
+    """-> the git repositories directly under `root` that declare hooks,
+    each tree once. Two names under `root` for one tree (a link beside its
+    target, or the attach tool's lowercase spelling beside the original)
+    ran that repository's hooks twice until 2026-10-19; the test is
+    precedent_source_home.one_per_tree, the one every lister shares."""
     found = []
     for child in sorted(root.iterdir()):
         try:
@@ -139,7 +143,19 @@ def repos_under(root):
                 found.append(child)
         except OSError:
             continue
-    return found
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    try:
+        import precedent_source_home as psh
+        return psh.one_per_tree(found)
+    except ImportError:
+        seen, out = set(), []
+        for p in found:
+            if p.resolve() not in seen:
+                seen.add(p.resolve())
+                out.append(p)
+        return out
+    finally:
+        sys.path.pop(0)
 
 
 def read_only_rules(root, repos):
@@ -194,13 +210,55 @@ def ask_rules(root, repos):
     return found
 
 
+# THE ASK RULES THIS RUNNER WROTE FROM 2026-10-17 TO 2026-10-19, while the
+# engine shipped them (8d072c512 until 86e49a335). The engine dropped them
+# (Morgan: "I urgently need a fix so you stop asking me so much"), but this
+# runner only ever adds, so a container that ran it in those days kept
+# asking. These, and only these, are taken back out of the user-level file
+# when the engine no longer ships them; any other ask rule there is the
+# person's and is never touched.
+RETIRED_ASK_RULES = (
+    'Bash(python3 tools/precedent_branches.py --land)',
+    'Bash(python3 tools/precedent_branches.py --land *)',
+    'Bash(python3 tools/precedent_branches.py --promote)',
+    'Bash(python3 tools/precedent_branches.py --promote *)',
+    'Bash(python3 *tools/precedent_update.py)',
+    'Bash(python3 *tools/precedent_update.py *)',
+    'Bash(python3 *tools/precedent_update_all.py)',
+    'Bash(python3 *tools/precedent_update_all.py *)',
+    'Bash(python3 *tools/precedent_vendor_engine.py *)',
+    'Bash(python3 tools/precedent_local_edits.py send)',
+    'Bash(python3 tools/precedent_local_edits.py send *)',
+    'Bash(python3 tools/precedent_merge_check.py)',
+    'Bash(python3 tools/precedent_merge_check.py *)',
+    'mcp__github__merge_pull_request',
+)
+
+
+def _drop_retired_asks(data, ask):
+    """Take RETIRED_ASK_RULES the engine no longer ships out of `data`'s
+    permissions.ask, in place. -> [removed]."""
+    perms = data.get('permissions')
+    cur = perms.get('ask') if isinstance(perms, dict) else None
+    if not isinstance(cur, list):
+        return []
+    gone = [r for r in cur if r in RETIRED_ASK_RULES and r not in set(ask)]
+    if gone:
+        perms['ask'] = [r for r in cur if r not in gone]
+        if not perms['ask']:
+            del perms['ask']
+    return gone
+
+
 def allow_at_user_level(rules, settings, ask=()):
     """ADD `rules` to the user-level settings' permissions.allow and `ask` to
     its permissions.ask, never editing, moving or removing what is there,
     and never one the file denies; the broad engine allow rule only with
     every ask rule beside it (precedent_vendor_engine.
-    permission_rules_to_add, 2026-10-17). -> [added]; [] when there is
-    nothing to add or the file does not parse (left exactly as it was)."""
+    permission_rules_to_add, 2026-10-17). The one removal: an ask rule this
+    runner itself wrote that the engine no longer ships (RETIRED_ASK_RULES).
+    -> [added]; [] when there is nothing to change or the file does not
+    parse (left exactly as it was)."""
     path = pathlib.Path(settings)
     try:
         data = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {}
@@ -222,7 +280,8 @@ def allow_at_user_level(rules, settings, ask=()):
         add_ask = []
     finally:
         sys.path.pop(0)
-    if not add and not add_ask:
+    dropped = _drop_retired_asks(data, ask)
+    if not add and not add_ask and not dropped:
         return []
     if add_ask:
         data.setdefault('permissions', {}).setdefault('ask', []).extend(add_ask)
