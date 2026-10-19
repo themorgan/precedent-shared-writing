@@ -55,6 +55,14 @@ import pathlib
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+try:
+    import precedent_source_home as _psh   # one tree, many paths (2026-10-19)
+except ImportError:
+    _psh = None
+finally:
+    sys.path.pop(0)
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # The harness's own bot addresses: a commit authored as one of these is
 # nobody's. ONE list, read here (rows 3 and 3b) and imported by
@@ -853,10 +861,20 @@ def checks(offline=False):
     # a row that still called the result a duplicate would be red forever on
     # exactly the containers that had just fixed it -- and a row that is never
     # green is a row sessions stop reading.
+    #
+    # THE TEST NEVER RAN UNTIL 2026-10-19. _tree called .resolve() on the
+    # string _expand_source_path returns, the AttributeError was caught, and
+    # every path compared as its own unexpanded spelling. It held only
+    # because _attachable_sources already drops a second path to a tree it
+    # has seen. Now it is precedent_source_home.tree_key, the one test every
+    # lister shares (practice: judgment-check-or-tool).
     def _tree(shown):
+        path = pathlib.Path(_expand_source_path(shown))
+        if _psh is not None:
+            return _psh.tree_key(path)
         try:
-            return str(_expand_source_path(shown).resolve())
-        except Exception:
+            return str(path.resolve())
+        except OSError:
             return shown
     dupes = {n: paths for n, paths in by_name.items()
              if len({_tree(p) for p in paths}) > 1}
@@ -1099,7 +1117,11 @@ def _brought_sets_rows():
         import precedent_resolve as pr
     except Exception:                                        # noqa: BLE001
         return []
-    brought = pr.brought_sources(_individual_path(), warn=False)
+    # A set this repository copies in is here by definition, and its copy
+    # wins over the person's (precedent_resolve.vendored_source_paths).
+    copied = {n for _p, _l, n, _note in pr.vendored_source_paths(ROOT)}
+    brought = [b for b in pr.brought_sources(_individual_path(), warn=False)
+               if b['name'] not in copied]
     if not brought:
         return []
     name = 'every set your individual set brings is here'
@@ -1107,11 +1129,18 @@ def _brought_sets_rows():
                if not (pathlib.Path(b['path']) / 'practices').is_dir()]
     if not missing:
         return [(name, True, '')]
+    # The fetch named is the session-start hook's own, which brings these
+    # sets too. It used to be the bare script, which refuses to run without
+    # four arguments this row never gave (2026-10-19).
+    attach = [b['repo'].rstrip('/').removesuffix('.git').split('/')[-2:]
+              for b in missing if 'github.com/' in (b.get('repo') or '')]
     return [(name, False,
              'not here: ' + ', '.join(f"{b['name']} (expected at {b['path']})"
                                        for b in missing)
              + '. Its rules are absent from this session, and nothing else '
-             'says so. Fetch it: python3 tools/precedent_source_bootstrap.py')]
+             'says so. Fetch it: '
+             + ''.join(f'add_repo {o}/{r} (read access), ' for o, r in attach)
+             + 'then python3 tools/precedent_source_bootstrap.py --teams-from .')]
 
 
 def _off_base_sources_row():
@@ -1656,6 +1685,11 @@ def _attachable_sources():
     found, seen = [], set()
     roots = [pathlib.Path(home)] if home else []
     roots.append(ROOT.parent)
+    if _psh is not None:
+        try:
+            roots.append(_psh.home())   # the harness's declared source home
+        except Exception:                                   # noqa: BLE001
+            pass
     for parent in roots:
         try:
             entries = sorted(parent.iterdir())
@@ -1666,7 +1700,7 @@ def _attachable_sources():
                 continue
             if not (d / '.git').exists() or d.resolve() == ROOT:
                 continue
-            real = str(d.resolve())
+            real = _psh.tree_key(d) if _psh is not None else str(d.resolve())
             if real in seen:
                 continue
             seen.add(real)
