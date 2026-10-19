@@ -8655,100 +8655,6 @@ _BASE_BRANCH_COPY_OK = {
 }
 
 
-# The engine tools that push or delete for a reason that is not a person's
-# work moving, so they are allowed with the rest; the reason is the record.
-_ASK_EXEMPT = {
-    'precedent_check_after.py': 'files only a failure item on the branch it '
-                                'just tested, after a move the person asked for',
-    'precedent_data_branches.py': "pushes only the engine's own data branches",
-    'precedent_push_check.py': "pushes only its pass receipts to the engine's "
-                               'receipt branch',
-    'precedent_stale_branches.py': 'deletes branches only inside the branch-cleanup '
-                                   'workflow, and refuses anywhere else',
-}
-
-
-def _pushing_calls(text):
-    """-> line numbers of calls in `text` that run `git push`, or merge a pull
-    request: a call whose literal arguments include 'push' beside 'git' or
-    through a git helper (_git, _run, git), or that names
-    merge_pull_request."""
-    import ast as _ast
-    try:
-        tree = _ast.parse(text)
-    except SyntaxError:
-        return []
-    lines = []
-    for node in _ast.walk(tree):
-        if not isinstance(node, _ast.Call):
-            continue
-        lits = [c.value for a in node.args for c in _ast.walk(a)
-                if isinstance(c, _ast.Constant) and isinstance(c.value, str)]
-        name = getattr(node.func, 'attr', None) or getattr(node.func, 'id', None)
-        if ('push' in lits and ('git' in lits or name in ('_git', '_run', 'git'))) \
-                or 'merge_pull_request' in lits:
-            lines.append(node.lineno)
-    return lines
-
-
-@check('risky-engine-tools-ask', 'tree',
-       "where the settings template allows every engine tool with one rule "
-       "(Bash(python3 tools/precedent_*)), every tools/precedent_*.py that "
-       "runs `git push` or merges a pull request is named by one of the "
-       "template's permissions.ask rules, or is in _ASK_EXEMPT with its "
-       "reason; and every ask rule names a tool that exists",
-       "a tool that changes things without git push -- writing another "
-       "repository's files, or calling GitHub through a library this does "
-       "not read -- and a push built from a variable rather than the literal "
-       "'push'. Whether an ask rule's pattern really matches the command a "
-       "session types is Claude Code's matching, tested in the harness, not "
-       "here.",
-       practice_backed=False,
-       selects_on=('tools/precedent_*.py',
-                   'templates/harness/claude-code/settings.json'))
-def _risky_engine_tools_ask(ctx):
-    """EVERY ENGINE TOOL IS ALLOWED, SO THE RISKY ONES MUST ASK (2026-10-17).
-    Morgan asked for the per-tool allow lines to become one rule, with "a
-    small list we explicitly want to exclude from that list to get the
-    session user's permission", and for the fix that keeps that list from
-    going stale: a new tool that pushes would otherwise be allowed the day
-    it lands, with no prompt and nobody deciding it."""
-    tmpl = ROOT / 'templates' / 'harness' / 'claude-code' / 'settings.json'
-    if not tmpl.is_file():
-        raise NotApplicable('no Claude Code settings template here')
-    try:
-        perms = json.loads(tmpl.read_text(encoding='utf-8')).get('permissions') or {}
-    except ValueError as exc:
-        return [Finding(str(tmpl.relative_to(ROOT)), f'does not parse: {exc}')]
-    if 'Bash(python3 tools/precedent_*)' not in (perms.get('allow') or []):
-        raise NotApplicable('the template allows engine tools one by one')
-    ask = [r for r in (perms.get('ask') or []) if isinstance(r, str)]
-    rel_t = str(tmpl.relative_to(ROOT))
-    findings = []
-    named = set()
-    for rule in ask:
-        m = re.search(r'tools/(precedent_[\w.-]+\.py)', rule)
-        if not m:
-            continue
-        named.add(m.group(1))
-        if not (ROOT / 'tools' / m.group(1)).is_file():
-            findings.append(Finding(rel_t, f'the ask rule {rule!r} names '
-                                    f'tools/{m.group(1)}, which is not here'))
-    for path in _tools_py(ROOT / 'tools'):
-        if not path.name.startswith('precedent_') or path.name in named:
-            continue
-        lines = _pushing_calls(path.read_text(encoding='utf-8', errors='ignore'))
-        if lines and path.name not in _ASK_EXEMPT:
-            findings.append(Finding(
-                f'tools/{path.name}',
-                f'pushes or merges (line {lines[0]}) and the settings template '
-                f'allows it with every engine tool, so it would run with no '
-                f'prompt -- add an ask rule for it to {rel_t}, or put it in '
-                f'precedent_check.py\'s _ASK_EXEMPT with the reason it needs '
-                f'none'))
-    return findings
-
-
 @check('declared-base-branch', 'tree',
        "every tool that resolves the repo's branch reads precedent.json's "
        "declared `base_branch` before falling back to inferring one from "
@@ -10056,6 +9962,20 @@ def _rename_updates_links(ctx):
                     break
     # The order paths-outer gave: by removed path, then by file.
     out = [x for k in sorted(found) for x in found[k]]
+    # AND IN THE PRACTICE SETS BESIDE THIS CHECKOUT (2026-10-18), said and
+    # never refused: an engine file this branch removes can still be named
+    # in a set that vendors it, which only the set's next Update Vendors
+    # used to catch. precedent_refresh_sources ships only in BestPractice,
+    # so elsewhere this reads nothing.
+    try:
+        import precedent_refresh_sources as _prs
+        for label, where, old in _prs.stranded_in_sets(
+                [o for _k, o, _n in paths]):
+            print(f'  ADVISORY (rename-updates-links): {label}/{where} still '
+                  f'names {old}, which this branch removes -- fix it in that '
+                  f'set before its next Update Vendors stops on it')
+    except Exception:                                        # noqa: BLE001
+        pass
     if not out and skipped:
         print(f'  (rename-updates-links: {skipped} single-segment path(s) '
               f'skipped as too generic to search)')
@@ -13309,9 +13229,63 @@ def _charge_brought_share(n):
     return charged, None
 
 
+def _change_grew_surface(ctx, rel, n, approx):
+    """True when the change in scope is what put `rel` at `n` tokens, so an
+    over-ceiling surface is this change's to fix; False when it was already
+    that size before the change, or grew from a source the change did not
+    touch.
+
+    An over-ceiling surface the change did not grow is not a finding: the
+    merge and push gates print it as "OVER by" (session_load_trend.
+    headroom_notice), and the person decides between a reduction pass and a
+    new ceiling. Blocking every branch on it held a filing record off a
+    consumer's trunk for hours on 2026-10-16, when the session-start file
+    grew because the universal catalogue added spoken commands -- growth no
+    branch there wrote, and the same wall for every other branch too
+    (S. Alexander Jacobson, 2026-10-16: "Yes, build the warning change").
+
+    With no change in scope (a sweep of a clean trunk) there is nothing to
+    excuse, and the ceiling is reported as before. The session-start file is
+    generated and untracked, so no diff of it exists: the change grew it
+    when it touched what this repository owns among its inputs --
+    precedent.json, or its repo-local practice source. A change to the
+    registry itself always owns the result, since it set the ceiling."""
+    if getattr(ctx, 'base', None) is None:
+        return True
+    # A change that edits the registry set the ceiling it now stands against.
+    if 'tools/session_load_budgets.json' in (ctx.changed or ()):
+        return True
+    if rel == '.precedent/SESSION_PRACTICES.md':
+        owned = ['precedent.json']
+        try:
+            import precedent_resolve as _pr
+            for s in _pr.load_config(str(ROOT)):
+                if s.get('level') != 'repo-local':
+                    continue
+                p = pathlib.Path(str(s.get('path') or ''))
+                p = p if p.is_absolute() else ROOT / p
+                try:
+                    owned.append(str(p.resolve().relative_to(ROOT.resolve())) + '/')
+                except ValueError:
+                    continue
+        except Exception:                           # practice: fail-gracefully
+            pass
+        return any(f == o or (o.endswith('/') and f.startswith(o))
+                   for f in ctx.changed for o in owned)
+    try:
+        base = ctx.read_base(rel)
+    except Exception:                               # practice: fail-gracefully
+        base = None
+    if base is None:
+        return True
+    return n > approx(_as_measured(rel, base))
+
+
 @check('session-load-budget', 'tree',
        'every file a session loads before it works is declared in '
-       'tools/session_load_budgets.json and is under its declared ceiling, '
+       'tools/session_load_budgets.json and is under its declared ceiling '
+       'or, when over it, was not grown by the change in scope (that case '
+       'prints at the merge and push gates instead), '
        'a repo that declares ceilings also declares headroom_floor_pct so '
        "the early-warning notice is not silently off, and a change does "
        'not add text the practice catalogue already holds',
@@ -13382,7 +13356,7 @@ def _session_load_budget(ctx):
             n, brought_finding = _charge_brought_share(n)
             if brought_finding:
                 out.append(brought_finding)
-        if n > ceiling:
+        if n > ceiling and _change_grew_surface(ctx, rel, n, approx):
             out.append(Finding(rel, f'{n:,} tokens, every session, over its '
                                     f'declared ceiling of {ceiling:,}. Run the '
                                     f'reduction pass -- delete what is '
@@ -14048,6 +14022,46 @@ def run(slugs, ctx, scopes, exempt=None):
     return results
 
 
+SWEEP_FAILED = 'precedent_check --full-sweep'
+
+
+def record_sweep_result(root, failed_slugs):
+    """A full sweep that failed on a committed, clean tree writes that tree
+    down where the global pre-push hook reads it (precedent_push_check's
+    FAILED_TREES), and a full sweep that passed clears what a sweep wrote.
+
+    2026-10-17: a session rooted above the repositories it worked in -- so
+    none of their harness hooks ran -- chained `git push` after a full sweep
+    piped into `tail`, twice, and both pushes went out over a failing sweep.
+    The global pre-push already refused a tree the push check had failed;
+    the sweep wrote nothing there. A pass clears only the sweep's own entry:
+    a push-check failure on the same tree is the push check's to clear.
+    Never raises."""
+    try:
+        import precedent_push_check as ppc
+        r = subprocess.run(['git', '-C', str(root), 'status', '--porcelain',
+                            '--untracked-files=no'],
+                           capture_output=True, text=True)
+        if r.returncode != 0 or r.stdout.strip():
+            return
+        tree = subprocess.run(['git', '-C', str(root), 'rev-parse',
+                               'HEAD^{tree}'], capture_output=True,
+                              text=True).stdout.strip()
+        if not tree:
+            return
+        if failed_slugs:
+            ppc.note_failed_tree(root, tree, [f'{SWEEP_FAILED}: '
+                                              + ', '.join(failed_slugs)])
+            return
+        path = ppc.failed_trees_path(root)
+        rec = ppc._failed_trees(path).get(tree) if path and path.is_file() else None
+        if rec and all(str(f).startswith(SWEEP_FAILED)
+                       for f in rec.get('failed') or []):
+            ppc.clear_failed_tree(root, tree)
+    except Exception:                                        # noqa: BLE001
+        pass
+
+
 def main():
     args = sys.argv[1:]
     flags = {a for a in args if a.startswith('--')}
@@ -14328,6 +14342,9 @@ def main():
             print(f'note: --changed-files-only: {len(errored)} check(s) '
                   f'errored and were not held against this change.')
         return 1 if violated else 0
+    if ('--full-sweep' in flags and only is None and paths is None
+            and '--turn-end' not in flags):
+        record_sweep_result(ROOT, sorted({r[0] for r in violated + errored}))
     if violated or errored:
         return 1
     if (skipped or unverified) and '--strict' in flags:

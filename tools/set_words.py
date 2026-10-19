@@ -126,6 +126,11 @@ def sets_with_words(root=ROOT):
         return []
     out, seen = [], set()
     root = pathlib.Path(root).resolve()
+    # The repository itself is left out by declared_source_paths(), by name
+    # as well as by path (precedent_resolve.is_repository_itself): a
+    # checkout of a set somewhere else -- the worktree --run-tests makes --
+    # is that set (2026-10-18: the ladder set's full check on main judged
+    # its own words).
     for path, _level, name, note in _pr.declared_source_paths(root):
         if note or not path:
             continue
