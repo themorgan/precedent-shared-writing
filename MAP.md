@@ -75,6 +75,8 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/leak_gate.py](tools/leak_gate.py) | The push-time leak gate — structural rules always, private-term blocklist when configured |
 | [tools/open_failures.py](tools/open_failures.py) | Failures an unattended job could not report anywhere else, kept as open blocker items in todo/ and listed at session start |
 | [tools/our_language.py](tools/our_language.py) | Our language: the short list of words a person needs to follow a conversation about Precedent, read from tools/our_language.json and rendered into documentation/OUR_LANGUAGE.md's generated table (spec/FIVE_STAGES_AND_OUR_LANGUAGE_PLAN.md) |
+| [tools/outbound_privacy_gate.py](tools/outbound_privacy_gate.py) | Refuses a request that would carry the person's private details off the |
+| [tools/outbound_privacy_scan.py](tools/outbound_privacy_scan.py) | Finds requests that already left the machine carrying the person's |
 | [tools/parse_check.py](tools/parse_check.py) | Does every JSON/YAML file in scope still parse — changed files for the deep check, the whole tree for the very deep check |
 | [tools/practice_standing.py](tools/practice_standing.py) | a practice's standing: how binding it is, and who may set it |
 | [tools/precedent_access_check.py](tools/precedent_access_check.py) | Probes, at session start, which repos in force this session can actually push to -- so work destined for one it cannot reach is discovered before it is done, not after |
@@ -112,6 +114,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_regenerate.py](tools/precedent_regenerate.py) | Rebuilds the generated files whose inputs a commit touches, and stages them -- run by the commit backstop, never refuses a commit |
 | [tools/precedent_reply_check.py](tools/precedent_reply_check.py) | The reply gate's BLOCKING half — refuses a stop when the reply missed what a source's reply_check.json requires |
 | [tools/precedent_resolve.py](tools/precedent_resolve.py) | Resolves the universal, shared and individual sources into one set, by precedence |
+| [tools/precedent_resolve_merge.py](tools/precedent_resolve_merge.py) | Finishes a merge that stopped only on generated files: rebuilds them from the merged sources and stages them, the way a landing does |
 | [tools/precedent_review_page.py](tools/precedent_review_page.py) | The very deep check's session-only page: branches to delete, with a link each, and every active practice by source |
 | [tools/precedent_run_session_hooks.py](tools/precedent_run_session_hooks.py) | Runs each repo's own SessionStart hooks for a session opened in the folder above them |
 | [tools/precedent_session_check.py](tools/precedent_session_check.py) | Reports whether this session's SessionStart guarantees are actually in effect -- practices file, commit identity, backstop, packages, refspec, freshness, and the branch it started on -- and `--apply` runs the hooks by hand when the harness never did |
