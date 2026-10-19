@@ -364,6 +364,13 @@ _dirty() {
 # ref is ever written and every comparison below silently has nothing to
 # compare against. Local config only, idempotent, adds no commits.
 _widen_refspec() {
+  # Only where an origin exists, as bootstrap.sh already guards it. On a
+  # repository with none -- every fresh install before its first push --
+  # `config --add remote.origin.fetch` creates a [remote "origin"] section
+  # with no URL, and the `git remote add origin URL` INSTALL.md §0 step 8
+  # then tells the person to run fails with "remote origin already exists"
+  # (very deep check, 2026-10-17, pass 1).
+  _git remote get-url origin >/dev/null 2>&1 || return 0
   if ! _git config --get-all remote.origin.fetch 2>/dev/null | grep -q 'refs/heads/\*'; then
     _git config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' 2>/dev/null
   fi
@@ -372,12 +379,12 @@ _widen_refspec() {
   _git config fetch.prune true 2>/dev/null
 }
 
-# THE LANDING BRANCH WINS WHEN IT IS PRE-STAGING (spec/BRANCH_TIERS_PLAN.md,
-# 2026-09-25). A person whose `Go update` lands on pre-staging has every
-# other window's work there, not on staging -- checking against staging
-# would call a branch fresh while it lacks what the other windows pushed a
-# minute ago. precedent_branches.py answers where this person lands; no
-# tool, no python3, or no pre-staging on origin keeps the old answer.
+# THE LANDING BRANCH WINS WHEN IT IS MAIN. A person whose work lands on main
+# has every other window's work there, not on staging -- checking against
+# staging would call a branch fresh while it lacks what the other windows
+# pushed a minute ago. precedent_branches.py answers where this person
+# lands; no tool, no python3, or no such branch on origin keeps the
+# staging answer.
 _landing_base() {
   local tool="" c landing
   for c in "$ROOT/tools/precedent_branches.py"; do
@@ -386,14 +393,10 @@ _landing_base() {
   [ -n "$tool" ] || return 1
   command -v python3 >/dev/null 2>&1 || return 1
   landing="$(cd "$ROOT" && python3 "$tool" --landing 2>/dev/null | head -n1)"
-  # pre-staging for a person on the ladder; main for anyone off it, whose
-  # work lands nowhere else (spec/LADDER_OPT_IN_PLAN.md D3) -- measuring
-  # them against the repository's own staging would name a branch they
-  # never use.
-  case "$landing" in
-    pre-staging|main) ;;
-    *) return 1 ;;
-  esac
+  # Staging for a person on the ladder; main for anyone off it, whose work
+  # lands nowhere else (spec/LADDER_OPT_IN_PLAN.md D3) -- measuring them
+  # against the repository's own staging would name a branch they never use.
+  [ -n "$landing" ] || return 1
   _git ls-remote --exit-code --heads origin "$landing" >/dev/null 2>&1 || return 1
   printf '%s' "$landing"
 }
@@ -403,11 +406,11 @@ _landing_base() {
 # for an attached practice source that base is where it is READ from -- main,
 # normally. Nothing this session writes lands on it, so the person's landing
 # branch says nothing about it. Letting the landing branch win compared a
-# source clone sitting correctly on main against its own pre-staging, which
-# is ahead of main by design until a Promote, and refused the first tool call
-# of every session that attached a source with unpromoted work (2026-09-26,
-# twice in one session). The project dir keeps the landing override: work
-# written THERE does land on pre-staging.
+# source clone sitting correctly on main against its own landing branch,
+# which is ahead of main by design until a Promote, and refused the first
+# tool call of every session that attached a source with unpromoted work
+# (2026-09-26, twice in one session). The project dir keeps the landing
+# override: work written THERE does land on the landing branch.
 BASE_DECLARED=0
 
 _resolve_base() {
@@ -437,20 +440,19 @@ _resolve_staging_base() {
 
 # A TIER BRANCH IS NEVER BROUGHT UP TO DATE BY A MERGE (2026-10-08). The
 # stale-base remedy, "git merge origin/<base>", is right for a working
-# branch and wrong on main, staging or pre-staging: a consuming
-# repository's session on main was told to merge origin/pre-staging into
-# it, which makes the local main diverge from origin/main. On a tier the
-# remedy is a new working branch from origin/<base>, named by
-# precedent_branch_name.py and made with --no-track: `git checkout -b X
-# origin/pre-staging` sets X to track pre-staging, so a bare `git push`
-# from X would land on the tier.
+# branch and wrong on main or staging: a consuming repository's session on
+# main was told to merge another tier into it, which makes the local main
+# diverge from origin/main. On a tier the remedy is a new working branch
+# from origin/<base>, named by precedent_branch_name.py and made with
+# --no-track: `git checkout -b X origin/staging` sets X to track staging,
+# so a bare `git push` from X would land on the tier.
 _is_tier_branch() {
   case "$1" in
-    main|staging|pre-staging|precedent-beta-v01) return 0 ;;
+    main|staging|precedent-beta-v01) return 0 ;;
   esac
   local tool="$ROOT/tools/precedent_branches.py"
   # A repository's own staging name (precedent.json): the tool's --tier
-  # says `full` for every tier above pre-staging, whatever it is called.
+  # says `full` for every tier, whatever it is called.
   if [ -f "$tool" ] && command -v python3 >/dev/null 2>&1; then
     [ "$(cd "$ROOT" && python3 "$tool" --tier "$1" 2>/dev/null | head -n1)" = "full" ] && return 0
   fi
@@ -517,7 +519,7 @@ _behind_base_count() {
 # on 2026-09-13: a session ran a whole thread against a day-old tree, applying
 # rules that had been superseded, and only found out when an unrelated command
 # was blocked. Deepen once and recount before believing the counts.
-# practice: upstream-fix. See record/GOTCHAS.md#g12 for the merge-base shape of
+# practice: upstream-fix. See gotchas/gotcha-2026-09-13-on-a-shallow-clone-git-merge-base-between-two-different-bran.md for the merge-base shape of
 # the same false negative.
 _deepen_if_shallow() {
   _is_shallow || return 1
@@ -638,6 +640,8 @@ _session_start_one() {
   if [ "$fetched" -eq 0 ] && _branch_absent_from_origin "$branch"; then
     fetched=1
     echo "NOTE: freshness-guard: '$branch' does not exist on origin yet -- nothing to be behind. Checking it against the base branch only." >&2
+  elif [ "$fetched" -eq 0 ] && ! _git remote get-url origin >/dev/null 2>&1; then
+    echo "WARN: freshness-guard: this repository has no origin yet, so there is nothing to fetch and its freshness is NOT verified. Give it one: git remote add origin <its GitHub URL>, then push." >&2
   elif [ "$fetched" -eq 0 ]; then
     echo "WARN: freshness-guard: could not fetch origin/$branch -- freshness NOT verified. Everything below is measured against a possibly stale remote-tracking ref; a silent result here means 'not checked', never 'in sync'." >&2
   fi
@@ -739,25 +743,6 @@ _session_start_one() {
         fi
       fi
     fi
-    # Pre-staging behind a tier above it: somebody pushed straight to
-    # staging, or a workflow or a web edit committed straight to main
-    # (plan, holes 2, 4 and 5). Reported and named, never merged from a
-    # hook -- the same rule this guard keeps for every base merge.
-    # precedent_branches.py --drift says which tier, how many commits,
-    # and whether they have had their tier's checks, and stays silent about
-    # merge commits that change no file -- the two every ordinary pull
-    # request into main leaves behind.
-    if [ "$base" = "pre-staging" ]; then
-      local tool="" c
-      for c in "$ROOT/tools/precedent_branches.py"; do
-        if [ -f "$c" ]; then tool="$c"; break; fi
-      done
-      if [ -n "$tool" ] && command -v python3 >/dev/null 2>&1; then
-        (cd "$ROOT" && python3 "$tool" --drift 2>/dev/null) | while IFS= read -r line; do
-          [ -n "$line" ] && echo "NOTE: freshness-guard: $line" >&2
-        done
-      fi
-    fi
   else
     echo "NOTE: freshness-guard: no base branch given and origin/HEAD does not resolve -- base-branch check SKIPPED (not passed). Pass the base as the hook's second argument in .claude/settings.json." >&2
   fi
@@ -807,7 +792,7 @@ _pw_block() {
 # mode_pre_write runs _pre_write_one for the project and then for every
 # attached repository, and every message speaks of '$branch' and
 # origin/$base alone -- so a block on, say, an individual-set clone left on
-# that set's pre-staging read as being about the project's own branch, and
+# that set's own tier branch read as being about the project's own branch, and
 # cost a consumer session a diagnosis round on 2026-10-02 (it could not even
 # read this script to find out: every non-git command is refused while the
 # block stands). Empty for the project itself, whose messages read as before.
@@ -888,7 +873,7 @@ print((d.get("tool_input") or {}).get("command") or "")' 2>/dev/null || true)"
   # either has written it, and both fall through to `_pre_write_one`, which
   # runs `git fetch`/`--deepen` against the same `.git` directory at once.
   # Reproduced 2026-09-15: one of two parallel Bash calls blocked on a
-  # false "diverged" reading (a shallow-clone artifact, record/GOTCHAS.md#g37)
+  # false "diverged" reading (a shallow-clone artifact, gotchas/gotcha-2026-09-14-a-shallow-clone-makes-a-merely-behind-checkout-read-as-diver.md)
   # while its sibling call, racing the same checkout, read the correct
   # counts and passed clean -- same session, same instant, two different
   # verdicts, because nothing serialized them. flock turns the race into a
@@ -976,6 +961,9 @@ _pre_write_one() {
   if ! _git fetch --quiet origin "$branch" 2>/dev/null; then
     if _branch_absent_from_origin "$branch"; then
       echo "NOTE: freshness-guard: '$branch' does not exist on origin yet -- nothing to be behind, so this call is not blocked on it. The base-branch check below still runs." >&2
+    elif ! _git remote get-url origin >/dev/null 2>&1; then
+      # No origin at all: "git fetch origin" is no remedy (2026-10-17).
+      _pw_block "this repository has no origin yet, so this checkout's freshness could not be verified at all. A check that could not run is not a check that passed. Give it one: git remote add origin <its GitHub URL>, then push $branch"
     else
       _pw_block "could not fetch origin/$branch, so this checkout's freshness could not be verified at all. A check that could not run is not a check that passed. Run: git fetch origin $branch"
     fi

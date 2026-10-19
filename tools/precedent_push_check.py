@@ -101,8 +101,10 @@ window instead of one. PRECEDENT_NO_SHARED_PASS=1 turns
 both halves off.
 
 TWO TIERS, BY BRANCH (spec/BRANCH_TIERS_PLAN.md, Morgan, 2026-09-25,
-strength: decided). A push to staging or main runs every check below -- the
-FULL tier. A push to pre-staging or any other branch runs only the BASIC
+strength: decided). Since 2026-10-17 a push to main, and to staging for a
+person who lands there, runs only the BASIC tier, and the FULL tier runs at
+the Debut and after the push into main (Morgan: "the full tests should
+happen after that"). A push to any other branch runs only the BASIC
 tier: the markdown lint, the leak gate (pushing any branch of a public
 repository publishes it) and the commit-author checks, seconds rather than
 minutes. The person's `branch_push_checks` setting can raise the other
@@ -117,7 +119,7 @@ Run:
                                   # the full suite; refused without a reason
                                   # where the landing branch is the quick tier
   python3 tools/precedent_push_check.py --gate           # skip if this tree passed
-  python3 tools/precedent_push_check.py --gate --push-command 'origin pre-staging'
+  python3 tools/precedent_push_check.py --gate --push-command 'origin staging'
                                   # the tier that push needs (what the hook runs)
   python3 tools/precedent_push_check.py --list           # what would run, and why
 
@@ -274,7 +276,7 @@ HISTORY_CHECKS = {'commit_author', 'commit_dates', 'session_trailer',
 # two, and it judges only the commits origin does not have yet -- what this
 # push carries. Before, it ran only inside a full sweep, walked the whole
 # history, and refused a consumer's Promote over one old commit on main;
-# at pre-staging, --changed-files-only dropped its findings (they name no
+# at the basic tier, --changed-files-only dropped its findings (they name no
 # file), so nothing judged a commit at Booked at all.
 # A check a practice SET ships reaches a repository on the set's own
 # schedule, which is not the engine's (practice: vendor-rollout-disclosed,
@@ -338,8 +340,8 @@ CI_WORKFLOWS_CHECK = (
 # Entries a repo may simply not have: skipped with a note, never a failure.
 OPTIONAL = {'deep_check', 'commit_author', 'commit_dates', 'session_trailer',
             'light_check', 'views_sync'}
-# The BASIC tier: what a push to pre-staging or any other working branch
-# runs. Everything else in a kind's list is FULL-only. The leak gate is
+# The BASIC tier: what a push to a working branch runs. Everything else
+# in a kind's list is FULL-only. The leak gate is
 # here because a push IS publication in a public repository, and cannot
 # wait for promotion (Morgan, 2026-09-25: "Good on nothing private going
 # out", strength: assented). Each costs seconds.
@@ -349,14 +351,14 @@ OPTIONAL = {'deep_check', 'commit_author', 'commit_dates', 'session_trailer',
 # Morgan, 2026-09-25, "we need to absolutely put a hard stop to this").
 # build_views joins it for a practice set (2026-10-03, spec/
 # GENERATED_FILES_PLAN.md step 4): a stale or hand-edited view used to pass
-# the push to pre-staging and fail only at the Debut. It takes under a second.
+# every push and fail only at the Debut. It takes under a second.
 # The practice audit's two checks join it for a consumer (2026-10-02): a
 # classic install migrated onto the loader carried stale manifest baselines
-# and no scrub blocklist, both full-tier findings, so its pre-staging pushes
+# and no scrub blocklist, both full-tier findings, so its pushes
 # passed and the first Debut failed on both. They run in seconds.
 # generated_files joins a consumer's and a practice set's basic tier
 # (2026-10-04): an Update Vendors that refreshed build_todo_index.py left
-# todo/TODO.md stale, the push to pre-staging passed, and only the full
+# todo/TODO.md stale, the push passed, and only the full
 # check said so. Two seconds. Not upstream's: there precedent_check.py is
 # full-only by design, and BestPractice's commit backstop rebuilds these.
 # rename_links joins a consumer's and a practice set's basic tier
@@ -377,9 +379,11 @@ OPTIONAL = {'deep_check', 'commit_author', 'commit_dates', 'session_trailer',
 # no time. A new entry needs the person's own words asking for THIS check
 # before a push, given after they were told its time and urged to put it
 # at the Debut instead -- never a session's judgment that it is cheap.
-# The fourteen below were in force when the tier was closed; a time is the
-# one measured on 2026-10-16 or the one its own note above gives, and None
-# where neither exists.
+# The fourteen below were in force when the tier was closed. A time is the
+# one measured on 2026-10-16 here, or its own note above; the six this repo
+# does not run (ci_workflows, light_check, views_sync, scrub_gate,
+# practice_export_loop, rename_links) were measured on 2026-10-17 in two
+# consuming repositories, three runs each, from the slower repo's median.
 _IN_FORCE_AT_CLOSING = ('in force when Morgan closed the tier, 2026-10-16: '
                         '"all the testing EXCEPT THE BARE ESSENTIAL AND LEAK '
                         'GATES SHOULD GO INTO DEBUT"')
@@ -388,18 +392,18 @@ _WORKFLOWS = 'Morgan, 2026-09-25: "we need to absolutely put a hard stop to this
 BASIC_CHECKS_APPROVED = {
     'leak_gate': (_LEAKS, 16),
     'leak_gate_commits': (_LEAKS, 4),
-    'ci_workflows': (_WORKFLOWS, None),
-    'light_check': (_WORKFLOWS, None),
+    'ci_workflows': (_WORKFLOWS, 0),
+    'light_check': (_WORKFLOWS, 0),
     'doc_lint': (_IN_FORCE_AT_CLOSING, 1),
     'commit_author': (_IN_FORCE_AT_CLOSING, 0),
     'commit_dates': (_IN_FORCE_AT_CLOSING, 0),
     'session_trailer': (_IN_FORCE_AT_CLOSING, 0),
     'build_views': (_IN_FORCE_AT_CLOSING, 1),
     'generated_files': (_IN_FORCE_AT_CLOSING, 2),
-    'views_sync': (_IN_FORCE_AT_CLOSING, None),
-    'scrub_gate': (_IN_FORCE_AT_CLOSING, None),
-    'practice_export_loop': (_IN_FORCE_AT_CLOSING, None),
-    'rename_links': (_IN_FORCE_AT_CLOSING, None),
+    'views_sync': (_IN_FORCE_AT_CLOSING, 2),
+    'scrub_gate': (_IN_FORCE_AT_CLOSING, 1),
+    'practice_export_loop': (_IN_FORCE_AT_CLOSING, 1),
+    'rename_links': (_IN_FORCE_AT_CLOSING, 0),
 }
 BASIC_CHECKS = set(BASIC_CHECKS_APPROVED)
 BASIC, FULL = 'basic', 'full'
@@ -480,7 +484,7 @@ PUSH_CHECKS = {
         # (2026-10-03): a reduction pass retired practices in the shared sets,
         # a consumer's views were never re-synced, and nothing said so until a
         # Debut's full check -- whose message sent the session after missing
-        # sources. Basic tier, so the push to pre-staging says it; sources
+        # sources. Basic tier, so every push says it; sources
         # that cannot be resolved here are said and skipped, never failed.
         ('views_sync', ['{engine}/precedent_sync_views.py', '--repo', '.',
                         '--check', '--skip-unresolved'],
@@ -601,8 +605,9 @@ def repo_kind(engine=HERE):
 # run: every local tier passed a change that platform-docs-check.yml then
 # failed as GitHub's test on the pull request into main, a fix and a second
 # Produce later. The workflow file stays the one record of its commands: each
-# step that is a plain `python3 tools/<x>.py [args]` call runs here, at every
-# tier, as the repo's own light check does; a workflow the engine installs
+# step that is a plain `python3 tools/<x>.py [args]` call runs here, in the
+# full tier (the Debut and around Produce; never before a push, since
+# 2026-10-17); a workflow the engine installs
 # (ENGINE_MANIFEST's ci_workflow_files) is skipped, since this list already
 # carries what it runs, and so is a step calling an engine file. Any other
 # step is named by Update Vendors, once per update (the second answer of
@@ -812,6 +817,14 @@ def plan(root, engine=HERE, tier=FULL):
     # A workflow step calling a tool this list already runs is left to this
     # list, which owns its tier: BestPractice's own deep-check.yml runs the
     # full suite, which a basic push must not.
+    # A repository's own workflow checks are tests, so they run in the full
+    # tier only: at the Debut and around Produce, never before a push. Until
+    # 2026-10-17 they ran at every tier, outside BASIC_CHECKS, where the
+    # closed quick tier could not see them (Morgan, 2026-10-16: "all the
+    # testing EXCEPT THE BARE ESSENTIAL AND LEAK GATES SHOULD GO INTO DEBUT";
+    # found by the very deep check's CHECKS BY STAGE).
+    if tier == BASIC:
+        return kind, out
     planned = {Path(a[0].replace('{engine}', str(rel))).as_posix()
                for _n, a, _r in PUSH_CHECKS[kind] if a}
     out.extend(c for c in approved_workflow_checks(root)[0]
@@ -1077,12 +1090,17 @@ def publish_pass(root, rec):
                             f'{c.stdout.strip()}:refs/heads/{branch}'], 60)
         if p is not None and p.returncode == 0:
             _git_env(root, ['update-ref', RECEIPT_REF, c.stdout.strip()], 10)
-            print('precedent_push_check: receipt shared with every checkout of '
-                  'this repository, so no other window re-runs these files.')
+            # SAY THE PUSH (2026-10-17). A check that writes to origin is
+            # rare enough that a reader of the run must see it in plain
+            # words: what was pushed, where, and how to stop it.
+            print(f'precedent_push_check: pushed a pass receipt to {branch} '
+                  f'on origin, so no other checkout re-runs these files '
+                  f'(PRECEDENT_NO_SHARED_PASS=1 turns this off).')
             return
         why = p.stderr.strip()[:200] if p is not None else 'timed out'
-    print(f'precedent_push_check: NOTE -- could not share the receipt with '
-          f'other checkouts ({why}); they will run the suite themselves.')
+    print(f'precedent_push_check: NOTE -- could not push the pass receipt to '
+          f'{branch} on origin ({why}); other checkouts will run the suite '
+          f'themselves.')
 
 
 def _promote_only_refusal(root, argv):
@@ -1105,20 +1123,17 @@ def _promote_only_refusal(root, argv):
     return refusal(root, cmd) if refusal else None
 
 
-# The practice checks, on the files a push into pre-staging CHANGES, and
+# The practice checks, on the files a push CHANGES, and
 # nothing else (Morgan, 2026-09-27, strength: decided: "ONLY for files that
 # changed (or were added) in that session ... NOT for every file in the
-# repo"). pre-staging is where work lands, and its tier was the quick one, so
-# a document whose title and first heading disagreed went straight onto it
-# and was caught only by the next Promote's full check. The practice checks
-# take seconds; the test suite, which is what makes the full check slow,
-# still waits for staging.
+# repo"). A push to the landing branch takes the quick tier, so a document
+# whose title and first heading disagreed went straight onto it and was
+# caught only by the next Promote's full check. The practice checks take
+# seconds; the test suite, which is what makes the full check slow, still
+# waits for the full tier.
 # What a step prints when a session-load size cap is exceeded but not
-# refused: precedent_check.py's pre-staging WARNING, build_views.py's.
+# refused: precedent_check.py's quick-check WARNING, build_views.py's.
 SIZE_CAP_WARNINGS = ('over a size cap. The quick check',
-                     # precedent_check.py's wording until 2026-10-02, kept
-                     # so a check vendored before then is still recognised
-                     'over a size cap. Allowed onto pre-staging',
                      'build_views WARNING:')
 CAP_WARNED = []           # the steps that printed one, this run
 CAP_DETAILS = []          # what each said: file, measure and limit
@@ -1154,8 +1169,8 @@ def _cap_details(text):
 
 def _cap_warning_last(tier=None):
     """Say it last, where the push gate's short tail of a pass shows it:
-    a size cap is over, allowed onto pre-staging, refused at the Debut
-    (Morgan, 2026-09-30: warn on pre-staging, no change for staging).
+    a size cap is over, allowed at the quick check, refused at the Debut
+    (Morgan, 2026-09-30: warn at the quick check, no change for staging).
     One line that carries the file, its size, the limit and the check that
     measured it, since Update Vendors repeats this line and nothing else."""
     if not CAP_WARNED:
@@ -1223,8 +1238,8 @@ def _is_engine_check(root, rel):
 # Every check precedent_check.py registers needs a planted case in
 # verify_harness.py's check_precedent_check_fires -- the harness asserts it
 # ("every registered check has a planted case here"), but only on a full
-# run, which pre-staging never does. On 2026-09-29 a new check went to
-# pre-staging without one, the session ran only the harness cases its
+# run, which a basic-tier push never does. On 2026-09-29 a new check
+# landed without one, the session ran only the harness cases its
 # change touched, and the Debut to staging failed 20 minutes in. This reads
 # the same two sets as text, in well under a second, whenever a change
 # touches either side. The cause itself -- a check's case living in a
@@ -1453,9 +1468,8 @@ def changed_files_check(root, since):
     # blocks (the catalogue count in spec/LOADER.md, the enforced count,
     # the routing table) move when a practice is added or its front matter
     # changes, and only the full tier ran doc_sync -- so
-    # stage-word-carries-its-step landed on pre-staging with three stale
-    # blocks and the Debut was the first to notice
-    # (todo-2026-09-29-pre-staging-tier-skips-doc-sync). The drift gate,
+    # stage-word-carries-its-step landed with three stale blocks and the
+    # Debut was the first to notice. The drift gate,
     # never --write; about half a second.
     sync = root / 'tools' / 'doc_sync.py'
     moved = [f for f in practice
@@ -1526,8 +1540,8 @@ def changed_files_check(root, since):
 def _changed_since(root, argv):
     """-> the ref a push's change is measured from, or None. `--changed-since
     REF` names it (the merge gate passes the pull request's base); otherwise
-    a push whose --push-command writes to pre-staging is measured from
-    origin/pre-staging."""
+    a push whose --push-command writes to staging, by a person who lands
+    there, is measured from origin/staging (changed_since_for)."""
     if '--changed-since' in argv:
         i = argv.index('--changed-since')
         return argv[i + 1] if i + 1 < len(argv) else None
@@ -1545,10 +1559,8 @@ def _changed_since(root, argv):
     targets = precedent_branches.push_targets(root, cmd) or []
     since_for = getattr(precedent_branches, 'changed_since_for', None)
     if since_for:
-        # pre-staging, or staging for a person who lands straight on it.
+        # staging, for a person who lands straight on it.
         return since_for(root, targets)
-    if precedent_branches.PRE_STAGING in targets:
-        return f'origin/{precedent_branches.PRE_STAGING}'
     return None
 
 
@@ -1558,12 +1570,12 @@ def _default_destination(root, argv):
     was missing.
 
     Morgan, 2026-10-01, strength: assented. A session ran this bare before
-    every landing on pre-staging, as AGENTS.md's "before push or merge"
+    every landing, as AGENTS.md's "before push or merge"
     line read, and bare meant the full ~11-minute suite -- the check that
     belongs to the Debut into staging -- several times in one day, for work
     the push gate itself would have checked in seconds. Now the bare run
-    and the push agree: pre-staging gets its basic tier, and staging or
-    main, as a landing branch, still gets full. `--tier full` asks for the
+    and the push agree: a bare run gets the tier a push to the landing
+    branch gets. `--tier full` asks for the
     full check outright; the push gate, the merge gate and a Promote name
     their own destination or tier, so none of them is changed by this."""
     if any(a in argv for a in ('--tier', '--push-command', '--changed-files-check')):
@@ -1596,9 +1608,10 @@ def _full_tier_refusal(root, argv):
     Morgan, 2026-10-01, strength: decided ("Go, do both, then Booked"). The
     bare run already checks at the landing branch's tier (_default_destination),
     and on the same day a session still paid the ~12-minute suite three times
-    for work going to pre-staging -- by typing `--tier full` itself, and by
-    writing it into every helper's brief, because "deep check before push"
-    read as "the thorough one". Pre-staging is the quick tier on purpose; the
+    for work going to the landing branch -- by typing `--tier full` itself,
+    and by writing it into every helper's brief, because "deep check before
+    push" read as "the thorough one". A landing push is the quick tier on
+    purpose; the
     full check belongs to the Debut into staging, which runs it for you. So
     asking for full where the landing branch is the quick tier now needs a
     stated reason: `--because "<why>"`. A machine caller (`--gate`), a named
@@ -1622,24 +1635,18 @@ def _full_tier_refusal(root, argv):
         sys.path.pop(0)
     if tier != BASIC:
         return None
-    if landing != precedent_branches.PRE_STAGING:
-        # A person who lands straight on staging asks for the full suite
-        # with --run-tests, which records it for the move into main.
-        return (f'--tier full asks for the ~12-minute suite, and your landing '
-                f'branch, {landing}, takes the quick check: run this bare. The '
-                f'full suite is `python3 tools/precedent_branches.py --run-tests`, '
-                f'which records its result for the move into main. If you really '
-                f'mean this, say why: --tier full --because "<reason>".')
+    # A person who lands straight on staging asks for the full suite with
+    # --run-tests, which records it for the move into main.
     return (f'--tier full asks for the ~12-minute suite, and your landing '
-            f'branch, {landing}, takes the quick check: run this bare, which '
-            f'is what Booked needs. The full check is the Debut\'s, and it '
-            f'runs it for you. If you really mean it, say why: '
-            f'--tier full --because "<reason>".')
+            f'branch, {landing}, takes the quick check: run this bare. The '
+            f'full suite is `python3 tools/precedent_branches.py --run-tests`, '
+            f'which records its result for the move into main. If you really '
+            f'mean this, say why: --tier full --because "<reason>".')
 
 
 # Highest first: a push writing to several branches is judged by the one
 # that needs the most.
-_RUNG_ORDER = ('main', 'staging', 'precedent-beta-v01', 'pre-staging')
+_RUNG_ORDER = ('main', 'staging', 'precedent-beta-v01')
 
 
 def _destination(root, argv):
@@ -1668,8 +1675,8 @@ def _destination(root, argv):
 
 
 def _rung_refusal(root, kind, dest):
-    """-> the refusal text when this push would put `dest` (pre-staging,
-    staging or main) ahead of a shared set it takes from, else None.
+    """-> the refusal text when this push would put `dest` (staging
+    or main) ahead of a shared set it takes from, else None.
 
     Its own step, outside the recorded passes, on purpose: whether a set
     has landed a commit on a rung changes with no change to this tree, and
@@ -2177,7 +2184,12 @@ def main(argv):
     except Exception:                                        # noqa: BLE001
         pass
     argv = _default_destination(root, argv)
-    refused = _full_tier_refusal(root, argv)
+    # --list runs nothing and pushes nothing, so no refusal about what a
+    # push may carry applies to it. It used to be refused whenever main had
+    # commits staging lacked, which turned the harness test that reads it
+    # red for a reason unrelated to any change (2026-10-17).
+    listing = '--list' in argv
+    refused = None if listing else _full_tier_refusal(root, argv)
     if refused:
         print(f'precedent_push_check: REFUSED -- {refused}', file=sys.stderr)
         return 1
@@ -2186,7 +2198,7 @@ def main(argv):
         print(f'precedent_push_check: running as asked, because: '
               f'{argv[i + 1] if i + 1 < len(argv) else "(no reason given)"}',
               flush=True)
-    refused = _promote_only_refusal(root, argv)
+    refused = None if listing else _promote_only_refusal(root, argv)
     if refused:
         print(f'precedent_push_check: REFUSED -- {refused}', file=sys.stderr)
         return 1
@@ -2208,7 +2220,7 @@ def main(argv):
     if '--changed-files-check' in argv:
         i = argv.index('--changed-files-check')
         return changed_files_check(root, argv[i + 1] if i + 1 < len(argv)
-                                   else 'origin/pre-staging')
+                                   else 'origin/staging')
     since = _changed_since(root, argv) if tier == BASIC else None
     # Where the push goes and what it changes, for the checks this runs: a
     # practice set's own check may judge a push by its destination -- the
@@ -2237,9 +2249,26 @@ def main(argv):
         return 2
 
     if '--list' in argv:
+        # Which branches take the full list is precedent_branches' answer,
+        # not this sentence's: staging is a lander's quick tier (2026-10-09).
+        full_to, others = 'main', 'any other branch'
+        if not _ladder_off():
+            full_to = 'staging or main'
+            try:
+                sys.path.insert(0, str(HERE))
+                import precedent_branches
+                st = precedent_branches.staging_branch(root)
+                if precedent_branches.tier_for_branch(root, st)[0] != FULL:
+                    full_to = 'main'
+                    others = (f'any other branch, {st} included (your '
+                              f'landing branch),')
+            except Exception:                               # noqa: BLE001
+                pass                       # an older engine: the old wording
+            finally:
+                sys.path.pop(0)
         print(f'{root.name} is {"an" if kind[0] in "aeiou" else "a"} {kind} '
-              f'repository. Before a push to {"main" if _ladder_off() else "staging or main"} (full); a push '
-              f'to any other branch runs only the checks marked basic:')
+              f'repository. Before a push to {full_to} (full); a push '
+              f'to {others} runs only the checks marked basic:')
         for name, a, replaces in plan(root, tier=FULL)[1]:
             mark = 'basic' if name in BASIC_CHECKS else 'full '
             print(f'  {name:16} [{mark}] {shown_interpreter(a)} {" ".join(a[1:])}')
@@ -2339,8 +2368,9 @@ def main(argv):
               f'({why}).', flush=True)
     else:
         print(f'precedent_push_check: {kind} repository {root.name}, the '
-              f'basic check, {len(checks)} check(s) ({why}). Staging and main '
-              f'get everything.', flush=True)
+              f'basic check, {len(checks)} check(s) ({why}). The full suite '
+              f'runs at the Debut, and after a push or Produce into main.',
+              flush=True)
     # The tree is read BEFORE the run as well as after, and a pass is
     # recorded only when the two agree. Read only afterwards, a commit made
     # while the suite ran was credited with a pass the suite never gave it:
