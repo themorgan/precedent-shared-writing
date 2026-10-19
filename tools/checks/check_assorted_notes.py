@@ -34,7 +34,9 @@ reference to `ASSORTED_NOTES.md`/`NOTES.md`/`IDEAS.md` just because its
 own filename happens to end the same way. The same basename-exact rule
 applies to the listing-document exemption: a file merely named
 `SOMETHING_README.md` doesn't qualify -- only a basename that is exactly
-`README.md` or `MAP.md` does.
+`README.md` or `MAP.md` does, or the hand-written source of one
+(`MAP.source.md`, or a row file under `MAP.source/`), which Precedent copies
+into the view word for word.
 
 Exit 0 and print nothing when clean. Exit 1 and print the practice's own
 Rule text (never a paraphrase) plus the specific finding(s) on a violation.
@@ -190,10 +192,41 @@ LINK_RE = re.compile(r"\]\(([^)]+)\)")
 # Any README.md or MAP.md, at any depth, is also exempt: a directory listing
 # names what exists, which isn't citing anything inside it -- see the Rule's
 # own "listing vs. citation" distinction.
+# Any Markdown file can add a link to the notes file, so any change to one
+# selects this check (Precedent's precedent_check reads SELECTS_ON without
+# running this script). Its practice applies to `**`, which selected it only
+# by rotation, and a link added in a map's source went to main unchecked
+# (2026-10-19).
+SELECTS_ON = ("*.md", "**/*.md")
+
 EXEMPT_BASENAMES = (
     {"assorted-notes.md", "readme.md", "map.md"}
     | {n.lower() for n in notes_filenames()}
 )
+
+# A view's source is the view, written by hand: MAP.source.md (or one row
+# file under MAP.source/) is copied word for word into MAP.md by Precedent's
+# build_views, so a link there is a link in the map. Until 2026-10-19 the
+# source was judged as an ordinary page, a consumer's map listing its notes
+# file was flagged in MAP.source.md, and main went red after a Produce.
+SOURCE_SUFFIX = ".source"
+
+
+def _listing_view(path: str) -> bool:
+    """True when `path` is an exempt listing document, directly or as the
+    hand-written source of one: X.source.md, or any file under X.source/,
+    whose view X.md is exempt."""
+    parts = pathlib.PurePosixPath(path).parts
+    name = parts[-1].lower()
+    if name in EXEMPT_BASENAMES:
+        return True
+    if name.endswith(SOURCE_SUFFIX + ".md") and \
+            name[:-len(SOURCE_SUFFIX + ".md")] + ".md" in EXEMPT_BASENAMES:
+        return True
+    return any(d.lower().endswith(SOURCE_SUFFIX)
+               and d.lower()[:-len(SOURCE_SUFFIX)] + ".md" in EXEMPT_BASENAMES
+               for d in parts[:-1])
+
 
 # This check's own machinery: its docstring illustrates the exact link
 # pattern it looks for, and its test plants that pattern as a fixture --
@@ -290,7 +323,7 @@ def find_violations() -> list[str]:
         # next sync overwrites a hand-edit here.
         if _MIRRORED and path.startswith(_MIRRORED):
             continue
-        if pathlib.Path(path).name.lower() in EXEMPT_BASENAMES:
+        if _listing_view(path):
             continue
         if path in EXEMPT_PATHS:
             continue
