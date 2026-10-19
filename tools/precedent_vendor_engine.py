@@ -399,6 +399,8 @@ HOOK_SCRIPT_FILES = [
     'session-start.sh',
     'stop-git-check.sh',
     'stop-reply-check.sh',
+    # Its logic is precedent_switchboard_offer.py, in ENGINE_FILES (2026-10-19).
+    'switchboard-offer.sh',
     'wait-loop-gate.sh',
     'workflow-write-gate.sh',
 ]
@@ -522,6 +524,14 @@ ENGINE_FILES = [
     # several runs share, so Update Vendors in several repos at once waits its
     # turn instead of losing a ref lock (2026-10-10). Standard library only.
     'precedent_clone_lock.py',
+    # Where each harness keeps practice-source trees, and the one test for
+    # "these two paths are one tree" every setup and listing tool asks
+    # (2026-10-19, Morgan, strength: decided). precedent_source_bootstrap,
+    # precedent_container_safe, precedent_session_check,
+    # precedent_stale_branches and precedent_run_session_hooks import it and
+    # fall back to their old behaviour when it is missing. Standard library.
+    'precedent_source_home.py',
+    'source_homes.json',
     # precedent_check.py imports it at module scope, so a vendored engine
     # without it does not degrade -- it raises ModuleNotFoundError and takes
     # the whole check run down. Found 2026-09-09 by verify_harness the moment
@@ -711,6 +721,15 @@ ENGINE_FILES = [
     # anyway (2026-09-28). Every repo carries it, so the hook finds a copy
     # in whichever clones a session has.
     'precedent_run_session_hooks.py',
+    # ...and its counterpart for every other moment (2026-10-19): the
+    # user-level UserPromptSubmit, PreToolUse, PostToolUse and Stop lines
+    # call it, and it runs the hooks of the repository the action is about.
+    # Every repo carries it for the same reason.
+    'precedent_run_repo_hooks.py',
+    # What switchboard-offer.sh runs (HOOK_SCRIPT_FILES): offers, once, to
+    # wire the switchboard into a cloud environment that lacks it, and holds
+    # the setup step itself, since consumers carry no CLOUD_SETUP.md.
+    'precedent_switchboard_offer.py',
     # The one place a session's feature branch name is built (2026-10-01).
     # act's Rule names it, so every repo resolving act needs the file; it
     # reads the session ID through precedent_detect and the date through
@@ -728,6 +747,12 @@ ENGINE_FILES = [
     # other and accumulates its own open items the same way a consumer does.
     'build_todo_index.py',
     'todo_migrate.py',
+    # The gotcha-catalogue generator, moved here from the consumer half on
+    # 2026-10-19 for the reason build_todo_index.py moved: a practice set
+    # keeps its own gotchas/ too. A private shared set was made that day with
+    # nine gotchas and a generated gotchas/INDEX.md, and the set engine had
+    # no tool to rebuild it, so its generated-files check could never pass.
+    'build_gotcha_index.py',
     # The "Drop it" writer (added 2026-10-05): park-it tells every session
     # to run it, and every kind of repo keeps todo items -- the same reason
     # build_todo_index.py is here.
@@ -897,6 +922,10 @@ ENGINE_FILES = [
     # level, and a practice source's own checks are meant to import it from
     # the engine beside them, so every kind needs it.
     'generated_blocks.py',
+    # The one "does this line name another repository's copy?" (added
+    # 2026-10-19): precedent_materialize and precedent_check's
+    # rename-updates-links load it lazily, in every kind.
+    'qualified_mention.py',
     # The document status header's reader (added 2026-10-06).
     # precedent_check.py's document-status-header and speculation-is-marked
     # checks import it, and both practices are universal, so every repo
@@ -1092,21 +1121,10 @@ CONSUMER_ENGINE_FILES = ENGINE_FILES[:-1] + [
     # without the other would crash on its first real run. See the entry
     # there. Repeating it here is refused by the duplicate guard below.
     #
-    # The gotcha-catalogue generator for the 2026-09-16 todo/gotcha migration's
-    # per-item format (spec/OPEN_ITEM_AND_GOTCHA_PLAN.md Part 2). Missing from
-    # this list since the migration -- found 2026-09-16 when a consumer taking
-    # the vendor update went looking for build_gotcha_index.py to do its own
-    # gotcha-catalogue split and it simply was not there, no error, no
-    # SKIPPED, nothing named it as missing. CONSUMER-only: a source set
-    # materializes no catalogue of its own gotchas/*.md items, so it has
-    # nothing for this generator to read.
-    #
-    # build_todo_index.py and todo_migrate.py were listed here alongside it
-    # until 2026-09-19 and are now in ENGINE_FILES -- a source set turned out
-    # to have its own TODO.md after all (see the entry there). Repeating them
-    # here is refused by the duplicate guard below, which is how a stray
-    # re-listing would be caught.
-    'build_gotcha_index.py',
+    # build_gotcha_index.py was listed here from 2026-09-16 (consumer-only:
+    # "a source set materializes no catalogue of its own gotchas/*.md") and
+    # moved to ENGINE_FILES on 2026-10-19, when a set turned out to keep
+    # one. Repeating it here is refused by the duplicate guard below.
     # precedent_source_bootstrap.py is NOT re-listed here, for the same
     # reason precedent_check.py is not (see the note below): it was
     # consumer-only when this list was written -- the individual-source
@@ -3239,6 +3257,13 @@ CI_DISCLOSURES = {
 # Where the bullet goes: before the first of these lines the guide has.
 _DISCLOSURE_ANCHORS = ('- **Your writing is checked before it is saved',
                        '- **Every pull request opens with a standard template**')
+# Failing those, at the end of the first section headed by one of these
+# (case ignored). 2026-10-19: two consuming repos' guides predate the two
+# bullets above but carry the template's own heading for the section, and
+# the refresh left the bullet for a person, who never saw it; Produce then
+# refused both repositories (github-setup-disclosed).
+_DISCLOSURE_SECTIONS = ('automatic checks installed for this project',
+                        'for the administrator')
 
 
 def _disclose_added_workflow(dest_root, rel, template):
@@ -3259,10 +3284,82 @@ def _disclose_added_workflow(dest_root, rel, template):
         if at >= 0:
             guide.write_text(text[:at + 1] + bullet + text[at + 1:], encoding='utf-8')
             return True
+    at = _section_end(text, _DISCLOSURE_SECTIONS)
+    if at is not None:
+        head, tail = text[:at].rstrip('\n'), text[at:]
+        guide.write_text(head + '\n' + bullet + ('\n' + tail if tail else ''),
+                         encoding='utf-8')
+        return True
     _left('GETTING_STARTED.md', f'{name} was added, and this guide has no place '
                                 f'this refresh recognises to say so: add this to '
                                 f'its administrator section --\n{bullet}')
     return False
+
+def _section_end(text, titles):
+    """-> the offset where the section headed by the earliest of `titles`
+    the text has (a heading starting with it, case ignored) ends -- the next
+    heading at its level or above, or the end of the text -- or None when
+    no heading matches. `titles` runs most specific first."""
+    lines = text.splitlines(keepends=True)
+    for title in titles:
+        offset, level = 0, None
+        for line in lines:
+            m = re.match(r'(#{1,6})\s+(.*)', line)
+            if m and level is not None and len(m.group(1)) <= level:
+                return offset
+            if m and level is None and m.group(2).strip().lower().startswith(title):
+                level = len(m.group(1))
+            offset += len(line)
+        if level is not None:
+            return offset
+    return None
+
+
+# A REPOSITORY'S OWN NOTE ON WHAT IT NEEDS FROM GITHUB. Some consuming
+# repositories keep a README section, "If this repo ever leaves GitHub",
+# naming every workflow, and a check of their own fails a pull request that
+# changes a workflow without touching it. 2026-10-19: Update Vendors
+# changed two engine workflows in two such repositories, wrote nothing
+# there, and their pull-request checks into main failed after Produce. The
+# refresh now keeps one dated line at the end of that section, naming the
+# workflow files it changed, whenever it changed any.
+README_PLATFORM_SECTION = 'if this repo ever leaves github'
+_PLATFORM_LINE = '- **Changed by Update Vendors on '
+
+
+def _note_workflow_changes_in_readme(dest_root, new_commit, today=None):
+    """-> True when README.md's platform section was given a fresh line
+    naming the .github/workflows/ files this refresh left changed (by git's
+    own reading of the working tree, so additions, rewrites and removals by
+    any part of the refresh all count). A README without the section is
+    left alone: the repository keeps no such note."""
+    readme = dest_root / 'README.md'
+    if not readme.is_file():
+        return False
+    ok = subprocess.run(['git', 'status', '--porcelain', '--', '.github/workflows'],
+                        cwd=dest_root, capture_output=True, text=True)
+    names = sorted({line[3:].strip().rsplit('/', 1)[-1]
+                    for line in ok.stdout.splitlines() if line[3:].strip()}
+                   ) if ok.returncode == 0 else []
+    if not names:
+        return False
+    text = readme.read_text(encoding='utf-8')
+    end = _section_end(text, (README_PLATFORM_SECTION,))
+    if end is None:
+        return False
+    import datetime as _dt
+    day = today or _dt.date.today().isoformat()
+    line = (f'{_PLATFORM_LINE}{day}** (BestPractice {new_commit[:8]}): '
+            + ', '.join(f'`{n}`' for n in names)
+            + '. Each is described above, or in GETTING_STARTED.md if it is '
+              'new since this section was last written.\n')
+    head = ''.join(l for l in text[:end].splitlines(keepends=True)
+                   if not l.startswith(_PLATFORM_LINE)).rstrip('\n')
+    tail = text[end:]
+    readme.write_text(head + '\n' + line + ('\n' + tail if tail else ''),
+                      encoding='utf-8')
+    return True
+
 
 # CI-workflow analog of RETIRED_ENGINE_FILES above -- a relative path this
 # manifest may still be tracking in ci_workflow_files/ci_workflows_sha256
@@ -4958,6 +5055,188 @@ def seed_maintainers(dest_root, logins=None, today=None, fallback=None):
     return logins, how
 
 
+# ---- copying a set in: the question, asked once per repository -----------
+# spec/VENDORED_SHARED_SETS.md, "The question, asked once". Morgan,
+# 2026-10-19 (strength: decided): "make sure, in this new vendoring-in
+# ladders etc, it's a question with each new repo and (one time) when we
+# update vendors to the new system." The answer, yes or no, is recorded in
+# precedent.json under COPY_IN_KEY and never asked again there.
+COPY_IN_KEY = 'copy_in'
+_ANSWER_DATE = re.compile(r'\b20\d\d-\d\d-\d\d\b')
+_ANSWER_QUOTE = re.compile(r'"[^"]{2,}"|\u201c[^\u201d]{2,}\u201d')
+
+
+def _copy_in_candidates(user_config=None):
+    """-> [(name, repo_url, clone path or None, brought)] for every set the
+    person's individual set brings, then every set it only offers to copy
+    in (its precedent-source.json's `offers`, a list of {name, repo_url}:
+    a voice pack, say, which a person never brings everywhere)."""
+    import precedent_resolve as pr
+    ind = pr.person_individual_path(user_config)
+    if ind is None:
+        return []
+    out, seen = [], set()
+    for b in pr.brought_sources(ind, warn=False):
+        if b['name'] not in seen:
+            seen.add(b['name'])
+            out.append((b['name'], b.get('repo') or '', pathlib.Path(b['path']),
+                        True, ''))
+    man = pr.read_source_manifest(ind) if (ind / pr.SOURCE_MANIFEST).is_file() \
+        else None
+    for item in ((man or {}).get('offers') or []):
+        if not isinstance(item, dict):
+            continue
+        name, url = item.get('name'), str(item.get('repo_url') or '').strip()
+        if not isinstance(name, str) or not pr.SLUG_RE.match(name) \
+                or name in seen or not url:
+            continue
+        seen.add(name)
+        clone = ind.resolve().parent / name
+        root = str(item.get('set_root') or '').strip().strip('/')
+        out.append((name, url, clone if clone.is_dir() else None, False, root))
+    return out
+
+
+def copy_in_offers(dest_root, user_config=None, login=None):
+    """-> one dict per set the person could copy into this repository and
+    has not been asked about here: {name, repo_url, clone, brought,
+    default ('yes'|'no'), why, ladder}. A set already copied in, or with an
+    answer recorded under COPY_IN_KEY, is left out.
+
+    The default offered is "yes" for a set the person brings only when the
+    repository is private and its code owners are that person alone;
+    "no" everywhere else, and always for a set they only offer. The
+    person's answer always wins; nothing is copied in unanswered."""
+    import precedent_resolve as pr
+    root = pathlib.Path(dest_root)
+    try:
+        cfg = json.loads((root / 'precedent.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(cfg, dict):
+        return []
+    answered = cfg.get(COPY_IN_KEY) if isinstance(cfg.get(COPY_IN_KEY), dict) \
+        else {}
+    copied = {e.get('name') for e in cfg.get('sources') or []
+              if pr.is_vendored(e)}
+    private = cfg.get('visibility') == 'private'
+    try:
+        import precedent_audience as _pa
+        found, _where = _pa.owners(root)
+        owners = {str(o).lstrip('@').lower() for o in (found or ())}
+        me = (login or _pa.viewer(root)[0] or '').lstrip('@').lower()
+    except Exception:                                           # noqa: BLE001
+        owners, me = set(), (login or '').lower()
+    alone = bool(me) and owners == {me}
+    out = []
+    for name, url, clone, brought, set_root in _copy_in_candidates(user_config):
+        if name in answered or name in copied:
+            continue
+        ladder = bool(clone) and pr.LADDER_CAPABILITY in pr.source_provides(
+            clone / set_root if set_root else clone)
+        if brought and private and alone:
+            default, why = 'yes', ('this repository is private and you are its '
+                                   'only code owner')
+        elif not brought:
+            default, why = 'no', ('you offer it per repository; copying it in '
+                                  'makes everyone here use it')
+        elif not private:
+            default, why = 'no', 'this repository is not private'
+        else:
+            default, why = 'no', 'others are code owners here too'
+        out.append({'name': name, 'repo_url': url, 'clone': clone,
+                    'brought': brought, 'default': default, 'why': why,
+                    'ladder': ladder, 'set_root': set_root})
+    return out
+
+
+def copy_in_question(offer, flag='--copy-in', by_flag='--answered-by'):
+    """The question for one offer, in words the person answers, with how
+    the answer comes back to the tool."""
+    q = (f'Copy {offer["name"]} into this repository? Then it is in force '
+         f'for everyone who works here, it is refreshed by Update Vendors, '
+         f'and it can never fail to load. No keeps it arriving the way it '
+         f'does today. Suggested: {offer["default"]} ({offer["why"]}).')
+    if offer.get('ladder'):
+        q += (' It provides the ladder, so a yes makes the ladder bind '
+              'everyone here; if this repository has other code owners, '
+              'each of them should agree first.')
+    return (q + f' Answer with {flag} {offer["name"]}=yes|no {by_flag} '
+            f'"Name, YYYY-MM-DD: \\"their words\\""; the answer is recorded '
+            f'in precedent.json and not asked again.')
+
+
+def record_copy_in(dest_root, name, answer, answered_by, repo_url='',
+                   ladder=False, set_root=''):
+    """Record the person's answer for `name` under COPY_IN_KEY. On yes, also
+    declare the set copied in at process/<name> (replacing a live
+    declaration of it), start its manifest for Update Vendors' first copy,
+    and, for a set that provides the ladder, add it to binds_everyone with
+    the same quote. -> (changed: bool, what happened or why not)."""
+    import precedent_resolve as pr
+    answer = str(answer).strip().lower()
+    if answer not in ('yes', 'no'):
+        return False, f'{name}: the answer must be yes or no, not {answer!r}'
+    if not _ANSWER_DATE.search(answered_by or '') \
+            or not _ANSWER_QUOTE.search(answered_by or ''):
+        return False, (f'{name}: the answer needs who gave it, a date and '
+                       f'their words in quotes ("Name, YYYY-MM-DD: \\"...\\"")')
+    root = pathlib.Path(dest_root)
+    path = root / 'precedent.json'
+    try:
+        cfg = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False, 'there is no readable precedent.json'
+    record = cfg.setdefault(COPY_IN_KEY, {})
+    if not isinstance(record, dict):
+        return False, f'precedent.json\'s {COPY_IN_KEY} is not an object'
+    record[name] = {'answer': answer, 'answered_by': answered_by}
+    what = f'{name}: recorded "{answer}"'
+    if answer == 'yes':
+        if cfg.get('visibility') != 'private':
+            repo_url = ''      # a public tree names no account
+        entry = {'level': 'shared', 'name': name, 'path': f'process/{name}',
+                 'vendored': True}
+        if repo_url:
+            entry['repo'] = repo_url
+        if set_root:
+            entry['set_root'] = set_root
+        cfg['sources'] = [e for e in cfg.get('sources') or []
+                          if not (isinstance(e, dict) and e.get('name') == name)]
+        cfg['sources'].append(entry)
+        manifest = root / 'process' / f'manifest_{name}.json'
+        if not manifest.exists():
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(json.dumps({'upstream': {}}, indent=2) + '\n',
+                                encoding='utf-8')
+        what += f', declared copied in at process/{name}'
+        if ladder:
+            be = cfg.get('binds_everyone')
+            be = be if isinstance(be, dict) else {}
+            sets = [x for x in (be.get('sets') or []) if x != name] + [name]
+            prior = str(be.get('approved_by') or '')
+            cfg['binds_everyone'] = {
+                'sets': sets,
+                'approved_by': answered_by if not prior or prior == answered_by
+                else f'{answered_by}; {prior}'}
+            what += ', and added to binds_everyone'
+    path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + '\n',
+                    encoding='utf-8')
+    return True, what
+
+
+def parse_copy_in_answers(values):
+    """--copy-in NAME=yes|no, repeated -> ({name: answer}, [problems])."""
+    out, bad = {}, []
+    for v in values or []:
+        name, sep, ans = str(v).partition('=')
+        if not sep or ans.strip().lower() not in ('yes', 'no') or not name.strip():
+            bad.append(f'--copy-in {v!r}: expected NAME=yes or NAME=no')
+            continue
+        out[name.strip()] = ans.strip().lower()
+    return out, bad
+
+
 def timezone_offer(dest_root, user_config=None):
     """-> one line offering the owner's own zone as precedent.json's
     `fallback_timezone`, or None. Offered, never written: the person says
@@ -5677,8 +5956,6 @@ def _refresh_ci_workflow_files(dest_root, kind, ci_workflows_dir, manifest):
             recorded[rel] = hashlib.sha256(rendered).hexdigest()
             owned.append(rel)
             refreshed.append(rel)
-            if _disclose_added_workflow(dest_root, rel, template):
-                refreshed.append('GETTING_STARTED.md')
             continue
         if not src.is_file():
             continue                  # this commit predates the template
@@ -5722,6 +5999,17 @@ def _refresh_ci_workflow_files(dest_root, kind, ci_workflows_dir, manifest):
             path.write_bytes(rendered)
             recorded[rel] = template_hash
             refreshed.append(rel)
+    # EVERY REFRESH SAYS IT, NOT ONLY THE ONE THAT ADDS THE WORKFLOW
+    # (2026-10-19). A repository whose guide had no place for the bullet
+    # when the workflow arrived kept the workflow and never got the words:
+    # the next refresh found the file present and moved on. Asking again
+    # each time while the guide does not name it closes that for every
+    # repository already in that state.
+    for template, rel in CI_WORKFLOW_TEMPLATES.get(kind, ()):
+        if (template in CI_DISCLOSURES and (dest_root / rel).is_file()
+                and _disclose_added_workflow(dest_root, rel, template)
+                and 'GETTING_STARTED.md' not in refreshed):
+            refreshed.append('GETTING_STARTED.md')
     if owned:
         _drop_ci_approvals(dest_root, owned)
     manifest_path = dest_root / 'tools' / MANIFEST_NAME
@@ -9050,6 +9338,8 @@ def refresh(clone, force=False, ref=None, take_anyway=False):
                                            engine_path_sources, manifest)
     finally:
         shutil.rmtree(engine_dir, ignore_errors=True)
+    if _note_workflow_changes_in_readme(ROOT, new_commit):
+        written.append(ROOT / 'README.md')
     # The engine is whole now, so a judgment that could not import it at the
     # top of this pass runs here.
     _judge_deferred_workflows()

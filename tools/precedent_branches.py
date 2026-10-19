@@ -89,7 +89,7 @@ CLI:
   precedent_branches.py --tier BRANCH       prints `basic` or `full`
   precedent_branches.py --push ARGS...      the tier a `git push ARGS...` gets
   precedent_branches.py --landing           where `Go update` lands for this person
-  precedent_branches.py --wait-main-test COPY
+  precedent_branches.py --wait-main-test COPY|PR-NUMBER
                                             wait for main's GitHub test on the to-main
                                             copy's pull request; 0 only when it passed,
                                             or when the copy is a not-due one
@@ -326,7 +326,7 @@ def branch_push_checks(root, user_config=None):
                   f'"basic" nor "full" -- checked fully until it is fixed')
 
 
-def tier_for_branch(root, branch, user_config=None):
+def _engine_tier_for_branch(root, branch, user_config=None):
     """-> (tier, why) for a push to `branch`. Staging takes the quick checks:
     work lands there, and the full suite is asked for with --run-tests.
 
@@ -524,7 +524,7 @@ def _landing_by_ladder(root, ladder, user_config=None):
 PROMOTE_ONLY_SETTING = 'promote_only'
 
 
-def promote_only(root, user_config=None):
+def _engine_promote_only(root, user_config=None):
     """-> (on, where). Only a literal `true` turns it on, and only while the
     ladder is in force for this person (spec/LADDER_OPT_IN_PLAN.md D3.4):
     off the ladder, and in a session started with PRECEDENT_NO_LADDERS, the
@@ -886,11 +886,22 @@ def merge_refusal(root, bases, heads, user_config=None, head_sha=None):
 
 
 def main_test_failed(root):
-    """True only when main's own GitHub test has run on main's tip and
-    failed. No test installed, none on this tip, still running, or GitHub
-    cannot be asked: False, so the gate stays as strict as before."""
+    """True only when main's own test has run on main's tip and failed:
+    GitHub's test, or the full local suite (`--run-tests main`, its
+    RUN_TESTS_RECORD entry) where GitHub's was not due. No test installed,
+    none on this tip, still running, or GitHub cannot be asked: False, so
+    the gate stays as strict as before.
+
+    The local suite counts because a fast move into main whose GitHub test
+    is not due tells the session to run it and "fix main at once if it
+    fails" -- and until 2026-10-19 that fix was refused here, since only
+    GitHub's verdict was read, and had to go through staging and a second
+    Produce (a consumer's root-issues report)."""
     try:
         mtip = _remote_tip(root, MAIN)
+        local = run_tests_record(root, MAIN) if mtip else None
+        if local and local.get('commit') == mtip and local.get('result') == 'failed':
+            return True
         tests = (github_tests(root, mtip)
                  if mtip and _gets_github_test(root, MAIN) else [])
         if not tests:
@@ -919,7 +930,7 @@ def red_main_fix(root, head_sha):
     return main_test_failed(root)
 
 
-def tier_branches(root):
+def _engine_tier_branches(root):
     """Every branch that is a tier here: main and staging (and its old
     name). None of them may ever be the SOURCE of a pull request:
     A merged pull request's page offers to delete its source branch, and
@@ -931,6 +942,84 @@ def tier_branches(root):
     if declared:
         names.add(declared)
     return sorted(names)
+
+
+# THE BRANCH POLICY SEAM (2026-10-19, piece 5a of
+# spec/ENFORCEMENT_LIVES_WITH_ITS_PRACTICE_PLAN.md; Morgan: "Let's do 5a
+# now", strength: decided). Three questions decide how work moves between
+# branches here: which branches are tiers, how hard a push to one is
+# checked, and whether this person's work reaches main only by promotion.
+# A practice set in force may answer them: it names a module as
+# `branch_policy` in its precedent-source.json, found the way step_review
+# is -- a set's clone, a copy inside this repository, or a set carried in
+# one (precedent_resolve.set_tool). The module is handed the engine's own
+# answer and returns its own; a question it does not define, an answer of
+# the wrong shape, or any failure keeps the engine's. Off the ladder it is
+# never asked. No set ships one yet, so nothing changes until one does;
+# piece 5b moves the ladder's answers into it.
+POLICY_KEY = 'branch_policy'
+
+
+def branch_policy(root, user_config=None):
+    """-> the branch-policy module a set in force names, imported, or None:
+    off the ladder, with no set naming one, or when it cannot load."""
+    if ladder_in_force(root, user_config) is False:
+        return None
+    pr = _sibling('precedent_resolve')
+    if pr is None:
+        return None
+    try:
+        return pr.load_set_tool(root, POLICY_KEY, user_config)
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def _ask_policy(root, question, default, valid, *args, user_config=None):
+    """-> the policy module's answer to `question`, or `default` when there
+    is no module, it does not answer that question, it fails, or `valid`
+    rejects what it returns."""
+    policy = branch_policy(root, user_config)
+    fn = getattr(policy, question, None) if policy is not None else None
+    if not callable(fn):
+        return default
+    try:
+        answer = fn(root, *args, default=default, user_config=user_config)
+    except Exception:                                       # noqa: BLE001
+        return default
+    return answer if valid(answer) else default
+
+
+def _is_pair(answer):
+    return isinstance(answer, tuple) and len(answer) == 2
+
+
+def tier_branches(root):
+    """Every branch that is a tier here (_engine_tier_branches), as the
+    branch policy answers it. main is always one."""
+    default = _engine_tier_branches(root)
+    names = _ask_policy(root, 'tier_branches', default,
+                        lambda a: isinstance(a, (list, tuple))
+                        and all(isinstance(n, str) and n for n in a))
+    return sorted(set(names) | {MAIN})
+
+
+def tier_for_branch(root, branch, user_config=None):
+    """-> (tier, why) for a push to `branch` (_engine_tier_for_branch), as
+    the branch policy answers it. A tier it names that this engine does not
+    know is ignored."""
+    default = _engine_tier_for_branch(root, branch, user_config)
+    return _ask_policy(root, 'tier_for_branch', default,
+                       lambda a: _is_pair(a) and a[0] in TIERS,
+                       branch, user_config=user_config)
+
+
+def promote_only(root, user_config=None):
+    """-> (on, where) (_engine_promote_only), as the branch policy answers
+    it."""
+    default = _engine_promote_only(root, user_config)
+    return _ask_policy(root, 'promote_only', default,
+                       lambda a: _is_pair(a) and isinstance(a[0], bool),
+                       user_config=user_config)
 
 
 def never_offered(root, user_config=None):
@@ -1116,31 +1205,90 @@ def _push_check_tool(root):
     return None
 
 
+def _yaml_scalar_list(value):
+    """`[a, 'b']`, `a` or `` -> a list of plain strings."""
+    v = value.split(' #', 1)[0].strip()
+    if v.startswith('[') and v.endswith(']'):
+        v = v[1:-1]
+        return [x.strip().strip('\'"') for x in v.split(',') if x.strip()]
+    return [v.strip('\'"')] if v else []
+
+
+_ON_KEY = re.compile(r'''^(?:on|"on"|'on')\s*:\s*(.*)$''')
+_YAML_KEY = re.compile(r'^([\w-]+)\s*:\s*(.*)$')
+
+
+def workflow_triggers(text):
+    """-> {event: {key: [values]}} read from a workflow's top-level `on:`,
+    or None when the file has no `on:` this reader understands. Only what
+    pull_request_checks needs: the events, and each event's list-valued
+    keys (`branches`, `branches-ignore`), inline or as a dash list.
+
+    WHY NOT PyYAML (2026-10-19). GitHub's runner has none, so this code
+    never ran where the deep check runs, and its test reported itself not
+    applicable there (#1218) -- a band-aid over a path CI could not
+    exercise. A workflow's `on:` block is a small, regular shape; reading
+    it here keeps one path everywhere, as frontmatter_yaml.py does for
+    frontmatter."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        m = _ON_KEY.match(line)
+        if not m:
+            continue
+        inline = m.group(1).split(' #', 1)[0].strip()
+        if inline:
+            return {e: {} for e in _yaml_scalar_list(inline)}
+        out, event, key, ev_indent = {}, None, None, None
+        for raw in lines[i + 1:]:
+            if raw.lstrip().startswith('#'):
+                continue
+            body = raw.split(' #', 1)[0].rstrip()
+            if not body.strip():
+                continue
+            indent = len(body) - len(body.lstrip())
+            if indent == 0:
+                break
+            item = body.strip()
+            if ev_indent is None:
+                ev_indent = indent
+            if indent == ev_indent:
+                em = _YAML_KEY.match(item)
+                if not em:
+                    return None
+                event, key = em.group(1), None
+                out[event] = {}
+                continue
+            if event is None:
+                return None
+            km = _YAML_KEY.match(item)
+            if km:
+                key = km.group(1)
+                out[event][key] = _yaml_scalar_list(km.group(2))
+            elif item.startswith('-') and key is not None:
+                out[event][key].extend(_yaml_scalar_list(item[1:]))
+        return out
+    return None
+
+
 def pull_request_checks(root, base):
     """-> [workflow file] whose `on: pull_request` fires for a pull request
-    into `base`, or None when it cannot be told (no PyYAML, a file that does
-    not parse). Read from the checkout's .github/workflows/."""
-    try:
-        import yaml
-    except ImportError:
-        return None
+    into `base`, or None when it cannot be told (a file whose `on:` this
+    reader does not understand). Read from the checkout's
+    .github/workflows/ with workflow_triggers, never PyYAML."""
     import fnmatch
     found = []
     for wf in sorted((pathlib.Path(root) / '.github' / 'workflows').glob('*.y*ml')):
         try:
-            doc = yaml.safe_load(wf.read_text(encoding='utf-8')) or {}
-        except Exception:                                    # noqa: BLE001
+            on = workflow_triggers(wf.read_text(encoding='utf-8'))
+        except OSError:
             return None
-        # PyYAML reads a bare `on:` key as True.
-        on = doc.get('on', doc.get(True)) if isinstance(doc, dict) else None
-        if on == 'pull_request' or (isinstance(on, list) and 'pull_request' in on):
-            found.append(wf.name)
+        if on is None:
+            return None
+        if 'pull_request' not in on:
             continue
-        if not isinstance(on, dict) or 'pull_request' not in on:
-            continue
-        cfg = on.get('pull_request') or {}
-        want = cfg.get('branches') if isinstance(cfg, dict) else None
-        skip = cfg.get('branches-ignore') if isinstance(cfg, dict) else None
+        cfg = on['pull_request']
+        want = cfg.get('branches')
+        skip = cfg.get('branches-ignore')
         if want is not None and not any(fnmatch.fnmatch(base, w) for w in want):
             continue
         if skip and any(fnmatch.fnmatch(base, w) for w in skip):
@@ -1168,6 +1316,14 @@ def _carry_composition_to_branch(root, label, new):
         return (f'{label} is not a branch the pull request can come from, so '
                 f'the checked composition was not pushed anywhere: merge '
                 f'origin/{MAIN} into the branch you open it from first.')
+    # A branch that already carries main's work -- one cut from main, a
+    # red-main fix above all -- needs nothing, and is left alone: moving it
+    # after its pull request into main merged sent the main-test wait to a
+    # head no test ever ran on (2026-10-19).
+    tip = _remote_tip(root, branch)
+    if tip and not main_work_missing(root, tip):
+        return (f'{branch} already carries everything {MAIN} has, so the pull '
+                f'request from it as it stands lacks nothing.')
     p = _run(root, 'push', '-q', 'origin', f'{new}:refs/heads/{branch}')
     if p.returncode != 0:
         return (f'Could not bring {branch} up to the checked composition '
@@ -1725,6 +1881,29 @@ def _current_slug(gh, slug):
     return _CURRENT_SLUG[slug]
 
 
+# The job in .github/workflows/deep-check.yml that decides, on a push to
+# main, whether the test has anything to do. A run in which it is the only
+# job that ran tested nothing; check_main_test_cadence holds this name to the
+# workflow's.
+DECISION_JOB = 'Already tested?'
+
+
+def _tested_nothing(gh, slug, run):
+    """True when a finished run's decision job was the only one that ran: it
+    skipped the test, because the same files passed earlier or because
+    another run of them was still going and decides. GitHub concludes such a
+    run `success`. One call, for a completed run's jobs, which never change."""
+    if (run.get('status') != 'completed' or run.get('conclusion') != 'success'
+            or not run.get('id')):
+        return False
+    data, err = gh.call(f'repos/{slug}/actions/runs/{run["id"]}/jobs?per_page=100')
+    jobs = (data or {}).get('jobs') if not err and isinstance(data, dict) else None
+    if not jobs:
+        return False
+    ran = [j for j in jobs if j.get('conclusion') != 'skipped']
+    return len(ran) < len(jobs) and all(j.get('name') == DECISION_JOB for j in ran)
+
+
 def github_test_state(root, sha, tests, gh=None, via_pulls=True,
                       _slug_override=None, _renamed_from=None):
     """-> (state, detail): did main's GitHub test run on `sha` and pass?
@@ -1774,7 +1953,8 @@ def github_test_state(root, sha, tests, gh=None, via_pulls=True,
                                    > (newest[path].get('created_at') or '')):
                 newest[path] = r
         return newest
-    newest = _newest(runs)
+    pool = runs
+    newest = _newest(pool)
     if wanted - set(newest):
         # GitHub's run list FILTERED by head_sha can leave out a run that is
         # already going: on 2026-09-30 a Produce's test started seconds
@@ -1790,7 +1970,28 @@ def github_test_state(root, sha, tests, gh=None, via_pulls=True,
                  for r in ((recent or {}).get('workflow_runs') or []
                            if isinstance(recent, dict) else [])
                  if r.get('head_sha') in heads]
-        newest = _newest(runs + extra)
+        pool = runs + extra
+        newest = _newest(pool)
+    # A RUN THAT TESTED NOTHING DOES NOT DECIDE when another run of the same
+    # workflow is there to (2026-10-19). A Produce merges at once, while its
+    # pull request's test is still going; the push run on main sees that,
+    # skips the test, and leaves the verdict to it -- and GitHub concludes
+    # the push run `success`. Newest-decides read main as passing on that
+    # while the pull request's run failed: the red-main fix was refused
+    # straight into main (#1243) and Update Vendors would have taken the red
+    # main. Kept when it is the only run, so a re-run that leaned on an
+    # earlier pass never turns into "never ran".
+    hollow = set()
+    for path in sorted(newest):
+        while path in newest:
+            r = newest[path]
+            others = [x for x in pool if x.get('path') == path and x is not r
+                      and x.get('conclusion') != 'skipped'
+                      and id(x) not in hollow]
+            if not others or not _tested_nothing(gh, slug, r):
+                break
+            hollow.add(id(r))
+            newest = _newest([x for x in pool if id(x) not in hollow])
     missing = sorted(wanted - set(newest))
     bad = sorted(p for p, r in newest.items() if r.get('status') == 'completed'
                  and r.get('conclusion') != 'success')
@@ -2203,6 +2404,43 @@ def _at_head(sha):
             f'characters, as here, or no expected head at all' if sha else '')
 
 
+def resolve_main_test_target(root, target, gh=None):
+    """-> (sha, copy branch name or None) for `--wait-main-test TARGET`: a
+    pull request number (`123` or `#123`), a branch, or a commit.
+
+    BY PULL REQUEST WHEN THE BRANCH IS GONE (2026-10-19). GitHub deletes a
+    pull request's branch when it merges, and a shallow clone cannot resolve
+    a name it never fetched, so the wait after a Produce found nothing to
+    wait on. A pull request keeps its head commit and branch name after
+    either is deleted, so a number is looked up there, and a branch name
+    that no longer resolves is looked up as the head of a pull request."""
+    gh = gh or _sibling('github_budget')
+    slug = _slug(root)
+
+    def from_pull(pr):
+        head = (pr or {}).get('head') or {}
+        return (head.get('sha'), head.get('ref')) if head.get('sha') else (None, None)
+    num = target.lstrip('#')
+    if num.isdigit():
+        if gh is None or not slug:
+            return None, None
+        pr, _err = gh.call(f'repos/{slug}/pulls/{num}', cache=False)
+        return from_pull(pr if isinstance(pr, dict) else None)
+    _run(root, 'fetch', '-q', 'origin', target)
+    sha = (_git(root, 'rev-parse', '--verify', '--quiet', f'origin/{target}^{{commit}}')
+           or _git(root, 'rev-parse', '--verify', '--quiet', f'{target}^{{commit}}'))
+    if sha:
+        return sha, target
+    if gh is None or not slug:
+        return None, None
+    pulls, _err = gh.call(f'repos/{slug}/pulls?state=all&head='
+                          f'{slug.split("/")[0]}:{target}', cache=False)
+    for pr in pulls if isinstance(pulls, list) else []:
+        if (pr.get('base') or {}).get('ref') == MAIN:
+            return from_pull(pr)
+    return None, None
+
+
 def wait_for_main_test(root, sha, say=print, gh=None, copy=None):
     """Wait for main's GitHub test on `sha` -- the to-main copy's tip, once
     its pull request into main is open -- and -> 0 passed, 1 anything else.
@@ -2421,9 +2659,15 @@ TIMES_FILE = 'tools/harness_check_times.json'
 
 
 def _merge_times_file(wt):
-    """Write the union of both sides of a conflicted harness timing list
-    into worktree `wt`. -> True when written, False when either side does
-    not read as one (then it stops like any other conflict)."""
+    """Write the three-way merge of a conflicted harness timing list into
+    worktree `wt`, by tools/harness_times_merge.py, the merge driver's own
+    code. -> True when written, False when either side does not read as
+    one (then it stops like any other conflict).
+
+    WHY THREE-WAY (2026-10-19). This fallback used to write the union of
+    both sides, which brings back a test the other side deleted -- the
+    exact #1180/#1181 bug the merge driver was written to stop. Index stage
+    1 is the base; a file both sides added has none, and reads as empty."""
     def side(n):
         r = subprocess.run(['git', '-C', str(wt), 'show', f':{n}:{TIMES_FILE}'],
                            capture_output=True, text=True)
@@ -2435,8 +2679,12 @@ def _merge_times_file(wt):
     ours, theirs = side(2), side(3)
     if ours is None or theirs is None:
         return False
-    merged = dict(theirs)
-    merged['seconds'] = dict(sorted({**theirs['seconds'], **ours['seconds']}.items()))
+    here = str(pathlib.Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import harness_times_merge
+    merged = harness_times_merge.merge(side(1) or {}, ours, theirs)
+    # Both sides add to the one "measured" line: keep both notes.
     notes = [str(theirs.get('measured') or '')]
     notes += [n for n in str(ours.get('measured') or '').split('; ')
               if n and n not in notes[0]]
@@ -3201,7 +3449,17 @@ def _to_main_copy(root, due=True):
     day, moment = _day_and_moment(root)
     prefix = 'to-main-' if due else NOT_DUE_PREFIX
     base = f'{prefix}{day}'
-    return base if not _remote_tip(root, base) else f'{prefix}{moment}'
+    if not _remote_tip(root, base):
+        return base
+    # The moment is a second: two Promotes in one second named the same
+    # copy and the second push was refused as non-fast-forward (2026-10-19:
+    # "the work just done, on staging, goes into main" failed only on
+    # GitHub's faster runner, run 39259090526). Count up until one is free.
+    name, n = f'{prefix}{moment}', 1
+    while _remote_tip(root, name):
+        n += 1
+        name = f'{prefix}{moment}-{n}'
+    return name
 
 
 # Exit 0 from a Promote means the branch it names has moved. Into main it
@@ -4502,14 +4760,12 @@ def _main(argv):
     if argv[:1] == ['--run-tests'] and len(argv) <= 2:
         return run_tests(root, argv[1] if len(argv) == 2 else None)
     if argv[:1] == ['--wait-main-test'] and len(argv) == 2:
-        _run(root, 'fetch', '-q', 'origin', argv[1])
-        sha = (_git(root, 'rev-parse', '--verify', '--quiet', f'origin/{argv[1]}^{{commit}}')
-               or _git(root, 'rev-parse', '--verify', '--quiet', f'{argv[1]}^{{commit}}'))
+        sha, copy = resolve_main_test_target(root, argv[1])
         if not sha:
-            print(f'precedent_branches: {argv[1]} names no branch or commit here.',
-                  file=sys.stderr)
+            print(f'precedent_branches: {argv[1]} names no pull request, branch or '
+                  f'commit here.', file=sys.stderr)
             return 2
-        return wait_for_main_test(root, sha, copy=argv[1])
+        return wait_for_main_test(root, sha, copy=copy)
     if argv[:1] == ['--ensure-tiers'] and set(argv[1:]) <= {'--apply'}:
         return ensure_tiers(root, apply='--apply' in argv)
     tier, why = branch_push_checks(root)
