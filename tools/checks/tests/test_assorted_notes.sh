@@ -315,6 +315,44 @@ if [ "$status" -ne 0 ]; then
   exit "$status"
 fi
 
+# A map written in its source: MAP.source.md, or a row file under
+# MAP.source/, is copied word for word into MAP.md, so a listing link there
+# is a listing link in the map. A consumer's link in MAP.source.md was
+# flagged and main went red after a Produce (2026-10-19). Any other
+# *.source.md is an ordinary page, and still fires.
+cd "$ROOT"
+SCRATCH9="$(mktemp -d)"
+git clone -q "$ROOT" "$SCRATCH9"
+(
+  cd "$SCRATCH9"
+  mkdir -p content MAP.source/0010-layout
+  echo "whatever is on my mind" > content/ASSORTED_NOTES.md
+  printf '# Map\n\nThe notes: [the notes](content/ASSORTED_NOTES.md).\n' > MAP.source.md
+  echo "| [the notes](../../content/ASSORTED_NOTES.md) | notes |" > MAP.source/0010-layout/0010-notes.md
+  git add content MAP.source.md MAP.source
+  git -c user.name="Test" -c user.email="test@example.com" commit -q -m "a map's source lists the notes file"
+  if ! python3 tools/checks/check_assorted_notes.py > /dev/null; then
+    echo "FAIL: fired on a link in MAP.source.md or a MAP.source/ row (false positive)" >&2
+    python3 tools/checks/check_assorted_notes.py >&2 || true
+    exit 1
+  fi
+  echo "ok: stays clean on a map's source, file or directory form"
+  printf 'See [the notes](content/ASSORTED_NOTES.md).\n' > PLAN.source.md
+  git add PLAN.source.md
+  git -c user.name="Test" -c user.email="test@example.com" commit -q -m "an ordinary page named .source.md cites the notes"
+  out="$(python3 tools/checks/check_assorted_notes.py || true)"
+  if ! grep -q "PLAN.source.md:1:" <<<"$out"; then
+    echo "FAIL: stopped firing on a .source.md page that is no listing's source" >&2
+    exit 1
+  fi
+  echo "ok: still fires on a .source.md page whose view is no listing"
+)
+status=$?
+rm -rf "$SCRATCH9"
+if [ "$status" -ne 0 ]; then
+  exit "$status"
+fi
+
 if ! python3 tools/checks/check_assorted_notes.py > /dev/null; then
   echo "FAIL: check_assorted_notes.py is not clean on the real, current repo" >&2
   exit 1
