@@ -56,6 +56,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/artifact_publish_gate.py](tools/artifact_publish_gate.py) | The publish gate: a page reaches a link only as a fresh render of a |
 | [tools/branch_store.py](tools/branch_store.py) | Small records on a dedicated branch of a shared remote, with the push as the lock: the git plumbing shared by the lease board and the result cache |
 | [tools/build_codeowners.py](tools/build_codeowners.py) | CODEOWNERS, generated -- a practice set's from its approvers.json, a project's from the maintainers and owned_paths in its precedent.json |
+| [tools/build_gotcha_index.py](tools/build_gotcha_index.py) | gotchas/INDEX.md, generated from gotchas/*.md's frontmatter and Symptom sections -- not loaded by AGENTS.md |
 | [tools/build_todo_index.py](tools/build_todo_index.py) | todo/TODO.md and todo/CLOSED.md, generated from todo/*.md's frontmatter |
 | [tools/build_views.py](tools/build_views.py) | This file, GLOSSARY.md, and AGENTS.md's loader block — generated views |
 | [tools/check_commit_author.py](tools/check_commit_author.py) | Each commit is authored as the declared person (practice commit-author) |
@@ -116,19 +117,23 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_resolve.py](tools/precedent_resolve.py) | Resolves the universal, shared and individual sources into one set, by precedence |
 | [tools/precedent_resolve_merge.py](tools/precedent_resolve_merge.py) | Finishes a merge that stopped only on generated files: rebuilds them from the merged sources and stages them, the way a landing does |
 | [tools/precedent_review_page.py](tools/precedent_review_page.py) | The very deep check's session-only page: branches to delete, with a link each, and every active practice by source |
+| [tools/precedent_run_repo_hooks.py](tools/precedent_run_repo_hooks.py) | Runs the hooks of the repo an action is about, for a session opened in the folder above the repos |
 | [tools/precedent_run_session_hooks.py](tools/precedent_run_session_hooks.py) | Runs each repo's own SessionStart hooks for a session opened in the folder above them |
 | [tools/precedent_session_check.py](tools/precedent_session_check.py) | Reports whether this session's SessionStart guarantees are actually in effect -- practices file, commit identity, backstop, packages, refspec, freshness, and the branch it started on -- and `--apply` runs the hooks by hand when the harness never did |
 | [tools/precedent_session_practices.py](tools/precedent_session_practices.py) | Writes the shared/individual/repo-local practices in force into an untracked .precedent/ file at session start, since this repo is public and their text may not be committed |
 | [tools/precedent_show.py](tools/precedent_show.py) | Loads a practice's Rule/Detail/Why/Story/Install — the one code path that reads a practice file |
 | [tools/precedent_source_bootstrap.py](tools/precedent_source_bootstrap.py) | Clone-or-pull for a privately-scoped individual or shared source, used by its SessionStart hook and by precedent_resolve.py's own lazy self-heal |
 | [tools/precedent_source_credentials.py](tools/precedent_source_credentials.py) | Whether this environment can reach its private practice sources, and the git credential helper that lets a SessionStart hook clone them without add_repo |
+| [tools/precedent_source_home.py](tools/precedent_source_home.py) | Where a practice source's real tree lives, and whether two paths are one tree. |
 | [tools/precedent_source_pins.py](tools/precedent_source_pins.py) | Which commit of each live practice source a consumer's views were built |
 | [tools/precedent_stale_branches.py](tools/precedent_stale_branches.py) | precedent_stale_branches.py -- the remote branches you can delete, across |
+| [tools/precedent_switchboard_offer.py](tools/precedent_switchboard_offer.py) | Offers, once, to set up the switchboard in a person's cloud environment when it is missing |
 | [tools/precedent_time.py](tools/precedent_time.py) | The ONE emitter for every date and time this repo writes down — resolves whose zone, always carries the offset; run it bare to see which rung answered |
 | [tools/precedent_vendor_engine.py](tools/precedent_vendor_engine.py) | Vendors the minimal source-repo engine (this file, precedent_gate/paths/show.py, split_practices.py, a trimmed routing_scope.json) into an individual or shared set, and keeps it refreshable |
 | [tools/precedent_vocabulary.py](tools/precedent_vocabulary.py) | Lists every standing command in force -- each phrase and the plain sentence a person reads -- collected from the `command:` field of every practice across every resolved source; answers the "Vocabulary" command and emits the reader-facing table |
 | [tools/precedent_whats_new.py](tools/precedent_whats_new.py) | The mechanics behind "What's new?": which finished days on main a project's running log lacks, what changed on each, today so far, and marking the log current -- the entries themselves are the session's to write |
 | [tools/precedent_which_repo.py](tools/precedent_which_repo.py) | Names the repo an engine tool reads, and warns when it is run from inside a different one -- engine tools read their own file's repo, never the current directory |
+| [tools/qualified_mention.py](tools/qualified_mention.py) | Whether a line's mention of a path names another repository's file. |
 | [tools/session_load_trend.py](tools/session_load_trend.py) | How much room every always-loaded surface has left and how fast it is going -- headroom, the hand-written/generated split, and the growth rate; its headroom_notice() is what the merge and push gates print |
 | [tools/set_words.py](tools/set_words.py) | The one matcher for a practice set's own words -- the ones a set declares in its precedent-source.json `owned_words`, which belong in that set and nowhere a person who does not bring it reads -- used by the check that holds every other set to them and by the tests that hold engine output to the same (spec/ENFORCEMENT_LIVES_WITH_ITS_PRACTICE_PLAN.md part 3) |
 | [tools/split_practices.py](tools/split_practices.py) | PRACTICES.md ↔ practices/ converter |
