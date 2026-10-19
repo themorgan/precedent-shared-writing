@@ -844,10 +844,12 @@ def merge_refusal(root, bases, heads, user_config=None, head_sha=None):
             return None
         return (f'{MAIN} has {len(missing)} commit(s) made directly that this '
                 f'pull request into {staging} lacks, and work lands on '
-                f'{staging} carrying everything {MAIN} has. Close it and land '
-                f'the branch with `{LAND_COMMAND} BRANCH`, which brings '
-                f'{MAIN}\'s work in first -- or merge origin/{MAIN} into the '
-                f'branch, push it, and merge again.')
+                f'{staging} carrying everything {MAIN} has. Run '
+                f'`{LAND_COMMAND} BRANCH`: it brings {MAIN}\'s work in first, '
+                f'and lands it -- or, for a change that takes a pull request, '
+                f'pushes that checked composition to the branch, and this '
+                f'pull request merges. Or merge origin/{MAIN} into the branch, '
+                f'push it, and merge again.')
     allowed = set()
     for b in bases:
         allowed |= _promotion_heads(root, b)
@@ -1112,6 +1114,113 @@ def _push_check_tool(root):
         if (pathlib.Path(root) / rel).is_file():
             return rel
     return None
+
+
+def pull_request_checks(root, base):
+    """-> [workflow file] whose `on: pull_request` fires for a pull request
+    into `base`, or None when it cannot be told (no PyYAML, a file that does
+    not parse). Read from the checkout's .github/workflows/."""
+    try:
+        import yaml
+    except ImportError:
+        return None
+    import fnmatch
+    found = []
+    for wf in sorted((pathlib.Path(root) / '.github' / 'workflows').glob('*.y*ml')):
+        try:
+            doc = yaml.safe_load(wf.read_text(encoding='utf-8')) or {}
+        except Exception:                                    # noqa: BLE001
+            return None
+        # PyYAML reads a bare `on:` key as True.
+        on = doc.get('on', doc.get(True)) if isinstance(doc, dict) else None
+        if on == 'pull_request' or (isinstance(on, list) and 'pull_request' in on):
+            found.append(wf.name)
+            continue
+        if not isinstance(on, dict) or 'pull_request' not in on:
+            continue
+        cfg = on.get('pull_request') or {}
+        want = cfg.get('branches') if isinstance(cfg, dict) else None
+        skip = cfg.get('branches-ignore') if isinstance(cfg, dict) else None
+        if want is not None and not any(fnmatch.fnmatch(base, w) for w in want):
+            continue
+        if skip and any(fnmatch.fnmatch(base, w) for w in skip):
+            continue
+        found.append(wf.name)
+    return found
+
+
+def _carry_composition_to_branch(root, label, new):
+    """After a landing refused for the pull-request route: push the
+    composition the quick checks just passed -- staging, main's direct work
+    and the branch -- to the branch itself, so the pull request carries
+    everything main has. -> what to tell the person.
+
+    WHY (2026-10-19). The refusal sent the work to a pull request from the
+    branch as it stood, which lacked main's direct commits; the push check
+    and the merge guard then refused THAT, telling the session to use
+    --land, which had just sent it to the pull request. The way out was a
+    hand merge of origin/main into the branch. The composition is already
+    built and checked, and it descends from the branch, so this push is a
+    fast-forward; a branch that moved, or a label that is no branch, is
+    left alone and said."""
+    branch = label[len('origin/'):] if label.startswith('origin/') else label
+    if branch in ('HEAD', '') or branch in tier_branches(root):
+        return (f'{label} is not a branch the pull request can come from, so '
+                f'the checked composition was not pushed anywhere: merge '
+                f'origin/{MAIN} into the branch you open it from first.')
+    p = _run(root, 'push', '-q', 'origin', f'{new}:refs/heads/{branch}')
+    if p.returncode != 0:
+        return (f'Could not bring {branch} up to the checked composition '
+                f'({(p.stderr or p.stdout).strip()[:200]}): merge '
+                f'origin/{MAIN} into {branch} and push it before opening the '
+                f'pull request, or the merge is refused for lacking '
+                f'{MAIN}\'s work.')
+    return (f'{branch} now carries the composition the quick checks passed '
+            f'({new[:12]}: {staging_branch(root)}, {MAIN}\'s direct work and '
+            f'{branch}), so the pull request from it lacks nothing {MAIN} has.')
+
+
+def pull_request_route_note(root, base, checks_ran=None):
+    """What to do after a refusal that sends a landing through a pull
+    request into `base`, said from what the workflows actually run.
+    `checks_ran` is True when the caller ran the quick checks on this work
+    just before (the land tool does); anything else, the two-argument call
+    included, means nobody knows, and the note says to run them first.
+
+    WHY (2026-10-18). A refusal said "open a pull request into staging, and
+    merge it once its checks pass". Here no workflow runs on a pull request
+    into staging, so no check ever reported, no event ever came, and the
+    session sat waiting on one until Morgan asked whether anything was
+    happening. The quick checks this landing ran are the checks; where
+    GitHub adds none, the merge follows the pull request at once.
+
+    WHY checks_ran (2026-10-18). The shared ladder's pre-push guard calls
+    this from a plain `git push`, where no quick checks ran; the note said
+    they had passed and invited a merge with nothing checked."""
+    if checks_ran is True:
+        ran = 'the quick checks above having passed'
+        none_ran = ('The quick checks above passed on this composition: open '
+                    'the pull request and merge it straight away.')
+    else:
+        tool = _push_check_tool(root) or 'tools/precedent_push_check.py'
+        ran = (f'once the quick checks pass (`python3 {tool}`); nothing has '
+               f'run them on this push')
+        none_ran = (f'Nothing has run the quick checks on this push: run '
+                    f'`python3 {tool}`, and once it passes, open the pull '
+                    f'request and merge it straight away.')
+    runs = pull_request_checks(root, base)
+    if runs is None:
+        return (f'Could not read which GitHub checks run on a pull request '
+                f'into {base}. Open the pull request and look at its checks '
+                f'right away: if none is listed, none is coming -- merge it, '
+                f'{ran}. Never wait on a check nothing has started.')
+    if not runs:
+        return (f'No workflow here runs on a pull request into {base}, so no '
+                f'GitHub check will ever report on one. {none_ran} Do not '
+                f'wait for checks.')
+    return (f'A pull request into {base} is checked by {", ".join(runs)}: open '
+            f'it, and merge once those report green. If none has started a '
+            f'few minutes after opening, look again rather than wait.')
 
 
 def refused_push(root, branch, built, proc):
@@ -2144,7 +2253,11 @@ def wait_for_main_test(root, sha, say=print, gh=None, copy=None):
         return 0
     if merged:
         say(f'GitHub test {state.upper()} on {sha[:12]}: {detail}. {MAIN} already '
-            f'carries it, so fix {MAIN} now.')
+            f'carries it, so fix {MAIN} now, straight into it: cut a branch '
+            f'from {MAIN}\'s tip named by `python3 tools/precedent_branch_name.py '
+            f'fix main WORDS`, open its pull request into {MAIN} (red_main_fix '
+            f'lets that one through), then land the same branch on '
+            f'{staging_branch(root)} (`{LAND_COMMAND} BRANCH`).')
     else:
         say(f'GitHub test {state.upper()} on {sha[:12]}: {detail}. Do not merge.')
     return 1
@@ -3983,6 +4096,9 @@ def _land_composed(root, sha, label, staging, why, say):
         say(f'LAND REFUSED, and {staging} did not move: the push was refused, so '
             f'landing again would be refused the same way. What the push '
             f'said:\n{said[-1500:]}')
+        if 'pull request' in said:
+            say(_carry_composition_to_branch(root, label, new))
+            say(pull_request_route_note(root, staging, checks_ran=True))
         first = next((ln for ln in said.splitlines() if ln.strip()), 'no reason given')
         return 1, f'LAND REFUSED: the push to {staging} was refused: {first[:200]}'
     say(f'the quick checks passed, in {took:.0f}s.')

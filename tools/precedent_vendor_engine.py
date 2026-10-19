@@ -172,7 +172,7 @@ Five subcommands:
                                   clone's current tools/ (upstream moved?).
                                   Exit 1 if either differs.
 
-  refresh <bestpractice-clone> [--force] [--from-ref REF]
+  refresh <bestpractice-clone> [--force] [--from-ref REF] [--take-anyway]
                                   Same kind auto-detection as status. Pulls
                                   the clone's SOURCE_BRANCH (see below —
                                   NOT the clone's configured default
@@ -185,6 +185,10 @@ Five subcommands:
                                   any file this repo's precedent.json maps
                                   under `engine_paths` (upstream path ->
                                   local path) current; see ENGINE_PATHS_KEY.
+                                  Following main, it refuses a tip whose
+                                  GitHub test has not passed, as Update
+                                  Vendors does; --take-anyway takes it on
+                                  the person's word (untested_tip_refusal).
 
   fresh                          Clone-free staleness notice, no argument
                                   needed: one `git ls-remote` of
@@ -382,6 +386,10 @@ HOOK_SCRIPT_FILES = [
     # instantiated .template is a stub holding only the person's values.
     'individual-source-bootstrap.sh',
     'merge-check-gate.sh',
+    # Their logic is outbound_privacy_gate.py and outbound_privacy_scan.py, in
+    # ENGINE_FILES (2026-10-18).
+    'outbound-privacy-gate.sh',
+    'outbound-privacy-scan.sh',
     'precedent-hooks.sh',
     'precedent-paths.sh',
     'precedent-universal-catalogue.sh',
@@ -398,6 +406,10 @@ HOOK_SCRIPT_FILES = [
 ENGINE_FILES = [
     # What answer-first-gate.sh runs (HOOK_SCRIPT_FILES).
     'answer_first_gate.py',
+    # What outbound-privacy-gate.sh and outbound-privacy-scan.sh run
+    # (HOOK_SCRIPT_FILES), practice outbound-privacy (2026-10-18).
+    'outbound_privacy_gate.py',
+    'outbound_privacy_scan.py',
     'build_views.py',
     # The one place this engine asks GitHub anything, and the counter behind
     # precedent_check.py's github-api-budget check (added 2026-09-14). It
@@ -931,6 +943,10 @@ ENGINE_FILES = [
     # receipts, Promote's lock -- data- on the ladder, the old name
     # elsewhere (2026-10-11). Both files above import it, guarded.
     'precedent_data_branches.py',
+    # Finishes a session's own merge that stopped on generated files, with
+    # precedent_branches.py's resolver (2026-10-18); shared-index-is-a-
+    # directory names it, so every kind that gets that practice needs it.
+    'precedent_resolve_merge.py',
     # The commit backstop's engine fixer (spec/GENERATED_FILES_PLAN.md step
     # 3): commit-identity.sh's hook runs it from the repository's own copy,
     # so every kind that receives the hook receives the script it calls.
@@ -1804,18 +1820,16 @@ READ_ONLY_ALLOW_TOOLS = ('precedent_show.py', 'precedent_paths.py',
                          'routing_audit.py', 'practice_audit.py')
 DECLINED_ALLOW_KEY = 'declined_allow_rules'
 _ALLOW_RULE_RE = re.compile(r'^Bash\(python3 tools/([\w.-]+)( \*)?\)$')
-# EVERY ENGINE TOOL IS ALLOWED, AND THE ONES THAT MOVE WORK ASK (Morgan,
-# 2026-10-17: "why not include all on that list except a small list we
-# explicitly want to exclude from that list to get the session user's
-# permission", then "yes, build it"). One allow rule covers every
-# tools/precedent_*.py, so a new engine tool needs no settings change and no
-# approval in any repository; the template's permissions.ask names the
-# tools that land, produce, merge, update other repositories or send work
-# upstream. Claude Code applies ask before allow, auto mode included, so
-# those always ask. The allow rule is never written without every ask rule
-# beside it (permission_rules_to_add), or for one moment every one of them
-# would run unasked. precedent_check.py's risky-engine-tools-ask keeps the
-# ask list complete.
+# EVERY ENGINE TOOL IS ALLOWED (Morgan, 2026-10-17: "why not include all on
+# that list"). One allow rule covers every tools/precedent_*.py, so a new
+# engine tool needs no settings change and no approval in any repository.
+# From 2026-10-17 to 2026-10-18 the template also listed the tools that
+# land, produce, merge or update other repositories under permissions.ask;
+# Claude Code applies ask before allow, auto mode included, so every
+# Booked, Produce, merge and Update Vendors stopped for a click Morgan
+# always gave (2026-10-18: "I urgently need a fix so you stop asking me so
+# much"). The list is gone: when work moves is the rules' call (go-update,
+# produce), checked by the tools themselves.
 ENGINE_ALLOW_RULE = 'Bash(python3 tools/precedent_*)'
 
 
@@ -1859,20 +1873,15 @@ def engine_ask_rules(template_text):
 
 def permission_rules_to_add(perms, allow, ask, declined=()):
     """-> (allow rules, ask rules) to add to a settings file whose
-    permissions are `perms`: those it does not already have, less `declined`.
-    ENGINE_ALLOW_RULE comes only with every rule of `ask` present after the
-    write, so the broad allow never stands without the asks beside it; a
-    repo that declines one ask rule keeps the tools allowed one by one."""
+    permissions are `perms`: those it does not already have, less
+    `declined`. Since 2026-10-18 the broad engine allow stands on its own:
+    the template ships no ask rules (see ENGINE_ALLOW_RULE)."""
     perms = perms if isinstance(perms, dict) else {}
     have_allow = set(perms.get('allow') or []) | set(perms.get('deny') or [])
     have_ask = set(perms.get('ask') or []) | set(perms.get('deny') or [])
     declined = set(declined or ())
     add_ask = [r for r in ask if r not in have_ask and r not in declined]
-    asks_complete = all(r in have_ask or r in add_ask for r in ask) and bool(ask)
-    add_allow = [r for r in allow if r not in have_allow and r not in declined
-                 and (r != ENGINE_ALLOW_RULE or asks_complete)]
-    if ENGINE_ALLOW_RULE not in add_allow and ENGINE_ALLOW_RULE not in have_allow:
-        add_ask = []          # the asks exist for the broad allow, never alone
+    add_allow = [r for r in allow if r not in have_allow and r not in declined]
     return add_allow, add_ask
 
 
@@ -8600,7 +8609,71 @@ def _drift_upstream_already_has(tools_drift, path_drift, dest_tools, clone,
     return keep, same
 
 
-def refresh(clone, force=False, ref=None):
+# A bare refresh resolves the tip of main and vendored it whatever its
+# GitHub test said, while Update Vendors takes only a main whose test passed
+# (precedent_update.source_commit). 2026-10-18: Update Vendors kept the last
+# tested main and said "already current"; a session read that as a bug, ran
+# refresh by hand and vendored a main whose test was still running. The
+# refresh now asks the same question of the tip, through the source clone's
+# own precedent_branches.py (a consumer's engine carries no copy of it), and
+# refuses an untested tip unless --take-anyway names it as the person's word.
+TAKE_ANYWAY_FLAG = '--take-anyway'
+
+
+def _source_branches_module(clone):
+    """-> the source clone's precedent_branches module, or None."""
+    path = pathlib.Path(clone) / 'tools' / 'precedent_branches.py'
+    if not path.is_file():
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('_source_precedent_branches', path)
+    try:
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception:
+        return None
+    return mod
+
+
+def untested_tip_refusal(clone, commit, pb=None):
+    """-> why `commit`, the tip of main a bare refresh resolved, is not
+    taken, or None to take it.
+
+    None off main, where the source has no GitHub test, when the tip carries
+    a passed marker or GitHub says it passed, and when GitHub cannot be
+    asked at all (said as a NOTICE, as Update Vendors says it)."""
+    if FOLLOWED_BRANCH != SOURCE_BRANCH or not commit:
+        return None
+    pb = pb or _source_branches_module(clone)
+    if pb is None:
+        return None
+    try:
+        tests = pb.github_tests(clone, commit)
+        if not tests:
+            return None
+        marked = pb.passed_markers(clone) or set()
+        if marked and _rev(clone, f'{commit}^{{tree}}') in marked:
+            return None
+        state, detail = pb.github_test_state(clone, commit, tests)
+    except Exception as e:  # never let the question itself break a refresh
+        state, detail = 'unknown', str(e)
+    if state == 'passed':
+        return None
+    if state == 'unknown':
+        print(f"NOTICE: precedent_vendor_engine refresh: could not ask GitHub "
+              f"whether {SOURCE_BRANCH}'s test passed on {commit[:12]} "
+              f"({detail}), so this takes it without knowing.")
+        return None
+    return (f"the newest {SOURCE_BRANCH}, {commit[:12]}, has no passing GitHub "
+            f"test yet ({state}: {detail}), and a refresh takes only a "
+            f"{SOURCE_BRANCH} whose test passed, as Update Vendors does. Run "
+            f"Update Vendors (python3 ../BestPractice/tools/precedent_update.py "
+            f"--repo .), which takes the newest {SOURCE_BRANCH} that passed; or "
+            f"take this one anyway, in the person's own words, with "
+            f"refresh <clone> {TAKE_ANYWAY_FLAG}.")
+
+
+def refresh(clone, force=False, ref=None, take_anyway=False):
     """`ref`, when given, names the exact commit or ref inside `clone` to
     vendor from, instead of resolving FOLLOWED_BRANCH there.
 
@@ -8702,6 +8775,12 @@ def refresh(clone, force=False, ref=None):
               f"there; to vendor a particular commit, pass --ref; to roll it "
               f"back on purpose, --force.")
         return
+    untested = (None if ref is not None or take_anyway
+                or os.environ.get(_SECOND_PASS_ENV)
+                else untested_tip_refusal(clone, new_commit))
+    if untested:
+        shutil.rmtree(engine_dir, ignore_errors=True)
+        sys.exit(f"precedent_vendor_engine FAIL: {untested}")
     try:
         # Read now, compared now, BEFORE any write: a first-run refusal
         # after the engine files were already rewritten would leave a
@@ -9270,7 +9349,7 @@ def main():
                      "(a commit or ref inside the clone).")
         ref = rest[i + 1]
         rest = rest[:i] + rest[i + 2:]
-    unknown = [a for a in rest if a != '--force']
+    unknown = [a for a in rest if a not in ('--force', TAKE_ANYWAY_FLAG)]
     if unknown:
         sys.exit(f"precedent_vendor_engine FAIL: unknown argument(s) to "
                  f"refresh: {', '.join(unknown)}.")
@@ -9280,7 +9359,8 @@ def main():
             sys.exit(f"precedent_vendor_engine FAIL: --from-ref {ref!r} does "
                      f"not resolve in {clone}.")
         ref = resolved
-    rc = refresh(clone, force='--force' in args, ref=ref)
+    rc = refresh(clone, force='--force' in args, ref=ref,
+                 take_anyway=TAKE_ANYWAY_FLAG in rest)
     _credential_reminder(ROOT)
     return rc
 
