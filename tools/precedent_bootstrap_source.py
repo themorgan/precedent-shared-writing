@@ -695,6 +695,13 @@ def _install_session_hooks(dest, base_branch='main'):
                 {'type': 'command',
                  'command': f'$CLAUDE_PROJECT_DIR/.claude/hooks/precedent-hooks.sh {ev}',
                  'timeout': 900}]})
+        # The no-prompt attach rules, from the one list Update Vendors' refresh
+        # adds to an existing set (2026-10-28: sets made here had none, so a
+        # session rooted in one stopped at the add_repo prompt for the sets
+        # it brings). The clone rules need the owners known here; a set made
+        # before the individual set resolves gets them on its first refresh.
+        allow, _ask = precedent_vendor_engine._refresh_allow_rules('source', '', dest)
+        payload['permissions'] = {'allow': allow}
         settings.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
         written.append(settings)
     return written
@@ -1277,6 +1284,24 @@ def _malformed(level, path):
         out.append('no practices/ directory')
     elif not any(pdir.glob('*.md')):
         out.append('practices/ holds no practice files')
+
+    # A repository that had Precedent installed like a project and then
+    # became a set keeps the install's copies of other sources' rules in
+    # practices/ until someone removes them by hand (2026-10-19,
+    # spec/A_SET_EXPORTS_ONLY_ITS_OWN_RULES.md). The resolver already leaves
+    # them out; this says so where the set is made and checked.
+    try:
+        own = json.loads((path / precedent_resolve.SOURCE_MANIFEST)
+                         .read_text(encoding='utf-8')).get('name')
+    except (OSError, ValueError, AttributeError):
+        own = None
+    copies = precedent_resolve.installed_copies(path, own) if own else {}
+    if copies:
+        out.append(f"practices/ holds {len(copies)} practice(s) an install "
+                   f"copied in from {', '.join(sorted(set(copies.values())))} "
+                   f"(its {precedent_resolve.INSTALL_MANIFEST} records them): "
+                   f"a set holds only its own rules -- delete those files and "
+                   f"{precedent_resolve.INSTALL_MANIFEST}")
 
     return out
 

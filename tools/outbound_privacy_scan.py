@@ -16,8 +16,12 @@ reports every outbound one holding a private term, the term masked, the
 same way the gate decides what is outbound and what is private.
 
 As a Stop hook it speaks once per finding: a finding it has reported is
-recorded in .precedent/outbound_scan_seen.json, and the next stop is quiet
-unless a new one appears. A new finding ends the turn with exit 2, so the
+recorded beside the session's transcript (<session>/outbound_scan_seen.json),
+and the next stop is quiet unless a new one appears. The record belongs to
+the session, not the repository: a session rooted above several
+repositories runs this hook once per repository, and a record kept in each
+one reported the same finding once per repository (2026-10-20, one tool
+call reported from both BestPractice and a set beside it). A new finding ends the turn with exit 2, so the
 session tells the person in its reply what went out, where and when.
 
 WHY (Alex, 2026-10-18: "Or at least better track when this happens?"). The
@@ -34,15 +38,52 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import outbound_privacy_gate as gate  # noqa: E402
 
 ROOT = gate.ROOT
-SEEN = ROOT / '.precedent' / 'outbound_scan_seen.json'
+# Where the record lived before 2026-10-20, one per repository: still read,
+# so a finding already reported there is not reported again; never written.
+LEGACY_SEEN = ROOT / '.precedent' / 'outbound_scan_seen.json'
+
+
+def seen_path(transcript_path):
+    """-> the session's own record of the findings it has reported, in the
+    session's folder beside its transcript (where its agents' transcripts
+    sit too), whichever repository's hook asks."""
+    return Path(transcript_path).with_suffix('') / 'outbound_scan_seen.json'
+
+
+def _read_seen(path):
+    try:
+        return set(json.loads(path.read_text(encoding='utf-8')))
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+# What a tool call's result says when the call never ran: the gate's own
+# refusal, or the person declining it. Such a call sent nothing.
+NEVER_RAN = ('OUTBOUND PRIVACY: this request would send',
+             "doesn't want to proceed with this tool use")
+
+
+def _result_text(item):
+    c = item.get('content')
+    if isinstance(c, list):
+        return ' '.join(str(x.get('text') or '') for x in c if isinstance(x, dict))
+    return str(c or '')
 
 
 def tool_calls(path):
-    """(id, tool, input, time) for every tool call recorded in a transcript."""
+    """(id, tool, input, time) for every tool call recorded in a transcript
+    that actually ran.
+
+    WHY THE SKIP (2026-10-20). A call the gate refused is still in the
+    transcript as a tool call, with the refusal as its result. Read as one
+    that ran, it was reported to the person as private details that "left
+    this machine" -- twice in one session, about a commit command the gate
+    had stopped -- when nothing went anywhere."""
     try:
         lines = Path(path).read_text(encoding='utf-8', errors='replace').splitlines()
     except OSError:
         return
+    calls, refused = [], set()
     for line in lines:
         try:
             rec = json.loads(line)
@@ -53,9 +94,17 @@ def tool_calls(path):
         if not isinstance(content, list):
             continue
         for item in content:
-            if isinstance(item, dict) and item.get('type') == 'tool_use':
-                yield (item.get('id') or '', item.get('name') or '',
-                       item.get('input') or {}, rec.get('timestamp') or '')
+            if not isinstance(item, dict):
+                continue
+            if item.get('type') == 'tool_use':
+                calls.append((item.get('id') or '', item.get('name') or '',
+                              item.get('input') or {}, rec.get('timestamp') or ''))
+            elif item.get('type') == 'tool_result' and item.get('is_error') \
+                    and any(m in _result_text(item) for m in NEVER_RAN):
+                refused.add(item.get('tool_use_id') or '')
+    for call in calls:
+        if call[0] not in refused:
+            yield call
 
 
 def transcripts_for(session_path):
@@ -104,12 +153,13 @@ def hook():
         return 0
     try:
         found = scan(transcripts_for(tp))
-        seen = set(json.loads(SEEN.read_text(encoding='utf-8'))) if SEEN.exists() else set()
-        new = [f for f in found if f['id'] and f['id'] not in seen]
+        record = seen_path(tp)
+        seen = _read_seen(record)
+        new = [f for f in found if f['id'] and f['id'] not in seen | _read_seen(LEGACY_SEEN)]
         if not new:
             return 0
-        SEEN.parent.mkdir(parents=True, exist_ok=True)
-        SEEN.write_text(json.dumps(sorted(seen | {f['id'] for f in new})), encoding='utf-8')
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps(sorted(seen | {f['id'] for f in new})), encoding='utf-8')
     except Exception as e:  # fail open on the plumbing
         print(f'outbound_privacy_scan: {e}', file=sys.stderr)
         return 0
