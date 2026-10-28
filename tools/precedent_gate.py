@@ -640,10 +640,18 @@ def _unlanded_work(root, siblings=True, records=None):
                     repo, 'rev-parse', '--verify', '-q',
                     f'refs/remotes/origin/{landing}'):
                 base = landing
-            elif landing == pb.MAIN and _ladder(repo) is False:
+            elif landing == pb.MAIN and _ladder(repo) is False and _git(
+                    repo, 'rev-parse', '--verify', '-q',
+                    f'refs/remotes/origin/{pb.MAIN}'):
                 # Off the ladder there are no tiers: work has landed when it
                 # is on main, whatever branch the repository's own
                 # contributors work on (spec/LADDER_OPT_IN_PLAN.md D3).
+                # Only where the repository HAS a branch of that name: a
+                # trunk called master compared against an origin/main that
+                # does not exist counted nothing ahead, so no unlanded work
+                # was ever reported there and the archive line passed over
+                # an unmerged branch (a consumer, 2026-10-25). Without it the
+                # declared base stands.
                 base = pb.MAIN
             # The tier a landed batch moves up to next: staging into main.
             above = pb.MAIN if landing and landing == staging \
@@ -753,7 +761,9 @@ def _print_advisories_missed(reqs, prc):
     it here keeps both: nothing is refused, and the miss is in front of the
     session one turn later. Nothing prints without the transcript."""
     path = os.environ.get('PRECEDENT_TRANSCRIPT_PATH', '').strip()
-    soft = [r for r in reqs if r.get('advisory')]
+    soft = [r for r in reqs if r.get('advisory') or any(
+        isinstance(e, dict) and e.get('advisory') is True
+        for e in r.get('require_no_bare_pattern') or [])]
     if not path or not soft or not os.path.isfile(path):
         return
     try:
@@ -893,6 +903,12 @@ def _print_hard_requirements(root):
               f"({e}), so they are not below. Treat that as unknown, not as "
               f"'there are none'.")
         return
+    if getattr(prc, 'standing_session', None) and prc.standing_session(root):
+        # A standing session is held only to the requirements that guard
+        # work (practice master-maintainer, 2026-10-20), so only those print.
+        reqs = prc.for_this_session(reqs, root)
+        print("\nThis is a standing session the repository names: the "
+              "reply-format requirements do not apply to it.")
     if not reqs and not notes:
         return
     if not _is_code_owner(root):
@@ -953,7 +969,7 @@ def _print_hard_requirements(root):
                                                  _rep['heading'])
                 except Exception:                            # noqa: BLE001
                     _prev = None
-            _short = f" ({_rep['one_line']})" if _rep.get('one_line') else ''
+            _short = f" ({prc.one_line_form(_rep)})" if _rep.get('one_line') else ''
             if _prev:
                 print(f"- [{src}] the section under /{_rep['heading']}/i is "
                       f"refused when every line of it repeats the last "
@@ -1447,6 +1463,15 @@ def main():
         except Exception:                                     # noqa: BLE001
             _unlanded = []
         record_turn_start_unlanded(root, _records)
+        try:
+            import precedent_reply_check as _prc
+            _gone = _prc.given_up_branches(root)
+        except Exception:                                     # noqa: BLE001
+            _gone = set()
+        # A branch given up by name is settled; it is not reported again
+        # (2026-10-20).
+        _unlanded = [l for l in _unlanded
+                     if not any(f"on '{b}' " in l for b in _gone)]
         for _line in _unlanded:
             if PROMOTE_RUNNING_MARK in _line:
                 print(f"- {_line}. Do NOT recommend, suggest or mention a "
