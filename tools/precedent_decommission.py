@@ -110,7 +110,9 @@ Usage:
   precedent_decommission.py PATH [PATH...]            # audit only, always start here
   precedent_decommission.py PATH --reason "..." --apply
                                                      # git rm + record it
-  precedent_decommission.py --list                    # what this repo has decommissioned
+                                                     # (only the record, for a
+                                                     # path already deleted)
+  precedent_decommission.py --list                   # what this repo has decommissioned
 
 Exit 0 when every path audited clean (or was applied), 1 when any blocked.
 """
@@ -246,18 +248,79 @@ def load_registry():
         sys.exit(f'precedent_decommission: {e}')
 
 
-def record_decommissioned(root, paths, reason, cfg=None):
+LEFT_IN_CONSUMERS_KEY = 'left_in_consumers'
+
+
+def was_vendored(root, rel, rev='HEAD'):
+    """True when `rel` is a file the engine vendors into other repositories
+    (named, quoted, in tools/precedent_vendor_engine.py), now or at `rev` --
+    a change that drops a tool from the list and deletes it together still
+    owes the answer. A file there can leave files behind in every repository
+    it ran in, so retiring one asks what it left
+    (practice: decommission-deletes-files).
+
+    Read as text, never imported: importing a fixture's engine by its module
+    name replaced the real one for everything after it (2026-10-20)."""
+    rel = rel.rstrip('/')
+    if not rel.startswith('tools/') or rel.count('/') != 1:
+        return False
+    name = rel.split('/', 1)[1]
+    quoted = (f"'{name}'", f'"{name}"')
+    try:
+        now = (pathlib.Path(root) / 'tools' / 'precedent_vendor_engine.py') \
+            .read_text(encoding='utf-8')
+    except OSError:
+        now = ''
+    if any(q in now for q in quoted):
+        return True
+    r = _git('show', f'{rev}:tools/precedent_vendor_engine.py', cwd=root)
+    return r.returncode == 0 and any(q in r.stdout for q in quoted)
+
+
+def deleted_by(rel, cwd=None):
+    """-> the commit that deleted `rel`, when git no longer tracks it but
+    history shows it was deleted; None otherwise. Such a path was deleted
+    by hand (git rm, or a merge that carried the deletion) and owes only
+    its record: the push check asks for one on any vendored engine file a
+    change deletes, and before 2026-10-20 this tool refused to write it
+    for a file already gone (#1317's precedent_switchboard_offer.py)
+    (practice: decommission-deletes-files)."""
+    rel = rel.rstrip('/')
+    if _git('ls-files', '--', rel, cwd=cwd).stdout.strip():
+        return None
+    r = _git('log', '-1', '--diff-filter=D', '--format=%H', '--', rel, cwd=cwd)
+    return r.stdout.strip() or None if r.returncode == 0 else None
+
+
+def was_vendored_before(root, rel):
+    """was_vendored, read at the commit before the one that deleted `rel`
+    when it is already gone: the change that deletes an engine tool drops
+    it from the vendor list too, so HEAD no longer names it."""
+    sha = deleted_by(rel, cwd=root)
+    return was_vendored(root, rel, f'{sha}^' if sha else 'HEAD')
+
+
+def record_decommissioned(root, paths, reason, cfg=None, left=None,
+                          engine=None):
     """Append one entry per path to <root>/REGISTRY and write it. Deletes
     nothing: the caller has already removed the files (git rm here, a plain
     unlink in a refresh) and this is only the record. -> the date recorded.
-    Raises ValueError on a malformed registry, like read_registry."""
+    `left`, when given, is what the retired engine tools wrote into consumer
+    repositories (LEFT_IN_CONSUMERS_KEY), recorded on each engine tool's
+    entry; `engine`, when given, names those paths, else was_vendored
+    decides. Raises ValueError on a malformed registry, like read_registry."""
     root = pathlib.Path(root)
     if cfg is None:
         cfg = read_registry(root)
     today = precedent_time.today()
     for p in paths:
-        cfg['decommissioned'].append({'path': p.rstrip('/'), 'reason': reason,
-                                      'decommissioned_at': today})
+        entry = {'path': p.rstrip('/'), 'reason': reason,
+                 'decommissioned_at': today}
+        is_engine = (p.rstrip('/') in engine if engine is not None
+                     else was_vendored(root, p))
+        if left is not None and is_engine:
+            entry[LEFT_IN_CONSUMERS_KEY] = list(left)
+        cfg['decommissioned'].append(entry)
     (root / REGISTRY).parent.mkdir(parents=True, exist_ok=True)
     (root / REGISTRY).write_text(
         json.dumps(cfg, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
@@ -481,7 +544,7 @@ def live_triggers_in_text(text):
     return sorted(set(live))
 
 
-def audit(path, exempt, siblings=()):
+def audit(path, exempt, siblings=(), recorded=frozenset()):
     """`siblings` are the OTHER paths being decommissioned in this same invocation.
 
     They matter because a reference from a file that is itself about to be
@@ -502,13 +565,21 @@ def audit(path, exempt, siblings=()):
     blockers, evidence = [], []
     tracked = tracked_files()
     targets = _targets_under(rel, tracked)
-    if not targets:
+    gone = None if targets else deleted_by(rel)
+    if not targets and not gone:
         blockers.append(f'{rel!r} is not tracked by git (or does not exist) -- '
                         f'there is no deletion to make here')
         return blockers, evidence
-    evidence.append(f'{len(targets)} tracked file(s) would be deleted')
-
-    blockers += _dirty_refusal(ROOT, rel)
+    if gone and rel in recorded:
+        blockers.append(f'{rel!r} was deleted in {gone[:9]} and {REGISTRY} '
+                        f'already records it -- there is nothing to do')
+        return blockers, evidence
+    if gone:
+        evidence.append(f'already deleted in {gone[:9]}: only the record is '
+                        f'owed, and --apply writes it without deleting anything')
+    else:
+        evidence.append(f'{len(targets)} tracked file(s) would be deleted')
+        blockers += _dirty_refusal(ROOT, rel)
 
     # Everything going in this invocation, so a mutual reference between
     # two paths being decommissioned together is not read as a survivor.
@@ -545,12 +616,16 @@ def audit(path, exempt, siblings=()):
     return blockers, evidence
 
 
-def apply_retirement(paths, reason, cfg):
-    r = _git('rm', '-r', '-q', '--', *paths)
-    if r.returncode != 0:
-        sys.exit(f'precedent_decommission: git rm failed ({r.stderr.strip()}) '
-                 f'-- nothing was recorded')
-    today = record_decommissioned(ROOT, paths, reason, cfg)
+def apply_retirement(paths, reason, cfg, left=None, engine=None):
+    # A path already deleted (audit's deleted_by) is only recorded.
+    present = [p for p in paths if not deleted_by(p)]
+    if present:
+        r = _git('rm', '-r', '-q', '--', *present)
+        if r.returncode != 0:
+            sys.exit(f'precedent_decommission: git rm failed '
+                     f'({r.stderr.strip()}) -- nothing was recorded')
+    today = record_decommissioned(ROOT, paths, reason, cfg, left=left,
+                                  engine=engine)
     _git('add', '--', REGISTRY)
     return today
 
@@ -612,6 +687,14 @@ def main(argv=None):
                     help='delete and record, only if the audit is clean')
     ap.add_argument('--list', action='store_true',
                     help='print what this repo has already decommissioned')
+    ap.add_argument('--left-in-consumers', action='append', default=[],
+                    metavar='PATH',
+                    help='a file a retired engine tool wrote into the '
+                         'repositories it ran in; Update Vendors removes it '
+                         'there. Repeat per file')
+    ap.add_argument('--left-nothing', action='store_true',
+                    help='the retired engine tool wrote nothing into the '
+                         'repositories it ran in')
     args = ap.parse_args(argv)
 
     _require_root()
@@ -631,9 +714,12 @@ def main(argv=None):
                  'not written down is the record that dies first')
 
     blocked = False
+    recorded = {e.get('path') for e in cfg['decommissioned']
+                if isinstance(e, dict)}
     for p in args.paths:
         others = [q for q in args.paths if q != p]
-        blockers, evidence = audit(p, cfg['exempt_files'], siblings=others)
+        blockers, evidence = audit(p, cfg['exempt_files'], siblings=others,
+                                   recorded=recorded)
         print(f'\n=== {p}')
         for e in evidence:
             print(f'  - {e}')
@@ -653,7 +739,23 @@ def main(argv=None):
         print(f'\nAudit clean. Re-run with --reason "..." --apply to delete '
               f'and record it in {REGISTRY}.')
         return 0
-    today = apply_retirement(args.paths, args.reason, cfg)
+    engine = sorted(p.rstrip('/') for p in args.paths
+                    if was_vendored_before(ROOT, p))
+    if args.left_in_consumers and args.left_nothing:
+        ap.error('--left-in-consumers and --left-nothing contradict each other')
+    if engine and not (args.left_in_consumers or args.left_nothing):
+        # WHY (2026-10-20): the others-did tool left a mark file in every
+        # consumer, nobody retiring it asked, and the file stopped their
+        # updates three days later.
+        print(f'\nNot applied: {", ".join(engine)} is vendored into other '
+              f'repositories, and may have left files there. Say what it '
+              f'wrote into them -- --left-in-consumers PATH for each (Update '
+              f'Vendors then removes them) or --left-nothing -- and run this '
+              f'again.')
+        return 1
+    left = args.left_in_consumers if engine else None
+    today = apply_retirement(args.paths, args.reason, cfg, left=left,
+                             engine=set(engine))
     print(f'\nDeleted and recorded in {REGISTRY} ({today}). Commit this '
           f'together with whatever decommissioned the mechanism.')
     return 0

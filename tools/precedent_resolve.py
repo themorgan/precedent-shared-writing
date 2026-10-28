@@ -1994,17 +1994,63 @@ def clone_elsewhere(name, declared):
     return None
 
 
+# What precedent_materialize.py leaves at the root of every tree it writes.
+INSTALL_MANIFEST = 'MANIFEST.json'
+
+
+def installed_copies(path, own_name):
+    """-> {slug: the source it was copied from} for each practice an install
+    wrote into `path`'s practices/ from a source other than `own_name`. Read
+    off the MANIFEST.json precedent_materialize.py leaves at the root of
+    every tree it writes, which records each copy's source; {} when there is
+    none.
+
+    WHY (2026-10-19, spec/A_SET_EXPORTS_ONLY_ITS_OWN_RULES.md). An install
+    writes every resolved practice into a repository's practices/, and a
+    practice set keeps its own rules in that same folder, in the same
+    format. A repository that had Precedent installed like a project and
+    then became a set, or that someone declares as a source, would hand
+    every copy on as its own rule, at its own level: in the reproduction,
+    170 universal rules replaced by frozen copies and a person's own rules
+    republished as a shared set's."""
+    try:
+        data = json.loads((pathlib.Path(path) / INSTALL_MANIFEST)
+                          .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or not str(
+            data.get('generated_by') or '').endswith('precedent_materialize.py'):
+        return {}
+    out = {}
+    for row in data.get('practices') or []:
+        if isinstance(row, dict) and row.get('slug') and row.get('source') \
+                and row['source'] != own_name:
+            out[str(row['slug'])] = str(row['source'])
+    return out
+
+
 def load_source(source):
     """-> ({slug: practice}, missing_reason or None). A source directory holds
-    its practices in practices/, the same layout Precedent itself uses."""
+    its practices in practices/, the same layout Precedent itself uses.
+
+    Only the source's OWN practices: one an install copied there from another
+    source is left out and listed in source['installed_copies']
+    (installed_copies() says why)."""
     d = pathlib.Path(source['path']) / 'practices'
     if not d.is_dir():
         return {}, missing_source_reason(source['path'], source.get('name'))
     # practice: source-naming -- identity is read off the source, never
     # inferred from its name.
     source['manifest'] = check_source_manifest(source)
+    copies = installed_copies(source['path'], source['name'])
+    source['installed_copies'] = []
     out = {}
     for f in sorted(d.glob('*.md')):
+        if f.stem in copies:
+            source['installed_copies'].append(
+                {'slug': f.stem, 'source': source['name'], 'file': str(f),
+                 'copied_from': copies[f.stem], 'why': 'an install copied it'})
+            continue
         try:
             fm, sections = sp._read_practice_file(f)
         except sp.PracticeFileError as e:
@@ -2035,7 +2081,7 @@ def _requires(fm):
     return {str(x).strip() for x in got or [] if str(x).strip()}
 
 
-def resolve(sources, context=()):
+def resolve(sources, context=(), targets=()):
     """-> {'practices': {slug: practice}, 'shadowed': [...], 'blocked': [...],
            'missing': [...], 'retired': [...]}
 
@@ -2050,7 +2096,13 @@ def resolve(sources, context=()):
     they provide counts for `requires`, and a rule in force in one counts as
     in force for a deduplicated stub that points at it. Without that, a
     sync that left a brought set out also dropped every rule that needs the
-    ladder it provides (found by a consumer rehearsal, 2026-10-03)."""
+    ladder it provides (found by a consumer rehearsal, 2026-10-03).
+
+    `targets` is narrower: sources whose rules in force count only as where
+    a deduplicated stub points, never for `requires`. A measurement that
+    renders without the brought sets passes them here, so a rule moved into
+    one is not kept in force from its old stub and charged to the set it
+    left (precedent_session_practices.individual_share, 2026-10-28)."""
     by_source, missing = [], []
     for s in sources:
         loaded, why = load_source(s)
@@ -2060,6 +2112,7 @@ def resolve(sources, context=()):
         by_source.append((s, loaded))
 
     resolved, shadowed, blocked, retired = {}, [], [], []
+    copies = [c for s, _l in by_source for c in s.get('installed_copies') or []]
     # Tracks, per precedence level, which `overrides:` target has already
     # been claimed by a practice at that same level. Two practices at the
     # SAME level naming the same target are a collision the plan requires
@@ -2085,7 +2138,9 @@ def resolve(sources, context=()):
     provided = set(ENGINE_CAPABILITIES)
     for _s, _loaded in by_source:
         provided |= source_provides(_s['path'])
-    in_context = set()
+    # slug -> the brought set it is in force in, for a caller saying where
+    # a deduplicated rule went (precedent_sync_views, 2026-10-28).
+    in_context = {}
     # What a brought set provides counts for the PERSON's own rules only (an
     # individual set's "for me, the ladder"). A rule a repository declares
     # stays keyed to what the repository declares, so a committed view comes
@@ -2094,9 +2149,14 @@ def resolve(sources, context=()):
     for _s in context or ():
         provided_for_person |= source_provides(_s['path'])
         _loaded, _why = load_source(_s)
-        in_context |= {slug for slug, p in (_loaded or {}).items()
-                       if bv._json_str(p['fm'].get('status', 'active'))
-                       == IN_FORCE_STATUS}
+        for slug, p in (_loaded or {}).items():
+            if bv._json_str(p['fm'].get('status', 'active')) == IN_FORCE_STATUS:
+                in_context.setdefault(slug, _s.get('name'))
+    for _s in targets or ():
+        _loaded, _why = load_source(_s)
+        for slug, p in (_loaded or {}).items():
+            if bv._json_str(p['fm'].get('status', 'active')) == IN_FORCE_STATUS:
+                in_context.setdefault(slug, _s.get('name'))
     for _s, loaded in by_source:                      # lowest precedence first
         claims = override_claims_by_level.setdefault(_s['level'], {})
         for slug, practice in sorted(loaded.items()):
@@ -2126,6 +2186,18 @@ def resolve(sources, context=()):
             prior_own = resolved.get(slug)
             if prior_own is not None and _is_blocking(prior_own):
                 blocked.append({'slug': slug, 'kept': prior_own, 'refused': practice})
+                continue
+            # A byte-for-byte copy of a weaker source's rule is not an
+            # override: it changes nothing today and freezes the rule at the
+            # day it was copied. The original stays in force. (2026-10-19,
+            # spec/A_SET_EXPORTS_ONLY_ITS_OWN_RULES.md: the copy an install
+            # leaves without its MANIFEST.json, or one made by hand.)
+            if prior_own is not None and prior_own['level'] != practice['level'] \
+                    and _same_bytes(prior_own['file'], practice['file']):
+                copies.append({'slug': slug, 'source': practice['source'],
+                               'file': practice['file'],
+                               'copied_from': prior_own['source'],
+                               'why': 'identical to the rule it would replace'})
                 continue
 
             if has_override:
@@ -2254,7 +2326,31 @@ def resolve(sources, context=()):
         retired.remove(practice)
         resolved.setdefault(practice['slug'], dict(practice, kept_in_force=msg))
     return {'practices': resolved, 'shadowed': shadowed, 'blocked': blocked,
-            'missing': missing, 'retired': retired, 'dangling': dangling}
+            'missing': missing, 'retired': retired, 'dangling': dangling,
+            'copies': copies, 'in_context': in_context}
+
+
+def _same_bytes(a, b):
+    try:
+        return pathlib.Path(a).read_bytes() == pathlib.Path(b).read_bytes()
+    except OSError:
+        return False
+
+
+def copies_note(copies):
+    """-> one line naming the copies a resolution left out, or ''."""
+    if not copies:
+        return ''
+    by = {}
+    for c in copies:
+        by.setdefault(c['source'], []).append(c)
+    parts = [f"{len(v)} in {k} (copied from "
+             f"{', '.join(sorted({c['copied_from'] for c in v}))})"
+             for k, v in sorted(by.items())]
+    return (f"left out {len(copies)} copied practice(s), not their sources' "
+            f"own rules: {'; '.join(parts)}. A set exports only the rules it "
+            f"writes (spec/A_SET_EXPORTS_ONLY_ITS_OWN_RULES.md); delete the "
+            f"copies from that set's practices/ and its MANIFEST.json.")
 
 
 # The Story line tools/precedent_move.py appends when it withdraws a
@@ -2504,6 +2600,8 @@ def _report(res, sources, out=sys.stdout):
           # print weakest-to-strongest here, back when the tuple itself was
           # lowest-first and this call compensated with reversed().
           + ', '.join(f"{counts.get(l, 0)} {l}" for l in PRECEDENCE), file=out)
+    if res.get('copies'):
+        print(f"  {copies_note(res['copies'])}", file=out)
     for s in res['shadowed']:
         print(f"  overridden: {s['slug']} -- {s['by']['level']} "
               f"({s['by']['source']}) replaces {s['shadowed']['level']} "
