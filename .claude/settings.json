@@ -168,5 +168,15 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__claude-code-remote__add_repo",
+      "mcp__claude-code-remote__register_repo_root",
+      "Bash(GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/themorgan/*)",
+      "Bash(GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/themorgan/*)",
+      "Bash(git clone --depth 1 https://github.com/themorgan/*)",
+      "Bash(git clone https://github.com/themorgan/*)"
+    ]
   }
 }

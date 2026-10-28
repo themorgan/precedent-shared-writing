@@ -3,7 +3,7 @@
   "kind": "source",
   "source_repo": "https://github.com/alex137/BestPractice",
   "source_branch": "main",
-  "source_commit": "a9b53b2e9d81b3bf7bd14a2ae46d04dcbece9f94",
+  "source_commit": "859b0c1236c3e0d9562b806803769f340a869700",
   "files": [
     "answer_first_gate.py",
     "outbound_privacy_gate.py",
@@ -259,7 +259,7 @@
     "hook_wiring.json": "f04e09bca2eb065971620bb33ae9ebd4ba7178fb7c36813b5ed0b99e1f9d428f",
     "precedent_materialize.py": "5f16b4e8a3c24267faf771d83da9b0b7fc1656291c9c0b1b8865829f8e4771f6",
     "precedent_source_pins.py": "ebccdf58a8d24b7707fefd6552327a1f60a322a30b7d98847f8dcd0033366cb1",
-    "precedent_vendor_engine.py": "aac43421e5f2c6f1b9e17afb6b22c6904ccd465adc294ec72f36503d3d0e8496",
+    "precedent_vendor_engine.py": "860028bc70ff0cb3f2f9a36c48aabe815cb1b6fb42c5dbcf6a612a3d38f1a295",
     "routing_scope.json": "70275a23f46c832c2540f27bd790a6c2935c8f5f7acedef1a8596d054b774a45"
   },
   "_note": "The vendored Precedent source-repo engine (see tools/precedent_vendor_engine.py's own docstring, and spec/BOOTSTRAP_NEW_SOURCES.md / INSTALL.md). Never hand-edit a file this manifest lists -- run 'python3 tools/precedent_vendor_engine.py refresh <bestpractice-clone>' instead (kind is read back from this manifest -- no --kind flag needed for status/refresh); a hand-edit is detected as drift (sha256 mismatch) and refused without --force.",
