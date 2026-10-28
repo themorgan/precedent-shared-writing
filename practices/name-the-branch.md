@@ -18,7 +18,7 @@ approved_by: "Morgan F, 2026-09-23, moved from the individual set precedent-indi
 strength: decided
 ---
 ## Rule
-When you tell the person anything about a specific branch, **name it**: `staging`, `main`, `claude/nice-newton-5o72z0`. Never a role-word standing in for the name — "the base branch", "the default branch", "the beta branch", "the working branch", "upstream's branch", "its base". This holds everywhere you write to a person or to the record: replies, commit messages, pull request titles and bodies, and comments posted to GitHub.
+When you tell the person anything about a specific branch, **name it**: `main`, `develop`, `claude/nice-newton-5o72z0`. Never a role-word standing in for the name — "the base branch", "the default branch", "the beta branch", "the working branch", "upstream's branch", "its base". This holds everywhere you write to a person or to the record: replies, commit messages, pull request titles and bodies, and comments posted to GitHub.
 
 Where the statement is genuinely **generic** — a rule that holds for any repository, a script's docstring describing the `BASE` argument somebody passes it — the role-word is the correct word and this rule does not reach it. The test is whether the reader could sensibly ask "which one?". If they could, the name belongs there.
 
