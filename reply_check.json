@@ -28,7 +28,45 @@
         "repair": "It named something with a page -- listed below -- without linking it. The person has ALREADY SEEN the reply: output ONLY one short line giving each missing link, \"Links: [name](url), ...\" -- a file as its GitHub link, a branch as its tree view -- and end the turn. A file that has no page (untracked or local) is given as its absolute path instead. Do not repeat the reply or apologize."
       }
     ],
-    "why": "rule-links says anything mentioned that has a destination gets a link the first time it is named -- a PR, a session, a rule, a file -- and had no mechanical check at all until this predicate (tools/precedent_reply_check.py's require_no_bare_pattern). Added 2026-09-20 after a reply in a downstream consumer repository mentioned 'PR #21' with no link, and nothing caught it before the person had to notice and ask. Declared advisory rather than blocking: markdown links are stripped from the whole reply once, up front, so a thing correctly linked on its FIRST mention and named bare again later in the same reply still matches -- a known imprecision (rule-links only requires the first mention to carry the link), not a bug, and not yet worth refusing a turn over. 2026-10-19: blocking, with dated session branches and file paths in code font added (Morgan: \"Don't we have practice rules so when you mention files you always give links?\", after a Boildown named a branch, a section and a practice with no link). Advisory had meant unseen: main() drops an advisory finding without telling anyone, so this had never reached a session. The imprecision that justified it is fixed: a name linked anywhere in the reply now covers its later bare mentions. Moved 2026-10-19 from BestPractice's reply_check.json into the writing set, whose rule-links practice it enforces (enforcement-lives-with-its-practice; Morgan: \"Yes attach the writing set\")."
+    "why": "rule-links says anything mentioned that has a destination gets a link the first time it is named -- a PR, a session, a rule, a file -- and had no mechanical check at all until this predicate (tools/precedent_reply_check.py's require_no_bare_pattern). Added 2026-09-20 after a reply in a downstream consumer repository mentioned 'PR #21' with no link, and nothing caught it before the person had to notice and ask. Declared advisory rather than blocking: markdown links are stripped from the whole reply once, up front, so a thing correctly linked on its FIRST mention and named bare again later in the same reply still matches -- a known imprecision (rule-links only requires the first mention to carry the link), not a bug, and not yet worth refusing a turn over. 2026-10-19: blocking, with dated session branches and file paths in code font added (Morgan: \"Don't we have practice rules so when you mention files you always give links?\", after a Boildown named a branch, a section and a practice with no link). Advisory had meant unseen: main() drops an advisory finding without telling anyone, so this had never reached a session. The imprecision that justified it is fixed: a name linked anywhere in the reply now covers its later bare mentions. Moved 2026-10-19 from BestPractice's reply_check.json into the writing set, whose rule-links practice it enforces (enforcement-lives-with-its-practice; Morgan: \"Yes attach the writing set\").",
+    "_examples": [
+      {
+        "reply": "Work is on `2026-10-19-someone-a-plan-ab12c-xy9z0` (repo).",
+        "refused": true
+      },
+      {
+        "reply": "See `spec/A_PLAN.md` before merging.",
+        "refused": true
+      },
+      {
+        "reply": "Merged as PR #1314.",
+        "refused": true
+      },
+      {
+        "reply": "Sent to session_01AbCdEfGh for review.",
+        "refused": true
+      },
+      {
+        "reply": "Opened https://github.com/o/r/pull/12 today.",
+        "refused": true
+      },
+      {
+        "reply": "On [`2026-10-19-someone-a-plan-ab12c-xy9z0`](https://github.com/o/r/tree/2026-10-19-someone-a-plan-ab12c-xy9z0); later `2026-10-19-someone-a-plan-ab12c-xy9z0` again, and [A_PLAN.md](https://github.com/o/r/blob/main/spec/A_PLAN.md) then `A_PLAN.md`.",
+        "refused": false
+      },
+      {
+        "reply": "Run `python3 tools/x.py --apply`; the scratch file is `/tmp/s/out.md`; items are `todo-<date>-<slug>.md`; `main` stays.",
+        "refused": false
+      },
+      {
+        "reply": "Paste into: a new session rooted in o/r.\n\n```\nSee PR #1314 and session_01AbCdEfGh, on `2026-10-19-someone-a-plan-ab12c-xy9z0`.\n```\n",
+        "refused": false
+      },
+      {
+        "reply": "```\nquoted\n```\nThen PR #1314 in prose.",
+        "refused": true
+      }
+    ]
   },
   {
     "practice": "rule-links",
@@ -39,6 +77,16 @@
         "repair": "It named something with a page -- listed below -- without linking it. The person has ALREADY SEEN the reply: output ONLY one short line giving each missing link, \"Links: [name](url), ...\" -- a file as its GitHub link, a branch as its tree view -- and end the turn. A file that has no page (untracked or local) is given as its absolute path instead. Do not repeat the reply or apologize."
       }
     ],
-    "why": "branch-links says a git branch named anywhere in a reply gets a link to its tree view, and its own Install section says a bare branch NAME has no reliable syntactic signature a mechanical check could key off -- a branch's tree URL does, though, so this predicate (tools/precedent_reply_check.py's require_no_bare_pattern) catches that one detectable case rather than the general one. Added 2026-09-20 alongside the rule-links entry above, same incident. Declared advisory for the same reason: a link stripped once, up front, does not know a later bare mention of a URL already linked earlier in the same reply was already covered. 2026-10-19: blocking, for the same reason as the entry above; a branch NAME in code font is now caught there too, where it carries the dated shape precedent_branch_name.py gives every session branch or the harness's claude/ prefix. Moved 2026-10-19 from BestPractice's reply_check.json into the writing set, whose rule-links practice it enforces (enforcement-lives-with-its-practice; Morgan: \"Yes attach the writing set\")."
+    "why": "branch-links says a git branch named anywhere in a reply gets a link to its tree view, and its own Install section says a bare branch NAME has no reliable syntactic signature a mechanical check could key off -- a branch's tree URL does, though, so this predicate (tools/precedent_reply_check.py's require_no_bare_pattern) catches that one detectable case rather than the general one. Added 2026-09-20 alongside the rule-links entry above, same incident. Declared advisory for the same reason: a link stripped once, up front, does not know a later bare mention of a URL already linked earlier in the same reply was already covered. 2026-10-19: blocking, for the same reason as the entry above; a branch NAME in code font is now caught there too, where it carries the dated shape precedent_branch_name.py gives every session branch or the harness's claude/ prefix. Moved 2026-10-19 from BestPractice's reply_check.json into the writing set, whose rule-links practice it enforces (enforcement-lives-with-its-practice; Morgan: \"Yes attach the writing set\").",
+    "_examples": [
+      {
+        "reply": "It is at github.com/o/r/tree/some-branch now.",
+        "refused": true
+      },
+      {
+        "reply": "It is at [the branch](https://github.com/o/r/tree/some-branch) now.",
+        "refused": false
+      }
+    ]
   }
 ]
