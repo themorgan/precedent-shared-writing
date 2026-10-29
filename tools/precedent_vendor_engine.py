@@ -395,6 +395,8 @@ HOOK_SCRIPT_FILES = [
     'precedent-universal-catalogue.sh',
     'push-check-gate.sh',
     'reply-gate.sh',
+    # Its logic is repo_attach_gate.py, in ENGINE_FILES (2026-10-29).
+    'repo-attach-gate.sh',
     'seeded-prompt-gate.sh',
     'session-start.sh',
     'stop-git-check.sh',
@@ -412,6 +414,9 @@ ENGINE_FILES = [
     # (HOOK_SCRIPT_FILES), practice outbound-privacy (2026-10-18).
     'outbound_privacy_gate.py',
     'outbound_privacy_scan.py',
+    # What repo-attach-gate.sh runs (HOOK_SCRIPT_FILES), practice
+    # reach-or-ask (2026-10-29).
+    'repo_attach_gate.py',
     'build_views.py',
     # The one place this engine asks GitHub anything, and the counter behind
     # precedent_check.py's github-api-budget check (added 2026-09-14). It
@@ -2984,7 +2989,7 @@ def _engine_owned_paths(dest_root, manifest, kind):
     owned = {f'tools/{n}' for n in names}
     hooks = set(manifest.get('hook_files') or []) | _wired_hook_names(dest_root)
     owned |= {f'{HOOK_DEST_DIR}/{n}' for n in hooks}
-    owned |= {rel for _t, rel in CI_WORKFLOW_TEMPLATES.get(kind, ())}
+    owned |= {rel for _t, rel in ci_workflow_templates(kind, dest_root)}
     owned |= {rel for _s, rel in TEMPLATE_INSTANCES.get(kind, ())}
     return owned
 
@@ -3248,8 +3253,10 @@ CI_WORKFLOWS_SOURCE_DIR = 'templates/github-actions'
 # and the report names every script it ran.
 #
 # A PRACTICE SOURCE CONVERGES TOO, since 2026-10-01, on the same terms as a
-# consumer: it ships no workflow (CI_WORKFLOW_TEMPLATES['source'] is empty),
-# so every workflow it still carries goes, unless removing it would stop
+# consumer: it ships no workflow (CI_WORKFLOW_TEMPLATES['source'] is empty;
+# a public one gets the branch cleanup workflow alone, from
+# CI_PUBLIC_WORKFLOW_TEMPLATES since 2026-10-28), so every other workflow
+# it still carries goes, unless removing it would stop
 # something running that nothing local runs. ONLY THEN IS THE PERSON ASKED
 # (Morgan, 2026-10-01: "Ask if genuinely in doubt"): the session says in
 # plain words what the file does and what would stop, recommends, and asks
@@ -3327,6 +3334,44 @@ CI_WORKFLOW_TEMPLATES = {
 # cleanup workflow is here because it costs nothing until a person clicks it
 # (2026-10-16, spec/BRANCH_CLEANUP_BUTTON_PLAN.md).
 CI_ADDED_ON_REFRESH = frozenset({'branch-cleanup.yml.template'})
+
+# A PUBLIC PRACTICE SOURCE GETS THE BRANCH CLEANUP WORKFLOW, AND ONLY THAT
+# (Morgan, 2026-10-28, strength: decided: the branch cleanup page "should
+# have that button for each public repo on the list"; he chose this over a
+# hand-placed copy). The one exception to a source running no workflow
+# (source-sets-run-no-ci): it runs only when a person clicks, and GitHub
+# bills a public repository nothing, so it costs nothing either way. A set
+# is public only when its precedent.json says "visibility": "public";
+# private or undeclared, it ships nothing, and a copy left from when it was
+# public goes on its next refresh. CI_WORKFLOW_TEMPLATES['source'] stays
+# empty; read a repository's list through ci_workflow_templates()
+# (practice: source-sets-run-no-ci).
+CI_PUBLIC_WORKFLOW_TEMPLATES = {
+    'source': (
+        ('branch-cleanup.yml.template', '.github/workflows/precedent-branch-cleanup.yml'),
+    ),
+}
+
+
+def _declares_public(dest_root):
+    try:
+        data = json.loads((pathlib.Path(dest_root) / 'precedent.json')
+                          .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and str(data.get('visibility') or '').strip().lower() == 'public'
+
+
+def ci_workflow_templates(kind, dest_root=None):
+    """-> ((template, installed_as), ...) the engine ships to `kind` in
+    `dest_root`: CI_WORKFLOW_TEMPLATES[kind], plus CI_PUBLIC_WORKFLOW_TEMPLATES
+    [kind] when the repository declares itself public. With no `dest_root`,
+    every template the kind can ship anywhere (for fetching them)."""
+    base = tuple(CI_WORKFLOW_TEMPLATES.get(kind, ()))
+    extra = CI_PUBLIC_WORKFLOW_TEMPLATES.get(kind, ())
+    if extra and (dest_root is None or _declares_public(dest_root)):
+        return base + tuple(extra)
+    return base
 
 # WHAT A REPOSITORY'S GETTING_STARTED.md SAYS ABOUT A WORKFLOW A REFRESH ADDS
 # (practice: github-setup-disclosed). One copy: the installer's paragraph
@@ -3591,7 +3636,7 @@ def record_ci_workflow_files(dest_root, kind):
         return []
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     names, hashes = [], {}
-    for _template, rel in CI_WORKFLOW_TEMPLATES.get(kind, ()):
+    for _template, rel in ci_workflow_templates(kind, dest_root):
         path = dest_root / rel
         if path.is_file():
             names.append(rel)
@@ -3824,7 +3869,7 @@ def _remove_retired_ci_workflow_files(dest_root, manifest, kind=None):
     superseded = set()
     if kind in CI_WORKFLOW_TEMPLATES:
         ships_now = {installed_as
-                     for _tmpl, installed_as in CI_WORKFLOW_TEMPLATES[kind]}
+                     for _tmpl, installed_as in ci_workflow_templates(kind, dest_root)}
         superseded = {rel for rel in recorded if rel not in ships_now}
     elif recorded:
         print(f"NOTE: precedent_vendor_engine: manifest kind {kind!r} is not "
@@ -4241,6 +4286,30 @@ def _retire_one(dest_root, pd, rel, reason, refusals=None):
     return True
 
 
+def _person_approved_workflow(dest_root, rel, approval_problem=None):
+    """True when precedent.json's github_ci_approved keeps `rel`: an entry
+    in the person's own words (not an install's `template`), that the
+    approval check finds no problem with, pinned to the file's current
+    content. The one test both workflow sweeps ask. A judgment that cannot
+    be made (the approval check does not import) keeps nothing."""
+    if approval_problem is None:
+        try:
+            sys.path.insert(0, str(ENGINE_DIR))
+            import precedent_check as _pc
+            approval_problem = _pc._approval_problem
+        except Exception:                                      # noqa: BLE001
+            return False
+    try:
+        entry = (json.loads((dest_root / 'precedent.json').read_text(
+            encoding='utf-8')).get(GITHUB_CI_APPROVED_KEY) or {}).get(rel)
+    except (OSError, ValueError, AttributeError):             # noqa: BLE001
+        return False
+    path = dest_root / rel
+    return (isinstance(entry, dict) and path.is_file()
+            and approval_problem(entry) is None and not entry.get('template')
+            and entry.get('sha256') == _sha256(path))
+
+
 def _retire_legacy_workflows(dest_root, manifest, kind, pd):
     """-> ({rel: text} deleted, [rel kept]). See the block comment above."""
     tracked = set(manifest.get('ci_workflow_files') or ())
@@ -4275,6 +4344,16 @@ def _retire_legacy_workflows(dest_root, manifest, kind, pd):
         if kinds is not None and kind not in kinds:
             continue
         if not (dest_root / rel).is_file() or rel in tracked or rel in declared:
+            continue
+        if _person_approved_workflow(dest_root, rel):
+            # The person kept it in their own words, pinned to this content
+            # (2026-10-28: a consumer's three approved checks stopped its
+            # update here once the update dropped the local_ci_workflows
+            # declaration a consumer does not honour). Dropped from the
+            # first pass's list too: an update starts the refresh with the
+            # repository's own older engine, which found it before this pass
+            # replaced it (2026-10-28, measured: a rehearsal of the update on that consumer ended LEFT on all three without this, READY with it).
+            _drop_left(lambda i, rel=rel: i != rel)
             continue
         _left(rel, 'a workflow name from before Precedent with no stock shape '
                    'to recognise it by, so nothing here deletes it. Read what '
@@ -4356,7 +4435,7 @@ def _remove_unapproved_workflows(dest_root, manifest, kind, pd):
                                     f'workflow was removed. Refresh again '
                                     f'once it does')
         return {}
-    shipped = {rel for _t, rel in CI_WORKFLOW_TEMPLATES.get(kind, ())}
+    shipped = {rel for _t, rel in ci_workflow_templates(kind, dest_root)}
     # A FIRST PASS JUDGES BY ITS OWN, OLDER LIST (2026-10-17, very deep
     # check). An update rerun after a failed one puts the earlier run's
     # engine back to HEAD's, so the first pass is the old engine, and it
@@ -4365,13 +4444,6 @@ def _remove_unapproved_workflows(dest_root, manifest, kind, pd):
     # left for the person. Whatever this engine ships is not that, whoever
     # said it first.
     _CARRIED_LEFT[:] = [(i, w) for i, w in _CARRIED_LEFT if i not in shipped]
-    try:
-        approved = json.loads((dest_root / 'precedent.json').read_text(
-            encoding='utf-8')).get(GITHUB_CI_APPROVED_KEY) or {}
-    except (OSError, ValueError, AttributeError):             # noqa: BLE001
-        approved = {}
-    if not isinstance(approved, dict):
-        approved = {}
     removed = {}
     for path in sorted(wf_dir.iterdir()):
         if not (path.is_file() and path.suffix in ('.yml', '.yaml')):
@@ -4386,10 +4458,7 @@ def _remove_unapproved_workflows(dest_root, manifest, kind, pd):
         # already covered, deleting it").
         if rel in shipped:
             continue
-        entry = approved.get(rel)
-        if (isinstance(entry, dict) and approval_problem(entry) is None
-                and not entry.get('template')
-                and entry.get('sha256') == _sha256(path)):
+        if _person_approved_workflow(dest_root, rel, approval_problem):
             continue                  # the person asked for this one
         why = _unsafe_to_replace(dest_root, rel)
         if why:
@@ -5142,6 +5211,86 @@ def _edit_access_logins(dest_root):
         (None, 'GitHub lists nobody with edit access')
 
 
+def _person_name_for(root, login):
+    """-> the declared name of the person running this when `login` is
+    theirs, else ''. A code owner's name is how an approval names them
+    ("Name, YYYY-MM-DD: ..."), and a maintainers entry with a login alone
+    matched no such approval (2026-10-28: two consumers' binds_everyone,
+    "Morgan, ...", failed the ladder check until the name was added by
+    hand)."""
+    try:
+        import precedent_identity as _pid
+        ident = _pid.declared_identity(root)
+    except Exception:                                           # noqa: BLE001
+        return ''
+    gh = str(ident.get('github') or '').strip().lstrip('@')
+    if not gh:
+        try:
+            import precedent_audience as _pa
+            gh = str(_pa.viewer(root)[0] or '').strip().lstrip('@')
+        except Exception:                                       # noqa: BLE001
+            gh = ''
+    name = str(ident.get('name') or '').strip()
+    return name if gh and name and gh.lower() == str(login).lstrip('@').lower() else ''
+
+
+def name_the_persons_maintainer(dest_root):
+    """Write the person's declared name into their own entry in
+    precedent.json's `maintainers`: an entry with their login and no name,
+    or one whose name differs from the declared one. -> the login named, or
+    ''. Only that one field, in that one entry: the list itself is the
+    repository's, and nobody else's entry is touched.
+
+    ONE WRITER (2026-10-29, Root issues of the 2026-10-28 Update Vendors
+    run). Two consumers' entries carried a name set by hand ("Morgan")
+    before this wrote names, and a third the declared one ("Morgan F"),
+    because an entry that had any name was never revisited. The declared
+    name (identity.json) is the record; a binds_everyone approval signs with
+    the full name or its first word, both of which the ladder check reads
+    (precedent_check._code_owner_logins). A rename that would leave that
+    repository's approval naming nobody is not made."""
+    path = pathlib.Path(dest_root) / 'precedent.json'
+    try:
+        text = path.read_text(encoding='utf-8')
+        cfg = json.loads(text)
+    except (OSError, ValueError):
+        return ''
+    entries = cfg.get('maintainers') if isinstance(cfg, dict) else None
+    if not isinstance(entries, list):
+        return ''
+    for e in entries:
+        if not (isinstance(e, dict) and e.get('github')):
+            continue
+        name = _person_name_for(dest_root, e['github'])
+        if not name or e.get('name') == name:
+            continue
+        if e.get('name') and not _approval_still_names(cfg, e['name'], name):
+            continue
+        old = json.dumps(e, ensure_ascii=False)
+        e['name'] = name
+        new = json.dumps(e, ensure_ascii=False)
+        if text.count(old) == 1:
+            path.write_text(text.replace(old, new), encoding='utf-8')
+        else:
+            path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False)
+                            + '\n', encoding='utf-8')
+        return str(e['github'])
+    return ''
+
+
+def _approval_still_names(cfg, old, new):
+    """-> False when binds_everyone's approval names its code owner by `old`
+    and would name nobody once the entry reads `new`: the ladder check
+    matches a maintainer's full name or its first word."""
+    by = str(((cfg.get('binds_everyone') or {}) if isinstance(
+        cfg.get('binds_everyone'), dict) else {}).get('approved_by') or '')
+    who = by.split(',', 1)[0].strip().lstrip('@').lower()
+    def ways(n):
+        n = str(n).strip().lower()
+        return {n, n.split()[0]} if n.split() else {n}
+    return not who or who not in ways(old) or who in ways(new)
+
+
 def seed_maintainers(dest_root, logins=None, today=None, fallback=None):
     """Name this repository's code owners in precedent.json's `maintainers`
     when it names none yet: the people who can edit it on GitHub right now,
@@ -5202,7 +5351,11 @@ def seed_maintainers(dest_root, logins=None, today=None, fallback=None):
             today = precedent_time.today()
         except Exception:                                       # noqa: BLE001
             today = None    # never the machine's own clock (timestamps-carry-offset)
-    entry = json.dumps([{'github': l} for l in logins], ensure_ascii=False)
+    people = []
+    for l in logins:
+        name = _person_name_for(root, l)
+        people.append({'github': l, **({'name': name} if name else {})})
+    entry = json.dumps(people, ensure_ascii=False)
     when = f' {today}' if today else ''
     note = json.dumps([f'Written{when} at install or update: {how}. A '
                        f'starting default -- change it here; the engine never '
@@ -5214,11 +5367,11 @@ def seed_maintainers(dest_root, logins=None, today=None, fallback=None):
     new_text = (text[:m.end()] + f'\n  "maintainers": {entry},\n'
                 f'  "_maintainers_comment": {note}{sep}' + rest) if m else ''
     try:
-        ok = json.loads(new_text).get('maintainers') == [{'github': l} for l in logins]
+        ok = json.loads(new_text).get('maintainers') == people
     except ValueError:
         ok = False
     if not ok:
-        cfg = {'maintainers': [{'github': l} for l in logins],
+        cfg = {'maintainers': people,
                '_maintainers_comment': json.loads(note), **cfg}
         new_text = json.dumps(cfg, indent=2, ensure_ascii=False) + '\n'
     path.write_text(new_text, encoding='utf-8')
@@ -5574,6 +5727,56 @@ def copy_in_waits_on(clone, set_root=''):
     return f'{where} has not reached its own main yet'
 
 
+def fetch_offered_clones(dest_root, names=(), user_config=None):
+    """Clone each OFFERED set `dest_root` has said yes to -- a waiting yes
+    in its precedent.json, or one of `names` answered yes on this run --
+    that has no clone on this machine, beside the individual source, where
+    _copy_in_candidates looks. -> [what happened], one line per set tried.
+
+    WHY (2026-10-28, Update Vendors over seven repositories). A brought set
+    is cloned at session start (sources_from_brings); an offered one never
+    was, so a yes to a voice pack sat as "not copied in yet, because there
+    is no clone of the set on this machine" on every run, though the session
+    could reach the repository. The update now makes the clone itself, by
+    the same funnel a brought set takes, and when it cannot, names the
+    attach and the path (practice: reach-or-ask)."""
+    import precedent_resolve as pr
+    import precedent_source_bootstrap as psb
+    try:
+        cfg = json.loads((pathlib.Path(dest_root) / 'precedent.json')
+                         .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        cfg = {}
+    record = cfg.get(COPY_IN_KEY) if isinstance(cfg.get(COPY_IN_KEY), dict) \
+        else {}
+    wanted = set(names) | {n for n, r in record.items() if isinstance(r, dict)
+                           and r.get('answer') == 'yes' and r.get('waits_on')}
+    ind = pr.person_individual_path(user_config)
+    if not wanted or ind is None:
+        return []
+    out = []
+    for name, url, clone, brought, _root in _copy_in_candidates(user_config):
+        if brought or clone or name not in wanted or not url:
+            continue
+        target = ind.resolve().parent / name
+        if target.exists() and not (target / '.git').exists():
+            out.append(f'{name}: {target} is in the way and is not a clone; '
+                       f'move it aside and run again')
+            continue
+        ok, msg = psb._try_sync(url, target)
+        if ok:
+            out.append(f'{name}: cloned {url} to {target}, so it can be '
+                       f'copied in')
+            continue
+        slug = _repo_identity(url) or url
+        last = (str(msg).strip().splitlines() or ['no output'])[-1]
+        out.append(f'{name}: no clone on this machine, and cloning {url} to '
+                   f'{target} failed ({last}). Attach {slug} for read '
+                   f'(add_repo), clone it to {target}, then run Update '
+                   f'Vendors again')
+    return out
+
+
 def record_copy_in(dest_root, name, answer, answered_by, repo_url='',
                    ladder=False, set_root='', waits_on=''):
     """Record the person's answer for `name` under COPY_IN_KEY. On yes, also
@@ -5748,15 +5951,14 @@ def parse_copy_in_answers(values):
     return out, bad
 
 
-def timezone_offer(dest_root, user_config=None):
-    """-> one line offering the owner's own zone as precedent.json's
-    `fallback_timezone`, or None. Offered, never written: the person says
-    yes, and the session adds the line.
+def owner_timezone(dest_root, user_config=None):
+    """-> (login, zone) when precedent.json should carry the owner's own zone
+    as its `fallback_timezone`, or None.
 
-    Offered only when all of it holds: precedent.json declares no
-    fallback_timezone; it names exactly one maintainer; the person running
-    this is that maintainer (their declared GitHub username); and their
-    identity.json declares a zone that loads.
+    Only when all of it holds: precedent.json declares no fallback_timezone;
+    it names exactly one maintainer; the person running this is that
+    maintainer (their declared GitHub username); and their identity.json
+    declares a zone that loads.
 
     WHY (2026-10-08, from a consumer). A single person's repository never
     declared fallback_timezone, so its GitHub Actions job -- where no
@@ -5768,7 +5970,7 @@ def timezone_offer(dest_root, user_config=None):
         cfg = json.loads((root / 'precedent.json').read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return None
-    if not isinstance(cfg, dict) or cfg.get('fallback_timezone'):
+    if not isinstance(cfg, dict) or 'fallback_timezone' in cfg:
         return None
     people = [m for m in cfg.get('maintainers') or [] if isinstance(m, dict)]
     if len(people) != 1:
@@ -5789,17 +5991,46 @@ def timezone_offer(dest_root, user_config=None):
         ZoneInfo(zone)
     except Exception:                                           # noqa: BLE001
         return None
+    return login, zone
+
+
+def apply_owner_timezone(dest_root, user_config=None):
+    """Write the owner's own zone as precedent.json's `fallback_timezone`
+    when owner_timezone says it belongs there. -> (login, zone) written, or
+    None. Never touches a precedent.json that already has the key, whatever
+    its value: a team's or a shared set's zone is its own decision.
+
+    WHY WRITTEN, NOT OFFERED (Morgan, 2026-10-28, strength: decided: "Go,
+    fix it in the engine; leave the shared sets"). Until then this was a
+    question every update asked the only maintainer, whose identity already
+    declares the zone -- asking for what the person has declared is the
+    failure declared-default-is-applied names. The report says what was
+    written, and the line is the repository's to change."""
+    got = owner_timezone(dest_root, user_config)
+    if not got:
+        return None
+    path = pathlib.Path(dest_root) / 'precedent.json'
     try:
-        import precedent_time as _pt
-        last = _pt.FALLBACK_TZ
-    except Exception:                                           # noqa: BLE001
-        last = 'the engine\'s last-resort zone'
-    return (f'@{login} is this repository\'s only maintainer -- you -- and '
-            f'precedent.json declares no fallback_timezone, so whatever runs '
-            f'where your identity does not reach (a GitHub Actions job, its '
-            f'failure records and issue stamps) dates in {last}. Say yes to '
-            f'add "fallback_timezone": "{zone}" (your zone, from your '
-            f'identity.json) to precedent.json.')
+        text = path.read_text(encoding='utf-8')
+        cfg = json.loads(text)
+    except (OSError, ValueError):
+        return None
+    line = '  "fallback_timezone": ' + json.dumps(got[1]) + ','
+    if text.startswith('{\n') and len(cfg) > 0:
+        path.write_text('{\n' + line + '\n' + text[2:], encoding='utf-8')
+    else:
+        cfg = dict({'fallback_timezone': got[1]}, **cfg)
+        path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + '\n',
+                        encoding='utf-8')
+    try:
+        if json.loads(path.read_text(encoding='utf-8')).get(
+                'fallback_timezone') != got[1]:
+            path.write_text(text, encoding='utf-8')
+            return None
+    except (OSError, ValueError):
+        path.write_text(text, encoding='utf-8')
+        return None
+    return got
 
 
 def _rev_text(repo_dir, *args):
@@ -6160,7 +6391,7 @@ def _ci_workflow_incomplete(dest_root, kind, ci_workflows_dir, manifest):
     the `not force` in that check)."""
     recorded = manifest.get('ci_workflows_sha256') or {}
     out = []
-    for template, rel in CI_WORKFLOW_TEMPLATES.get(kind, ()):
+    for template, rel in ci_workflow_templates(kind, dest_root):
         path = dest_root / rel
         if not path.is_file():
             continue
@@ -6536,14 +6767,18 @@ def _refresh_ci_workflow_files(dest_root, kind, ci_workflows_dir, manifest):
     current template, rel paths whose hash was recorded for the first time,
     and rel paths a converging refresh replaced although they were untracked
     or hand-edited."""
-    if not any((dest_root / rel).is_file()
-               for _t, rel in CI_WORKFLOW_TEMPLATES.get(kind, ())):
+    # A public source has no other workflow to signal "GitHub workflows
+    # on": its declared visibility is that signal, so its list is walked
+    # with nothing on disk (CI_PUBLIC_WORKFLOW_TEMPLATES).
+    ships = ci_workflow_templates(kind, dest_root)
+    if not any((dest_root / rel).is_file() for _t, rel in ships) and \
+            len(ships) == len(CI_WORKFLOW_TEMPLATES.get(kind, ())):
         return [], [], []
     converges = kind in CI_CONVERGES_KINDS
     recorded = dict(manifest.get('ci_workflows_sha256') or {})
     _local = local_ci_workflows(dest_root)
     refreshed, catchup, replaced, owned = [], [], [], []
-    for template, rel in CI_WORKFLOW_TEMPLATES.get(kind, ()):
+    for template, rel in ships:
         # DECLARED LOCAL: not written, and its recorded hash is DROPPED
         # rather than updated. Leaving a hash behind would re-arm the
         # refusal the declaration exists to retire; updating one would
@@ -6618,7 +6853,7 @@ def _refresh_ci_workflow_files(dest_root, kind, ci_workflows_dir, manifest):
     # the next refresh found the file present and moved on. Asking again
     # each time while the guide does not name it closes that for every
     # repository already in that state.
-    for template, rel in CI_WORKFLOW_TEMPLATES.get(kind, ()):
+    for template, rel in ships:
         if (template in CI_DISCLOSURES and (dest_root / rel).is_file()
                 and _disclose_added_workflow(dest_root, rel, template)
                 and 'GETTING_STARTED.md' not in refreshed):
@@ -7033,15 +7268,16 @@ def template_text_at(clone, rev, path, pinned_sha, limit=200):
     back the template text its decision was made on."""
     if not clone or not rev or not pinned_sha:
         return None
-    for sha in _rev_text(clone, 'log', f'-{limit}', '--format=%H', rev,
-                         '--', path).split():
-        try:
-            r = subprocess.run(['git', '-C', str(clone), 'show', f'{sha}:{path}'],
-                               capture_output=True, timeout=30)
-        except (OSError, subprocess.SubprocessError):
-            return None
-        if r.returncode == 0 and hashlib.sha256(r.stdout).hexdigest() == pinned_sha:
-            return r.stdout.decode('utf-8', errors='replace')
+    specs = [f'{sha}:{path}' for sha in _rev_text(
+        clone, 'log', f'-{limit}', '--format=%H', rev, '--', path).split()]
+    try:
+        blobs = _read_blobs(clone, specs)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    for spec in specs:
+        b = blobs.get(spec)
+        if b is not None and hashlib.sha256(b).hexdigest() == pinned_sha:
+            return b.decode('utf-8', errors='replace')
     return None
 
 
@@ -7433,21 +7669,22 @@ def _read_agents_md_sources(clone, commit, kind, out_dir):
                             '--name-only', commit, '--', src_rel)
         if not ok:
             continue
-        sha = None
+        sha, specs = None, []
         for line in log.splitlines():
             line = line.strip()
             if line.startswith('@'):
                 sha = line[1:]
             elif line and sha:
-                old = subprocess.run(['git', '-C', str(clone), 'show',
-                                      f'{sha}:{line}'], capture_output=True)
-                if old.returncode != 0:
-                    continue
-                text = old.stdout.decode('utf-8', errors='replace')
-                for key, (_n, sec) in _template_sections(text).items():
-                    seen = history.setdefault(key, [])
-                    if sec not in seen:
-                        seen.append(sec)
+                specs.append(f'{sha}:{line}')
+        blobs = _read_blobs(clone, specs)
+        for spec in specs:
+            if blobs.get(spec) is None:
+                continue
+            text = blobs[spec].decode('utf-8', errors='replace')
+            for key, (_n, sec) in _template_sections(text).items():
+                seen = history.setdefault(key, [])
+                if sec not in seen:
+                    seen.append(sec)
     (out_dir / _AGENTS_MD_HISTORY_NAME).write_text(json.dumps(history),
                                                    encoding='utf-8')
 
@@ -8397,6 +8634,39 @@ def tracking_refspec(branch):
     return f'+refs/heads/{branch}:refs/remotes/origin/{branch}'
 
 
+def _read_blobs(repo_dir, specs):
+    """-> {spec: bytes or None} for each 'REV:PATH' in `specs`, read through
+    one `git cat-file --batch` process; None where git has no such blob.
+
+    WHY (2026-10-29). Walking a template's history ran one `git show` per
+    past version: about 440 processes in one Update Vendors seed, the
+    largest share of an Update Vendors test's 4,710 git calls."""
+    specs = list(dict.fromkeys(specs))
+    if not specs:
+        return {}
+    if any('\n' in s for s in specs):
+        raise ValueError('a REV:PATH spec holds a newline')
+    r = subprocess.run(['git', '-C', str(repo_dir), 'cat-file', '--batch'],
+                       input=''.join(s + '\n' for s in specs).encode('utf-8'),
+                       capture_output=True)
+    out, data, i = {}, r.stdout, 0
+    for spec in specs:
+        nl = data.find(b'\n', i)
+        if r.returncode != 0 or nl < 0:
+            out[spec] = None
+            continue
+        head = data[i:nl].split()
+        i = nl + 1
+        if len(head) == 3 and head[1] in (b'blob', b'commit', b'tree', b'tag') \
+                and head[2].isdigit():
+            size = int(head[2])
+            out[spec] = data[i:i + size] if head[1] == b'blob' else None
+            i += size + 1
+        else:
+            out[spec] = None     # "<spec> missing" or "ambiguous"
+    return out
+
+
 def _git_read(cwd, *args):
     """Run git and return (ok, stdout) so a caller can tell empty output apart
     from a failed command."""
@@ -8910,9 +9180,16 @@ def _source_tools_at(clone, kind=DEFAULT_KIND, ref=None, fetch=True):
             modes[name] = meta.split()[0]
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix='precedent-engine-source-'))
-    for name in KINDS[kind] + ['routing_scope.json']:
-        blob = subprocess.run(['git', '-C', str(clone), 'show', f'{commit}:tools/{name}'],
-                              capture_output=True)
+    names = KINDS[kind] + ['routing_scope.json']
+    # One cat-file process for every file, not a `git show` each (about 300
+    # processes a refresh, 2026-10-29); one that reads as missing is asked
+    # again the old way before it counts as gone.
+    batch = _read_blobs(clone, [f'{commit}:tools/{n}' for n in names])
+    for name in names:
+        data = batch.get(f'{commit}:tools/{name}')
+        blob = (subprocess.CompletedProcess([], 0, data, b'') if data is not None
+                else subprocess.run(['git', '-C', str(clone), 'show',
+                                     f'{commit}:tools/{name}'], capture_output=True))
         if blob.returncode != 0:
             # A FILE UPSTREAM NO LONGER HAS IS A REMOVAL, NOT A BROKEN CLONE.
             # KINDS here is the list in the RUNNING copy of this tool, and in a
@@ -8970,14 +9247,19 @@ def _source_tools_at(clone, kind=DEFAULT_KIND, ref=None, fetch=True):
                 hook_names.append(name)
         hooks_tmp = tmp / 'hooks'
         hooks_tmp.mkdir(exist_ok=True)
+        hook_batch = _read_blobs(
+            clone, [f'{commit}:{HOOK_SOURCE_DIR}/{n}' for n in hook_names])
         for name in hook_names:
-            blob = subprocess.run(
-                ['git', '-C', str(clone), 'show', f'{commit}:{HOOK_SOURCE_DIR}/{name}'],
-                capture_output=True)
-            if blob.returncode != 0:
-                continue  # listed but unreadable -- treat like any other transient git failure
+            data = hook_batch.get(f'{commit}:{HOOK_SOURCE_DIR}/{name}')
+            if data is None:
+                blob = subprocess.run(
+                    ['git', '-C', str(clone), 'show', f'{commit}:{HOOK_SOURCE_DIR}/{name}'],
+                    capture_output=True)
+                if blob.returncode != 0:
+                    continue  # listed but unreadable -- treat like any other transient git failure
+                data = blob.stdout
             out = hooks_tmp / name
-            out.write_bytes(blob.stdout)
+            out.write_bytes(data)
             if hook_modes.get(name, '').endswith('755'):
                 out.chmod(0o755)
     # else: this commit predates HOOK_SOURCE_DIR, or the clone cannot list it
@@ -8997,7 +9279,7 @@ def _source_tools_at(clone, kind=DEFAULT_KIND, ref=None, fetch=True):
     # commit never had.
     ci_tmp = tmp / 'ci-workflows'
     ci_tmp.mkdir(exist_ok=True)
-    for template, _rel in CI_WORKFLOW_TEMPLATES.get(kind, ()):
+    for template, _rel in ci_workflow_templates(kind):
         blob = subprocess.run(
             ['git', '-C', str(clone), 'show',
              f'{commit}:{CI_WORKFLOWS_SOURCE_DIR}/{template}'],
