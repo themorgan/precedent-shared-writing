@@ -70,7 +70,7 @@ prints the command that makes the dated copy.
 ## Detail
 [`tools/dated_name.py`](../tools/dated_name.py) is the one place the format lives: the list of
 document extensions, the two accepted forms, and the date, which it takes
-from [`tools/precedent_time.py`](../tools/precedent_time.py) so it is the reader's day and not UTC's.
+from [`tools/precedent_time.py`](https://github.com/alex137/BestPractice/blob/staging/tools/precedent_time.py) so it is the reader's day and not UTC's.
 `--check NAME...` answers whether names pass, for any script that wants to
 ask before it saves.
 A builder that keeps a document in the repository calls

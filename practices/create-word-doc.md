@@ -100,7 +100,7 @@ name` required whenever the source isn't under a `book-*/` directory or
 that mechanical derivation isn't what's wanted. It is needed only by that
 default line: with `--footer-label` or `--no-footer` it goes unused, and
 nothing asks for it. The date defaults to
-today via [`tools/precedent_time.py`](../tools/precedent_time.py) (practice: timestamps-carry-offset)
+today via [`tools/precedent_time.py`](https://github.com/alex137/BestPractice/blob/staging/tools/precedent_time.py) (practice: timestamps-carry-offset)
 -- a bare `date.today()` would silently stamp the container's UTC date,
 which is wrong for part of every day.
 
