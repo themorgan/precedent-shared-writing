@@ -3,6 +3,7 @@
     "Measured 2026-09-28 by the very deep check (practice: session-load-budget); this set had never declared its ceilings (todo-2026-09-11-source-load-ceilings). Each ceiling is measured plus ~20%. A ceiling is a watermark, not an endorsement: review and reduce, never just raise, when it is crossed for real."
   ],
   "headroom_floor_pct": 5,
+  "session_load_tokens": 10000,
   "surfaces": {
     "AGENTS.md": {
       "ceiling": 1450,
@@ -18,6 +19,7 @@
     }
   },
   "approved_budgets": {
+    "session_load_tokens": {"max": 10000, "strength": "decided", "approved_by": "Morgan, 2026-10-28 (strength: decided): \"okay, yes, let's do it, 10k approved\", for one session-load total in every repository (BestPractice spec/SESSION_LOAD_ONE_TOTAL_PLAN.md, \"Go, one number everywhere\", the same day)"},
     "occasion_index": {
       "max": 550,
       "strength": "baseline",
