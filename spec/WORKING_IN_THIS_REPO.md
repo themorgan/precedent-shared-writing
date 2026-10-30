@@ -1,3 +1,15 @@
+---
+title:         "Working in this repo — the long version"
+kind:          reference
+status:        current
+opened:        2026-10-17
+closed:        null
+superseded_by: null
+supersedes:    []
+audience:      session
+summary:       "The history behind AGENTS.md's Working in this repo section, moved here word for word on 2026-10-17 so sessions stop paying for it."
+---
+
 # Working in this repo — the long version
 
 **[AGENTS.md](../AGENTS.md)'s "Working in this repo" section carries the
