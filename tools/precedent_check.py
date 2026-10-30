@@ -55,7 +55,9 @@ and this module treats them as one. Said plainly because the difference is
 invisible from the output, and a session has been misled by it:
 
   the check ran         a practices/<slug>.md file EXISTS -- at any status
-                        -- or the check carries binds_publishers and this
+                        -- here, or (in a practice set, since 2026-10-30)
+                        in a source the set's precedent.json declares; or
+                        the check carries binds_publishers and this
                         repo publishes practices. That is the whole of
                         run()'s gate: `_practice_file(slug) is None`, which
                         looks for the file and reads nothing inside it.
@@ -123,7 +125,7 @@ commits -- guaranteed by the commit count, never left to chance. See
 _scoped_tree_slugs()'s own docstring for the exact rule. `change`-scope
 checks are unaffected; they already self-limit to the diff, every run.
 """
-import ast, collections, difflib, functools, io, json, os, pathlib, re, subprocess, sys
+import ast, collections, difflib, functools, io, json, os, pathlib, posixpath, re, subprocess, sys
 
 # `git rev-parse --show-toplevel`, not `Path(__file__).resolve().parents[1]`:
 # this module runs two ways -- self-hosted at THIS repo's own tools/
@@ -342,7 +344,7 @@ CHECKS = {}
 def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
           binds_publishers=False, binds_when=(), selects_on=(),
           judges_received=False, advisory_term=None, existence_only=False,
-          selects_on_removal=False):
+          selects_on_removal=False, skips_in_sets=None):
     """Register a check. `blind_to` is what it does NOT catch, printed by
     --explain -- a check's limits belong beside it, not in a document that
     drifts from it.
@@ -361,7 +363,10 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
     exactly wrong for a practice SOURCE set: a source set's practices/
     holds its own practices only, so every other level's check skips
     there -- permanently, since it resolves no sources and materializes
-    nothing into itself. Measured 2026-09-12 in a shared source: 12 checks
+    nothing into itself. (Since 2026-10-30 a set's checks also see the
+    practices of the sources it declares -- _declared_source_practice_dirs
+    -- so this flag now matters where those are not on disk, as in a set's
+    own CI.) Measured 2026-09-12 in a shared source: 12 checks
     passed and 42 SKIPPED, all 42 for that one reason. The cost was
     already paid once -- a practice file there shipped a relative link to
     a file materialization does not copy, live in the publishing set and
@@ -471,6 +476,15 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
     (gotcha-2026-10-05-a-practice-routed-only-by-its-own-files-is-never-
     shown-to-anyone).
 
+    `skips_in_sets` is the reason a check's subject is a project repo's,
+    which a practice SET is not, so the check reports SKIPPED there with
+    that reason. Needed once a set's checks see the rules its declared
+    sources carry (_declared_source_practice_dirs, 2026-10-30): measured
+    across the three sets that day, four universal checks went red in
+    every one for a file a set does not keep by design, beside real
+    findings nobody had seen. A sentence, never True: the skip line is
+    the only place a reader learns why.
+
     `judges_received=True` keeps this check's findings on files the repo
     RECEIVED -- another source's materialized practice or check, the
     vendored engine, a mirrored tree (precedent_practice_refs.py's
@@ -493,7 +507,8 @@ def check(slug, scope, what, blind_to, advisory=False, practice_backed=True,
                             judges_received=judges_received,
                             advisory_term=advisory_term,
                             existence_only=existence_only,
-                            selects_on_removal=selects_on_removal)
+                            selects_on_removal=selects_on_removal,
+                            skips_in_sets=skips_in_sets)
         return fn
     return deco
 
@@ -781,14 +796,61 @@ def _practice_file(slug):
     at the repo root at all. rule_of() searched only the first two, so in
     a §1 dependent repo every violation printed "(no practice file for
     ...)" where the Rule belonged -- and the whole design of this module
-    is that the failure message IS the rule."""
+    is that the failure message IS the rule.
+
+    A fourth place, in a practice SET only: the `practices/` of each
+    source the set itself declares in precedent.json -- for every set,
+    universal at `../BestPractice`. A set materializes nothing, so its
+    `practices/` holds its own catalogue and none of universal's, and until
+    2026-10-30 every universal check skipped there as "not in force": a
+    session rooted in a set read universal's rules at session start and
+    ran 3 of its 45 checks. The set's own declaration is what puts those
+    rules in force for it, so it is what switches their checks on; the
+    person's individual set is not read here, so a set's gate does not
+    depend on who runs it (Morgan, 2026-10-30: "Act. Let's build this")."""
     for rel in (('practices', f'{slug}.md'),
                 ('local', 'practices', f'{slug}.md'),
                 ('process', 'upstream', 'practices', f'{slug}.md')):
         p = ROOT.joinpath(*rel)
         if p.exists():
             return p
+    if _publishes_practices():
+        for src in _declared_source_practice_dirs():
+            p = src / f'{slug}.md'
+            if p.exists():
+                return p
     return None
+
+
+_DECLARED_SOURCE_DIRS = None
+
+
+def _declared_source_practice_dirs():
+    """-> the `practices/` directory of each source this repo's own
+    precedent.json declares, at the path it declares, in declaration order,
+    leaving out this repo itself, its repo-local and individual sources and
+    any that is not on disk. Only the repo's declaration: the sets a person
+    brings (precedent_resolve.declared_source_paths adds those) would make
+    the gate differ by who runs it. Read without load_config(), which can
+    clone and self-heal: a check run must not change the disk to decide
+    what it checks."""
+    global _DECLARED_SOURCE_DIRS
+    if _DECLARED_SOURCE_DIRS is None:
+        out = []
+        try:
+            import precedent_resolve as pr
+            own = (ROOT / 'practices').resolve()
+            for entry in pr.declared_sources(ROOT):
+                if pr.declared_level(entry) in ('repo-local', 'individual') \
+                        or not entry.get('path') or pr.is_vendored(entry):
+                    continue
+                d = pr._declared_path(ROOT, entry['path']) / 'practices'
+                if d.is_dir() and d.resolve() != own:
+                    out.append(d)
+        except Exception:                                    # noqa: BLE001
+            out = []
+        _DECLARED_SOURCE_DIRS = tuple(out)
+    return _DECLARED_SOURCE_DIRS
 
 
 _ENGINE_MANIFEST = None
@@ -1570,7 +1632,7 @@ def _bound_set_tool_calls_only_declared_names(ctx):
 # gate and never evaluated against a reply at all.
 REPLY_KEYS_READING_THE_MACHINE = (
     'require_container_safe_if_says', 'require_landed_if_says',
-    'require_plan_done_if_says', 'require_delete_link_when_landed',
+    'require_plan_done_if_says',
     'require_first_item_leads_with_unlanded',
     'require_full_check_after_fast_main', 'note_from_tool')
 
@@ -1578,7 +1640,7 @@ REPLY_KEYS_READING_THE_MACHINE = (
 def _reply_example_problems(root):
     """-> [(index, problem)] for reply_check.json's requirements whose own
     `_examples` -- [{"reply": ..., "refused": true|false, "timeline"?: ...,
-    "wake"?: ...}, ...] -- the reply
+    "wake"?: ..., "written"?: [paths]}, ...] -- the reply
     check does not answer as declared, and the indexes of requirements that
     carry none. -> None when there is no reply_check.json.
 
@@ -1623,7 +1685,7 @@ def _reply_example_problems(root):
             got = bool(_prc.violations(
                 ex['reply'], [one],
                 timeline=[tuple(t) for t in timeline] if timeline else None,
-                wake=ex.get('wake')))
+                wake=ex.get('wake'), written=ex.get('written')))
             if got != bool(ex['refused']):
                 wrong.append((i, f'{"lets through" if not got else "refuses"} '
                                  f'{ex["reply"][:80]!r}, which its example says it '
@@ -1823,6 +1885,11 @@ def _copied_in_set_fits_visibility(ctx):
         raise NotApplicable('the resolver or the leak gate did not import')
     copies = [(pathlib.Path(p), n) for p, _l, n, note in
               _pr.vendored_source_paths(ROOT) if not note]
+    # A copy of a source's exports alone is a copy too: its files are as
+    # private as the source is.
+    copies += [(ROOT / str(e['path']).strip('/'), e.get('name') or e['path'])
+               for e in _declared_copies() if e.get('exports_only') is True
+               and (ROOT / str(e['path']).strip('/')).is_dir()]
     if not copies:
         raise NotApplicable('this repository copies no set in')
     if declared_visibility(ROOT)[0] == 'private':
@@ -1840,6 +1907,93 @@ def _copied_in_set_fits_visibility(ctx):
                 f'does not say "visibility": "public"), and this repository '
                 f'does not say "visibility": "private". Remove the copy and '
                 f'the "vendored" flag, or make the repository private'))
+    return out
+
+
+# ---- copied-in-folder-is-declared -------------------------------------------
+# Morgan, 2026-10-30, strength: decided: "I want a strong solution to this so
+# it doesn't repeat." On 2026-10-29 a consumer's copy of a voice repository's
+# prompts, made by a hand-run sync script, sat behind while Update Vendors
+# said DONE: Update Vendors refreshes only what precedent.json declares, and
+# nothing asked whether every copy in the tree was declared. A copy between
+# repositories is added only as a declared source (vendor-update-runbook).
+COPY_MARKER_FILES = ('.source-commit', '.source-blob')
+# A banner a sync script writes at the top of what it copies: a line that
+# opens, after any comment marker, with one of these words.
+COPY_BANNER_RE = re.compile(
+    # `<!-{2}`, never the opener spelled out: generated-edit-goes-upstream
+    # reads a literal one in this file as the start of an HTML comment.
+    r'^\s*(?:#+|//|<!-{2}|/?\*+|>|;|-{2})?\s*(?:AUTO-SYNCED\b|vendored from\b)',
+    re.I)
+COPY_BANNER_LINES = 5
+
+
+def _declared_copies():
+    """-> every source entry precedent.json declares as copied in."""
+    try:
+        cfg = json.loads((ROOT / 'precedent.json').read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        return []
+    return [e for e in (cfg.get('sources') if isinstance(cfg, dict) else None) or []
+            if isinstance(e, dict) and e.get('vendored') is True and e.get('path')]
+
+
+def _undeclared_copies():
+    """-> {folder: [why]} for every folder holding a sign that it was copied
+    in from another repository -- a .source-commit or .source-blob file, or
+    an AUTO-SYNCED or "vendored from" banner in a file's first lines -- that
+    precedent.json does not declare as a copied-in source."""
+    _names, declared = _copied_in_sets()
+    try:
+        import precedent_resolve as _pr
+        declared |= {p.strip('/') for p in (_pr.mirrored_prefixes(ROOT) or ())}
+    except Exception:                                         # noqa: BLE001
+        pass
+    declared = tuple(d + '/' for d in declared if d and d != '.')
+    found = {}
+    for rel in _ls_files_on_disk('--cached', '--others', '--exclude-standard'):
+        if rel.startswith(declared):
+            continue
+        folder = posixpath.dirname(rel) or '.'
+        name = posixpath.basename(rel)
+        if name in COPY_MARKER_FILES:
+            found.setdefault(folder, []).append(f'it holds {name}')
+            continue
+        try:
+            with open(ROOT / rel, 'rb') as fh:
+                head = fh.read(2048)
+        except OSError:
+            continue
+        if b'\0' in head:
+            continue
+        lines = head.decode('utf-8', 'replace').splitlines()[:COPY_BANNER_LINES]
+        if any(COPY_BANNER_RE.match(line) for line in lines):
+            found.setdefault(folder, []).append(f'{name} opens with a copy banner')
+    return found
+
+
+@check('copied-in-folder-is-declared', 'tree',
+       'every folder holding a sign that it was copied in from another '
+       'repository (a .source-commit or .source-blob file, an AUTO-SYNCED or '
+       '"vendored from" banner in a file\'s first lines) is a source '
+       'precedent.json declares as copied in ("vendored": true), so Update '
+       'Vendors refreshes it and says when it is behind',
+       'a copy that carries none of those signs, and a banner further down a '
+       'file than its first five lines.',
+       practice_backed=False,
+       selects_on=('precedent.json', '**/.source-commit', '**/.source-blob',
+                   '.source-commit', '.source-blob'))
+def _copied_in_folder_is_declared(ctx):
+    out = []
+    for folder, why in sorted(_undeclared_copies().items()):
+        out.append(Finding(
+            folder if folder != '.' else 'precedent.json',
+            f'was copied in from another repository ({"; ".join(why[:3])}), '
+            f'and precedent.json declares no copied-in source there, so '
+            f'Update Vendors never refreshes it and cannot say it is behind. '
+            f'Declare it as a source with "vendored": true (and '
+            f'"exports_only": true for files alone) and let Update Vendors '
+            f'make the copy; retire the script that made it'))
     return out
 
 
@@ -2199,9 +2353,11 @@ def _shipped_links_travel(ctx):
 
 @check('practice-links-travel', 'tree',
        'every link in a practice file THIS repo publishes either travels with the '
-       "file (a sibling practice, a vendored engine file, this source's own "
-       'tools/checks/ check script or tests/ test, or a file a practice here '
-       'declares in `ships:` -- each of which must exist here) or '
+       "file (a sibling practice, a vendored engine file -- from the "
+       'universal source only, since a shared or individual set\'s copy-in '
+       'carries just what checkin._files_rules_name names -- this source\'s '
+       'own tools/checks/ check script or tests/ test, or a file a practice '
+       'here declares in `ships:` -- each of which must exist here) or '
        'is an absolute URL into this repository on '
        'its declared base_branch, naming a path that exists. A sibling link '
        'from an ACTIVE practice must also point at one that is in force: a '
@@ -2281,6 +2437,7 @@ def _practice_links_travel(ctx):
     branch = _declared_base_branch(ROOT)
     slug = _origin_slug()
     shipped = _declared_ships(owned)
+    level, copied_in = _copy_in_level_and_files()
     try:
         visibility = json.loads((ROOT / 'precedent.json').read_text(
             encoding='utf-8')).get('visibility')
@@ -2369,8 +2526,37 @@ def _practice_links_travel(ctx):
                 if withdrawn:
                     out.append(Finding(where, withdrawn))
                 continue                        # a sibling practice file
-            if base.startswith('../') and base[3:] in travel:
+            if base.startswith('../') and base[3:] in travel \
+                    and copied_in is None:
                 continue                        # a vendored engine file
+            # A shared or individual set travels by copy-in too: the whole
+            # set lands at process/<set>/ in the consumer, so `../tools/`
+            # resolves inside that copy, which holds only what the set's
+            # practices name (checkin._files_rules_name) -- never the
+            # engine. Found 2026-10-29: precedent-shared-ladder carried 18
+            # such links, all dead in every copy-in consumer, and this
+            # check counted each one as travelling.
+            # practice: practice-links-travel
+            if copied_in is not None and base.startswith('../') \
+                    and (ROOT / base[3:]).exists() \
+                    and any(base[3:] == c or base[3:].startswith(c + '/')
+                            for c in copied_in):
+                continue                        # a file the copy-in brings
+            if copied_in is not None and base.startswith('../') \
+                    and base[3:] in travel:
+                uroot = _universal_source_root()
+                u_slug = _origin_slug(uroot) if uroot else None
+                url = (f'https://github.com/{u_slug}/blob/'
+                       f'{_declared_base_branch(uroot) or "<branch>"}/'
+                       f'{base[3:]}' if u_slug
+                       else 'an absolute URL into the universal source')
+                out.append(Finding(
+                    where, f'`{target}` is an engine file, and {"an" if level[0] in "aeiou" else "a"} {level} '
+                           f'set\'s copy-in (process/<set>/) does not carry '
+                           f'the engine, so the link is dead in every '
+                           f'consumer that copies this set in. Link it as '
+                           f'{url}'))
+                continue
             # A file some practice here declares in `ships:` travels too:
             # precedent_materialize.py delivers it to the same path in every
             # consumer. It must exist here, which practice-carries-its-files
@@ -2454,6 +2640,30 @@ def _practice_links_travel(ctx):
                        f'live here and dead in every repository that receives '
                        f'the catalogue. {advice}'))
     return out
+
+
+def _copy_in_level_and_files():
+    """-> (level, [path]) for a shared or individual set: its level and
+    what a copy-in brings beside practices/ (checkin._files_rules_name, the
+    one answer). (None, None) for the universal source, a consumer, or
+    when that cannot be read -- there an engine link travels, because the
+    engine is vendored into the consumer's own tools/."""
+    try:
+        import precedent_resolve as pr
+        manifest = pr.read_source_manifest(ROOT) or {}
+    except Exception:                              # practice: fail-gracefully
+        return None, None
+    if pr.declared_level(manifest) not in ('shared', 'individual'):
+        return None, None
+    level = pr.declared_level(manifest)
+    try:
+        import checkin
+        return level, list(checkin._files_rules_name(ROOT))
+    except Exception:                              # practice: fail-gracefully
+        # An engine vendored before checkin.py travelled: still a set, so
+        # still judged, counting only tools/checks/ -- a `ships:` file and
+        # a check script are cleared by their own cases above.
+        return level, ['tools/checks']
 
 
 def _declared_ships(practice_files):
@@ -4027,6 +4237,19 @@ def _self_only_route(fm):
         for g in globs)
 
 
+def _session_start_commands(root):
+    """-> the SessionStart commands `root`'s .claude/settings.json declares,
+    as written; [] when it has none or cannot be read."""
+    try:
+        data = json.loads((root / '.claude' / 'settings.json')
+                          .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    return [h.get('command') or ''
+            for group in ((data.get('hooks') or {}).get('SessionStart') or [])
+            for h in (group.get('hooks') or []) if h.get('command')]
+
+
 @check('layered-practice-packs', 'tree',
        'every practice in force in this repo is reachable by at least one '
        'loading channel here -- resident, occasion index, a path trigger, a '
@@ -4171,6 +4394,7 @@ def _practice_is_reachable(ctx):
     # present, the session-start hook invokes it, and the repo is public, so
     # the tool carries exactly these levels.
     session_channel_levels = ()
+    session_channel_names = set()
     wired = False
     try:
         import build_views as _bv
@@ -4186,10 +4410,30 @@ def _practice_is_reachable(ctx):
             'bootstrap.sh' in hook_text and boot.is_file()
             and 'precedent_session_practices' in boot.read_text(
                 encoding='utf-8', errors='ignore'))
+        # A practice set runs it from another session-start hook, the
+        # universal-catalogue one, wired from .claude/hooks/ or bootstrap/
+        # as a shim that hands off to tools/ (2026-10-30: read only as
+        # session-start.sh, every universal practice in a set read as
+        # reachable by nothing once a set's checks saw them). So read what
+        # settings.json actually starts, and the tools/ script of that name.
+        if not runs_it:
+            for cmd in _session_start_commands(ROOT):
+                name = pathlib.Path(cmd.split()[0]).name
+                for f in (ROOT / 'tools' / name,
+                          ROOT / cmd.split()[0].replace('$CLAUDE_PROJECT_DIR/', '')):
+                    if f.is_file() and 'precedent_session_practices' in \
+                            f.read_text(encoding='utf-8', errors='ignore'):
+                        runs_it = True
         wired = ((ROOT / 'tools' / 'precedent_session_practices.py').is_file()
                  and runs_it)
         if wired and _bv.repo_is_public(ROOT):
             session_channel_levels = _bv.PRIVATE_LEVELS
+        if wired:
+            # What the session file carries is what the tracked block
+            # defers, decided in one place: in a set that is every source
+            # but its own, universal included.
+            _t, _deferred, _n = _bv.sources_for_tracked_block(ROOT, sources)
+            session_channel_names = {d.get('name') for d in _deferred}
     except Exception:                                        # noqa: BLE001
         session_channel_levels = ()
 
@@ -4218,7 +4462,9 @@ def _practice_is_reachable(ctx):
         if wired and str(fm.get('visible_to') or '').strip('" \'') == 'code-owners':
             via_session.append(slug)
             continue
-        if _declared_level(s) in session_channel_levels or (wired and s.get('brought')):
+        if (_declared_level(s) in session_channel_levels
+                or s.get('name') in session_channel_names
+                or (wired and s.get('brought'))):
             # A set the person brings is never in a tracked view, public
             # repository or private (build_views.sources_for_tracked_block),
             # so wherever the channel is wired it reaches them through it.
@@ -4325,7 +4571,8 @@ def _practice_is_reachable(ctx):
        'the session instructions carry a "looking for X → go to Y" table '
        'with at least five rows',
        'whether the rows are the right rows, or still resolve. It checks the '
-       'table is there and populated.')
+       'table is there and populated.',
+       skips_in_sets=("a set's AGENTS.md is the loader block build_views writes from its practices, and the hand-kept sections this looks for belong to a project's instructions, not a catalogue's"))
 def _quick_index(ctx):
     name, text = _instructions_file()
     m = QUICK_INDEX_HEADER_RE.search(text)
@@ -4513,7 +4760,8 @@ def _read_gotcha_files(root):
        'it, and it says so rather than implying otherwise. It cannot tell '
        'whether a gotcha file\'s Symptom names what a session would '
        'recognise, which is the half that makes the catalogue searchable '
-       'and the half only a person can read.')
+       'and the half only a person can read.',
+       skips_in_sets=("a set's AGENTS.md is the loader block build_views writes from its practices, and the hand-kept sections this looks for belong to a project's instructions, not a catalogue's"))
 def _environment_gotchas(ctx):
     name, text = _instructions_file()
     m = GOTCHA_HEADING_RE.search(text)
@@ -8187,14 +8435,7 @@ def _vocabulary_reaches_the_consumer(ctx):
     # practice's level; a repo-local one must name scripts the repo has,
     # and every other level is judged against the engine lists as before.
     # No MANIFEST.json, or a practice it does not list: today's rule.
-    levels = {}
-    try:
-        _man = json.loads((ctx.root / 'MANIFEST.json').read_text(encoding='utf-8'))
-        for _row in (_man.get('practices') or []) if isinstance(_man, dict) else []:
-            if isinstance(_row, dict) and _row.get('slug'):
-                levels[_row['slug']] = _row.get('level')
-    except (OSError, ValueError):
-        pass
+    levels = _manifest_levels(ctx.root)
 
     findings = []
     for path, text in command_practices:
@@ -8766,9 +9007,22 @@ def _deep_check(ctx):
             out.append(Finding(f'tools/checks/tests/test_{name}.sh', f'never '
                                f'invokes {stem}.py by name, so it is not '
                                f'testing the check it is named for'))
+    # A test with no check of its name is stale when it was a check's test
+    # -- it names check_<name>.py, which is gone -- or when nothing it names
+    # is here any more. A test of a set's own TOOL (the ladder set's
+    # tools/ladder/others_did.py, beside its check tests) names that tool
+    # and no check, and is live: six of them read as stale on 2026-10-30,
+    # the day this check first ran in a set, all six passing.
+    tools_here = {f.name for f in (ctx.root / 'tools').rglob('*.py')} \
+        if (ctx.root / 'tools').is_dir() else set()
     for test in sorted(tests_dir.glob('test_*.sh')):
         name = test.stem[len('test_'):]
-        if not (checks_dir / f'check_{name}.py').is_file():
+        if (checks_dir / f'check_{name}.py').is_file():
+            continue
+        body = test.read_text(encoding='utf-8', errors='ignore')
+        named = {pathlib.PurePath(m).name
+                 for m in re.findall(r'[\w./-]+\.py\b', body)}
+        if f'check_{name}.py' in body or not (named & tools_here):
             out.append(Finding(f'tools/checks/tests/{test.name}', f'tests '
                                f'check_{name}.py, which no longer exists -- '
                                f'a stale test left behind'))
@@ -8878,8 +9132,10 @@ def _light_broken_links(root, rel, text):
        'private-key header, a GitHub or Slack token), and YAML entirely when '
        'PyYAML is not installed -- said on the run, never passed silently. '
        'Links are skipped in trees this repo mirrors, in the directories '
-       'its own tools/doc_lint.py declares link-exempt, and in the record '
-       'files precedent.json declares in `record_paths`.',
+       'its own tools/doc_lint.py declares link-exempt, in the record '
+       'files precedent.json declares in `record_paths`, and in history '
+       '(a closed todo item, a finished document, a `## Story` section), '
+       'the same history rename-updates-links leaves naming a path as it was.',
        practice_backed=False,
        # Any file a change touches can bring a conflict marker or a secret,
        # so any change summons it; the whole tree reads in about three
@@ -8928,8 +9184,9 @@ def _light_check(ctx):
                 except _yaml.YAMLError as e:
                     out.append(Finding(rel, f'frontmatter is not valid YAML '
                                        f'({str(e)[:160]})', path=rel))
-            if not rel.startswith(exempt):
-                out.extend(_light_broken_links(ctx.root, rel, text))
+            if not rel.startswith(exempt) and not (
+                    _is_history(rel, text) and not _generated_label(rel, text)):
+                out.extend(_light_broken_links(ctx.root, rel, _without_story(text)))
         elif rel.endswith('.json'):
             try:
                 json.loads(text)
@@ -8972,6 +9229,21 @@ def _light_check(ctx):
               'checked here (pip install pyyaml); everything else was.',
               file=sys.stderr)
     return out
+
+
+def _manifest_levels(root):
+    """-> {slug: level} from `root`'s MANIFEST.json, which
+    precedent_materialize writes beside the practices/ tree it fills from
+    every source; {} where there is none."""
+    levels = {}
+    try:
+        man = json.loads((root / 'MANIFEST.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return levels
+    for row in (man.get('practices') or []) if isinstance(man, dict) else []:
+        if isinstance(row, dict) and row.get('slug'):
+            levels[row['slug']] = row.get('level')
+    return levels
 
 
 def _private_source_names(root):
@@ -9018,8 +9290,9 @@ def _private_source_names(root):
 
 
 @check('private-repo-scrub', 'tree',
-       'no practice file -- the content that ships into other repositories -- '
-       'names a private source by its owner-qualified name ("owner/repo", or '
+       'no practice file -- the content that ships into other repositories; '
+       'a repository\'s own (repo-local) practice ships nowhere and is not '
+       'read -- names a private source by its owner-qualified name ("owner/repo", or '
        'its github.com URL)',
        'a private repository this run does not have in force, since the names '
        'come from the sources resolved here; a bare convention name such as '
@@ -9037,9 +9310,17 @@ def _private_repo_scrub(ctx):
     names = _private_source_names(ctx.root)
     if not names:
         raise NotApplicable('no source in force here declares itself private')
+    # A repository's own practice (level repo-local, from MANIFEST.json)
+    # never ships anywhere, and the rule lets content that stays in its
+    # authoring repo name the real repo. 2026-10-29: a consumer's full
+    # suite went red on main over its local practice naming its own private
+    # repository (practice: private-repo-scrub).
+    levels = _manifest_levels(ctx.root)
     out = []
     for f in sorted((ctx.root / 'practices').glob('*.md')):
         rel = f'practices/{f.name}'
+        if levels.get(f.stem) == 'repo-local':
+            continue
         try:
             lines = f.read_text(encoding='utf-8').splitlines()
         except (UnicodeDecodeError, OSError):
@@ -10708,7 +10989,8 @@ def _decommission_deletes_files(ctx):
        'session actually runs the one it names -- only that a repo-chosen '
        'pair of names exists and the instructions use it, so "run the light '
        'check" and "run the deep check" are unambiguous requests rather than '
-       'needing re-description every time.')
+       'needing re-description every time.',
+       skips_in_sets=("a set's AGENTS.md is the loader block build_views writes from its practices, and the hand-kept sections this looks for belong to a project's instructions, not a catalogue's"))
 def _two_check_levels(ctx):
     name, text = _instructions_file()
     names, source = _two_check_level_names()
@@ -11393,7 +11675,11 @@ def _exemption_findings(ctx):
        'currently active',
        'whether the audit is actually being RUN or a slice actually READ -- '
        'only that the tool exists and its own bookkeeping stays honest.',
-       existence_only=True)
+       existence_only=True,
+       skips_in_sets=('tools/routing_audit.py ships to consuming repos '
+                      'only (precedent_vendor_engine.py\'s '
+                      'CONSUMER_ENGINE_FILES), so a set has no copy to '
+                      'keep'))
 def _routing_audit(ctx):
     tool = _tool_path('tools/routing_audit.py')
     if tool is None:
@@ -12046,7 +12332,15 @@ CODE_CITE_SKIP_FILES = {'verify_harness.py'}
        "anchoring.")
 def _code_cites_practice(ctx):
     known = {}
-    for d in ((ROOT / 'practices'), (ROOT / 'local' / 'practices')):
+    # In a practice set, the sources it declares come last: a citation of
+    # a universal slug is real there although the set's practices/ holds
+    # only its own (2026-09-14 measurement: `timestamps-carry-offset` read
+    # as a typo in every set). Last, so the deduplicated-stub rule below
+    # lets universal's active copy stand over the set's stub of it.
+    dirs = [ROOT / 'practices', ROOT / 'local' / 'practices']
+    if _publishes_practices():
+        dirs += list(_declared_source_practice_dirs())
+    for d in dirs:
         for f in sorted(d.glob('*.md')):
             try:
                 fm, _sections = sp._read_practice_file(f)
@@ -12065,6 +12359,8 @@ def _code_cites_practice(ctx):
             in_force_at = (fm.get('in_force_at') or 'null').strip().strip('"').strip("'")
             if status == 'deduplicated' and in_force_at == slug and slug in known:
                 pass
+            elif known.get(slug) == 'active' and d not in dirs[:2]:
+                pass    # a declared source never demotes the set's own
             else:
                 known[slug] = status
             # A slug some IN-FORCE practice declares it overrides is
@@ -12246,6 +12542,20 @@ def _is_history(rel, text):
         if st and st.group(1) in TODO_CLOSED_STATUSES:
             return True
     return False
+
+
+def _without_story(text):
+    """-> `text` with every `## Story` line blanked, line numbers kept.
+
+    History names a path as it was, so rename-updates-links never asks a
+    closed todo item, a finished document or a Story section to follow a
+    move. light-check's link sweep read all three, and refused at the Debut
+    a change the quick check had passed: links from untouched closed items
+    to paths the change deleted (2026-10-30, a consumer moving onto
+    declared exports). The sweep now skips the same history."""
+    lines = text.splitlines()
+    return '\n'.join('' if story else line
+                      for line, story in zip(lines, _story_mask(lines)))
 
 
 def _story_mask(lines):
@@ -13395,21 +13705,19 @@ def load_exemptions():
     return exempt, refused
 
 
-# code-cites-practice: session-load-budget
-SESSION_LOAD_SURFACES = ('AGENTS.md', 'CLAUDE.md', '.precedent/SESSION_PRACTICES.md')
-
-
-def _as_measured(rel, text):
-    """`text` as a cap measures it: the session-start file without the
-    over-target warning its generator writes (precedent_session_practices.
-    without_target_warning), every other surface as it is."""
-    if rel != '.precedent/SESSION_PRACTICES.md':
-        return text
-    try:
-        import precedent_session_practices as _psp
-        return _psp.without_target_warning(text)
-    except Exception:                                         # noqa: BLE001
-        return text
+# code-cites-practice: session-load-budget -- what a session loads, and how
+# a part is measured, are session_load_trend's (SURFACES, as_measured,
+# approx_tokens, total_tokens): the session check's row and Update Vendors'
+# close read the same functions, so the three can never disagree about a
+# total (practice: judgment-check-or-tool; 2026-10-30, a third copy here).
+# A copy of this file with no session_load_trend.py beside it (a fixture,
+# a hand-copied engine) still loads; the check says it cannot run there.
+try:
+    import session_load_trend as _slt  # noqa: E402
+except ImportError:                                           # noqa: BLE001
+    _slt = None
+SESSION_LOAD_SURFACES = _slt.SURFACES if _slt else ()
+_as_measured = _slt.as_measured if _slt else (lambda rel, text: text)
 
 # --- duplicated always-loaded text (practice: session-load-budget) ---------
 #
@@ -13944,6 +14252,10 @@ def _session_load_budget(ctx):
     if reg is None:
         raise NotApplicable('this repo has no tools/session_load_budgets.json, '
                             'so no ceiling has been declared to check against')
+    if _slt is None:
+        raise NotApplicable('tools/session_load_trend.py is not beside this '
+                            'check, and it is the one measurement of what a '
+                            'session loads')
     surfaces = reg.get('surfaces') or {}
     _MISSING = object()
     floor_pct = reg.get('headroom_floor_pct', _MISSING)
@@ -13964,26 +14276,15 @@ def _session_load_budget(ctx):
     else:
         out = []
     corpus = None
-    try:
-        import build_views as _bv
-        approx = _bv._approx_tokens
-    except Exception:
-        def approx(text):
-            return int(len(text.split()) * 1.3)
+    approx = _slt.approx_tokens
     total_cap = _session_load_total()
     if total_cap is not None:
         # ONE TOTAL (build_views.TOTAL_KEY): the sum of what a session loads
         # is held to the declared number, and no part has a ceiling of its
         # own, so moving tokens from one part to another never refuses.
-        sizes, grew = {}, False
-        for rel in SESSION_LOAD_SURFACES:
-            f = ROOT / rel
-            if not f.is_file():
-                continue
-            sizes[rel] = approx(_as_measured(
-                rel, f.read_text(encoding='utf-8', errors='replace')))
-            grew = grew or _change_grew_surface(ctx, rel, sizes[rel], approx)
-        total = sum(sizes.values())
+        sizes, total = _slt.total_tokens(ROOT)
+        grew = any(_change_grew_surface(ctx, rel, n, approx)
+                   for rel, n in sizes.items())
         if total > total_cap and grew:
             parts = ' + '.join(f'{rel} {n:,}' for rel, n in sizes.items())
             out.append(Finding(
@@ -14610,6 +14911,11 @@ def run(slugs, ctx, scopes, exempt=None):
         # about it. See load_exemptions() for the whole story.
         if slug in exempt:
             results.append((slug, 'EXEMPT', [], exempt[slug], []))
+            continue
+        if c.get('skips_in_sets') and _publishes_practices():
+            results.append((slug, 'SKIPPED', [],
+                            f'a practice set is not the kind of repository '
+                            f'this check is about: {c["skips_in_sets"]}', []))
             continue
         # A check whose practice is not in force here has nothing to
         # enforce. This file is vendored verbatim into consuming repos
