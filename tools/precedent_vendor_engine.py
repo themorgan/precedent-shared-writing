@@ -2697,7 +2697,10 @@ def _write_hook_files(dest_root, hooks_src_dir, previous=None):
               f"\"{ps[0]}\"), or wire {HOOK_DEST_DIR}/{n} instead, which the "
               f"refresh vendors.", file=sys.stderr)
     if elsewhere:
-        print(f"NOTE: precedent_vendor_engine: {len(elsewhere)} hook "
+        # A state, never "NOTE:": the engine keeps NOTE: for what a person
+        # must judge (gotcha-2026-10-29-a-note-line-that-reports-a-state-
+        # lands-in-the-upstream-review); this one and the next say so.
+        print(f"precedent_vendor_engine: hooks: {len(elsewhere)} hook "
               f"script(s) BestPractice also ships ({', '.join(elsewhere)}) "
               f"are wired by this repo from a path of its own rather than "
               f"from {HOOK_DEST_DIR}/ -- so this engine does not vendor them "
@@ -2712,7 +2715,7 @@ def _write_hook_files(dest_root, hooks_src_dir, previous=None):
         # what is left here is only ever a hook another kind gets, one on
         # no kind's list, one this repo declined, or one whose entry needs
         # a base branch nobody wrote down -- and the last says so itself.
-        print(f"NOTE: precedent_vendor_engine: {len(skipped)} hook script(s) "
+        print(f"precedent_vendor_engine: hooks: {len(skipped)} hook script(s) "
               f"BestPractice ships are not wired in this repo's own "
               f".claude/settings.json ({', '.join(skipped)}) -- not vendored. "
               f"Each is a hook another repo kind gets, one no kind gets "
@@ -3149,7 +3152,8 @@ def _write_engine_paths(dest_root, mapping, sources, manifest):
             path.chmod(0o755)
         new_map[local], new_sha[local] = up, _sha256(path)
     for local in sorted(set(prev_sha) - set(mapping.values())):
-        print(f"NOTE: precedent_vendor_engine refresh: {local} is no longer "
+        # A state the person caused by undeclaring it: plain, never NOTE:.
+        print(f"precedent_vendor_engine refresh: {local} is no longer "
               f"declared in {ENGINE_PATHS_KEY} -- left on disk and no longer "
               f"tracked. It is this repo's own file now.")
     manifest_path = dest_root / 'tools' / MANIFEST_NAME
@@ -7712,12 +7716,27 @@ def _agents_md_plan(dest_root, kind, templates_dir, manifest):
     spans = collections.defaultdict(list)
     for key, first, end in _md_sections(local):
         spans[_heading_key(key)].append((first, end))
+    parents, top = {}, None
+    for k, _f, _e in _md_sections((templates_dir / srcs[0]).read_text(encoding='utf-8')):
+        top = k if k.startswith('## ') else top
+        parents.setdefault(k, top if k.startswith('### ') else None)
     plan = []
     for key, (line_no, raw) in template.items():
+        parent = parents.get(key)
         found = spans.get(_heading_key(key)) or []
         if not found:
+            # Left out on purpose is also what precedent.json says, for the
+            # section or the `##` section it sat in: a repository that moved
+            # a section out of AGENTS.md (a reduction pass) records that
+            # there. The manifest's own record is staged engine output, and
+            # a pinned rerun's put-back resets it, so read alone the answer
+            # flipped on alternate runs (2026-10-30, a consumer's
+            # "### Review sensitivities (accumulated)").
+            said = any((kept.get(f'{AGENTS_MD} {k}') or {}).get('reason')
+                       for k in (key, parent) if k)
             plan.append((key, srcs[0], line_no,
-                         'absent' if key in recorded else 'missing', None))
+                         'absent' if key in recorded or said else 'missing',
+                         None))
             continue
         if len(found) > 1:
             plan.append((key, srcs[0], line_no, 'diverged', None))

@@ -1324,6 +1324,42 @@ def is_vendored(entry):
     return isinstance(entry, dict) and entry.get('vendored') is True
 
 
+def is_exports_only(entry):
+    """True when a copied-in source entry takes only the files its source
+    exports (`"exports_only": true`): a voice repository's compiled prompts,
+    a rules file, never its practices. Such a copy is refreshed, recorded and
+    checked for freshness like any copied-in set, but it is not a practice
+    source: nothing loads rules from it (Morgan, 2026-10-30, strength:
+    decided, spec/VENDORED_SHARED_SETS.md "Files a source exports")."""
+    return is_vendored(entry) and entry.get('exports_only') is True
+
+
+def vendored_copy_present(path, entry):
+    """True when the copy `entry` declares is on disk at `path`. A full copy
+    is there when its practices/ is; an exports-only copy never has one, so
+    it is there when any file it exports is (the entry's own `exports`, else
+    the copied precedent-source.json's), or, with no exports list to read,
+    when its folder holds anything. Until 2026-10-30 every reader asked for
+    practices/ alone, and a present, current exports-only copy was reported
+    at every session start as missing, with "run Update Vendors"."""
+    path = pathlib.Path(path)
+    if not is_exports_only(entry):
+        return (path / 'practices').is_dir()
+    if not path.is_dir():
+        return False
+    exports = entry.get('exports')
+    if not exports:
+        try:
+            exports = json.loads((path / SOURCE_MANIFEST).read_text(
+                encoding='utf-8')).get('exports')
+        except (OSError, ValueError, AttributeError):
+            exports = None
+    if isinstance(exports, list) and exports:
+        return any((path / str(x).strip().strip('/')).exists()
+                   for x in exports if str(x).strip().strip('/'))
+    return any(path.iterdir())
+
+
 def carried_sources(copy_path, outer_name):
     """-> [{'level': 'shared', 'name', 'path', 'vendored': True,
     'carried_by'}] for every set the copied set at `copy_path` says it
@@ -1384,7 +1420,8 @@ def vendored_source_paths(repo):
         return []
     out = []
     for entry in (cfg.get('sources') if isinstance(cfg, dict) else None) or []:
-        if not is_vendored(entry) or not entry.get('path'):
+        if not is_vendored(entry) or not entry.get('path') \
+                or is_exports_only(entry):
             continue
         path = _declared_path(repo_root, entry['path'])
         note = '' if (path / 'practices').is_dir() else \
@@ -1394,7 +1431,8 @@ def vendored_source_paths(repo):
     declared = [{'name': e.get('name'), 'path': str(_declared_path(
                     repo_root, e['path'])), 'vendored': is_vendored(e)}
                 for e in (cfg.get('sources') or [])
-                if isinstance(e, dict) and e.get('path')]
+                if isinstance(e, dict) and e.get('path')
+                and not is_exports_only(e)]
     for c in carried_in_force(declared):
         note = '' if (pathlib.Path(c['path']) / 'practices').is_dir() else \
             f"carried in {c['carried_by']}'s copy, which has no practices there"
@@ -1577,6 +1615,9 @@ def load_config(repo, user_config=None):
     if repo_cfg_path.exists():
         cfg = _read_json(repo_cfg_path, 'the repository config')
         for entry in cfg.get('sources', []):
+            # A copy of a source's exported files holds no rules to load.
+            if is_exports_only(entry):
+                continue
             level = normalize_level(entry.get('level'))
             if level == 'individual':
                 raise ResolveError(
@@ -2063,25 +2104,79 @@ def missing_source_reason(path, name=None):
     return why
 
 
-def clone_elsewhere(name, declared):
-    """-> the first directory named `name` holding a practices/ tree in the
-    places sessions clone to (the home directory, /root, /home/user, beside
-    the declared path), other than `declared` itself; or None."""
+def _repo_tail(spec):
+    """-> the lowercased repository name at the end of `spec`: a bare name,
+    an owner/repo path or a full clone URL, with any .git suffix dropped."""
+    tail = str(spec or '').strip().rstrip('/').rsplit('/', 1)[-1]
+    tail = tail.rsplit(':', 1)[-1]
+    return (tail[:-4] if tail.endswith('.git') else tail).lower()
+
+
+def _origin_url(clone):
+    """-> the origin URL in `clone`'s own .git/config, read off the file so
+    a scan of a home directory starts no process per folder; '' when
+    there is none."""
+    try:
+        text = (pathlib.Path(clone) / '.git' / 'config').read_text(
+            encoding='utf-8', errors='replace')
+    except OSError:
+        return ''
+    m = re.search(r'\[remote "origin"\][^\[]*?^\s*url\s*=\s*(\S+)', text,
+                  re.M | re.S)
+    return m.group(1) if m else ''
+
+
+def clone_elsewhere(name, declared, any_clone=False, repo=None, near=()):
+    """-> the first directory holding `name`'s clone with a practices/ tree
+    in each of `near` and then the places sessions clone to (the home
+    directory, /root, /home/user, beside the declared path), other than `declared`
+    itself; or None. With `any_clone`, any git clone of it will do: a source
+    copied in for its exports alone may have no practices at all.
+
+    A clone is found by its folder name, matched without regard to case,
+    or by its origin URL naming the source's repository (`repo`, a bare
+    name or a URL; absent means the repository is called `name`).
+
+    WHY (2026-10-30). This matched only `<base>/<name>` exactly, so a
+    clone attached by add_repo under its repository's own spelling
+    (../SomeSet for a source named "someset") read as "no clone on this
+    machine" to Update Vendors; the BestPractice clone itself was already
+    found by its origin (precedent_vendor_engine.find_source_clones), and
+    a clone under another folder name now is too."""
     if not name:
         return None
     try:
         want = pathlib.Path(declared).expanduser().resolve()
     except OSError:
         want = None
-    bases = [pathlib.Path.home(), pathlib.Path('/root'), pathlib.Path('/home/user'),
-             pathlib.Path(declared).expanduser().parent]
-    for base in bases:
-        cand = base / name
+    wanted = {str(name).lower(), _repo_tail(repo or name)}
+    bases = [pathlib.Path(b) for b in near if b] + [
+        pathlib.Path.home(), pathlib.Path('/root'), pathlib.Path('/home/user'),
+        pathlib.Path(declared).expanduser().parent]
+
+    def usable(cand):
         try:
-            if cand.resolve() != want and (cand / 'practices').is_dir():
-                return cand
+            return cand.resolve() != want and (
+                (cand / 'practices').is_dir()
+                or (any_clone and (cand / '.git').exists()))
+        except OSError:
+            return False
+
+    for base in bases:
+        if usable(base / name):
+            return base / name
+    for base in bases:
+        try:
+            kids = sorted(k for k in base.iterdir() if k.is_dir()
+                          and not k.name.startswith('.'))
         except OSError:
             continue
+        for cand in kids:
+            if cand.name.lower() in wanted and usable(cand):
+                return cand
+        for cand in kids:
+            if _repo_tail(_origin_url(cand)) in wanted and usable(cand):
+                return cand
     return None
 
 
