@@ -56,6 +56,13 @@ ANOTHER session, window or repository ("your Planning window says
 it's blocked on an upstream bug") is not read as this session's state.
 Added 2026-10-01; an older engine ignores the key.
 
+It may carry `unless_reply_matching`: when the whole reply matches it (a
+line anywhere, multiline), the pair is not checked, because another
+requirement judges that line instead. Added 2026-10-30 for "Don't archive"
+beside "nothing for you", which is true when the What's blocking line names
+what is running (require_hold_names_what_runs). An older engine ignores the
+key, the stricter way.
+
 It may carry `unless_line_matching` too: a match whose whole LINE matches it
 is skipped, for a Boildown line of several sentences whose opening words say
 what it is. Added 2026-10-17: a due reminder's line ("A reminder you asked
@@ -603,6 +610,35 @@ def turn_text_count(transcript):
     return count
 
 
+def turn_written_paths(transcript):
+    """-> the file paths this turn created with the Write tool (the rows
+    after the last prompt row), or [] when the transcript cannot be read.
+    require_finished_plan_asks_to_act reads it: a plan file written this
+    turn is a plan finished this turn. Write only, never Edit -- touching
+    an existing document is not making a plan."""
+    try:
+        rows = [json.loads(l) for l in
+                pathlib.Path(transcript).read_text(encoding='utf-8').splitlines()
+                if l.strip()]
+    except (OSError, json.JSONDecodeError):
+        return []
+    paths = None
+    for d in rows:
+        if _is_prompt_row(d):
+            paths = []
+        elif paths is None or d.get('type') != 'assistant':
+            continue
+        else:
+            content = (d.get('message') or {}).get('content')
+            for b in content if isinstance(content, list) else []:
+                if (isinstance(b, dict) and b.get('type') == 'tool_use'
+                        and b.get('name') == 'Write'):
+                    p = (b.get('input') or {}).get('file_path')
+                    if isinstance(p, str):
+                        paths.append(p)
+    return paths or []
+
+
 def last_prompt_text(transcript):
     """-> the text of the prompt that started this turn (the last user row
     that is not a tool result or meta row), or '' when the transcript cannot
@@ -862,6 +898,83 @@ def _strip_markdown_links(s):
     return _MD_LINK_RE.sub(' ', s)
 
 
+# A NAME THAT IS NOTHING HERE HAS NO PAGE (2026-10-30). A reply naming
+# `MANIFEST.json` -- a consumer's file, which BestPractice does not have --
+# was refused as an unlinked file, and the repair's fallback, "give its
+# absolute path", had nothing to point at either. A name shaped like a file
+# (it ends in an extension) that is no file in any repository this session
+# holds -- working tree or landing branch -- and no branch there either is
+# not a mention of anything a link could reach, so it is not counted.
+# Anything that cannot be looked up is counted, the stricter way.
+_FILE_SHAPED_RE = re.compile(r'^[^\s`]*[\w-]\.[A-Za-z0-9]{1,6}$')
+
+
+def _session_names():
+    """-> (paths, branches): every file path in the working tree and on the
+    landing branches of each repository this session holds, and every
+    branch name there, local or on origin; None when none could be read."""
+    global _SESSION_NAMES
+    if _SESSION_NAMES is not False:
+        return _SESSION_NAMES
+    _SESSION_NAMES = None
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import precedent_gate as _pg
+        roots = _pg._session_roots(os.environ.get('CLAUDE_PROJECT_DIR') or '.')
+    except Exception:                                         # noqa: BLE001
+        return None
+
+    def git(repo, *args):
+        try:
+            r = subprocess.run(['git', '-C', str(repo), *args],
+                               capture_output=True, text=True, timeout=20)
+        except Exception:                                     # noqa: BLE001
+            return None
+        return r.stdout.splitlines() if r.returncode == 0 else None
+
+    paths, branches, read = set(), set(), False
+    for repo in roots:
+        try:
+            landing = {'main', 'staging', json.loads(
+                (pathlib.Path(repo) / 'precedent.json').read_text(
+                    encoding='utf-8')).get('landing_branch')}
+        except (OSError, ValueError, AttributeError):
+            landing = {'main', 'staging'}
+        files = git(repo, 'ls-files', '--cached', '--others', '--exclude-standard')
+        refs = git(repo, 'for-each-ref', '--format=%(refname)',
+                   'refs/heads', 'refs/remotes/origin')
+        if files is None or refs is None:
+            continue
+        read = True
+        paths.update(files)
+        for ref in refs:
+            name = re.sub(r'^refs/(?:heads|remotes/origin)/', '', ref)
+            branches.add(name)
+            if ref.startswith('refs/remotes/origin/') and name in landing:
+                paths.update(git(repo, 'ls-tree', '-r', '--name-only', ref) or [])
+    if read:
+        _SESSION_NAMES = (paths, branches)
+    return _SESSION_NAMES
+
+
+_SESSION_NAMES = False
+
+
+def _names_no_file_or_branch(name):
+    """True for a file-shaped `name` that is no file (by its path or as the
+    tail of one) and no branch in any repository this session holds."""
+    if not _FILE_SHAPED_RE.match(name):
+        return False
+    found = _session_names()
+    if found is None:
+        return False
+    paths, branches = found
+    if name in branches or name in paths:
+        return False
+    tail = '/' + name
+    return not any(p.endswith(tail) for p in paths)
+
+
 def _linked_spans(s):
     """Every markdown link in `s`, text and destination, joined: a name
     found in here was linked somewhere in the reply, so a later bare
@@ -916,6 +1029,41 @@ def first_item_under_heading(text, pattern):
             return b.group(1) if b else ''
         return ''
     return None
+
+
+def item_units_under_heading(text, heading, item):
+    """-> the bullet under the first heading matching `heading` whose text
+    matches `item`, and each bullet nested under it, one string apiece with
+    continuation lines joined on. None when no such heading exists; [] when
+    the heading has no such bullet. Built for the-boildown's "Your next
+    steps", whose asks are often sub-bullets of one head line: each ask is
+    read on its own bullet, never borrowing words from a sibling."""
+    lines, units, cur, base, inside, found = text.splitlines(), [], None, None, False, False
+    for line in lines:
+        if re.match(r'^#{1,6}\s+', line):
+            if inside:
+                break
+            inside = bool(re.search(heading, line.lstrip('#').strip(), re.I))
+            found = found or inside
+            continue
+        if not inside or not line.strip():
+            continue
+        b = re.match(r'^(\s*)(?:[-*+]|\d+[.)])\s+(.*)', line)
+        if b:
+            indent = len(b.group(1).expandtabs())
+            if base is not None and indent <= base:
+                break
+            if base is None:
+                if re.search(item, _strip_markdown_emphasis(b.group(2)), re.I):
+                    base, cur = indent, b.group(2)
+                continue
+            units.append(cur)
+            cur = b.group(2)
+        elif cur is not None:
+            cur += ' ' + line.strip()
+    if cur is not None:
+        units.append(cur)
+    return units if found else None
 
 
 def section_bullets(text, pattern):
@@ -1319,13 +1467,15 @@ KNOWN_REQUIREMENT_KEYS = frozenset({
     'require_container_safe_if_says',
     'require_landed_if_says',
     'require_plan_done_if_says',
-    'require_delete_link_when_landed',
     'require_first_item_leads_with_unlanded',
     'require_full_check_after_fast_main',
     'require_section_not_repeated',
     'require_quiet_while_background_runs',
     'require_prompt_block_header',
     'require_reason_on_gap_line',
+    'require_ask_states_its_question',
+    'require_finished_plan_asks_to_act',
+    'require_hold_names_what_runs',
     'unless_reply_declares_loss',
     # printed by the reply gate before the reply, never evaluated here
     # (precedent_gate._note_from_tool, 2026-10-17)
@@ -1391,7 +1541,8 @@ def _unknown_predicates(req):
                   if not k.startswith('_') and k not in KNOWN_REQUIREMENT_KEYS)
 
 
-def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None):
+def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None,
+               written=None):
     """-> list of records, one per unmet requirement:
 
         {'kind': 'heading' | 'first_item' | 'sentence' | 'contradiction'
@@ -1571,14 +1722,20 @@ def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None):
             cur = section_bullets(text, rep['heading'])
             prev = (previous_section(timeline, text, rep['heading'], turn)
                     if cur and len(cur) > 1 else None)
-            # A delete-link line for a branch still owed one is not a repeat
-            # to refuse: the one-line form plus the owed link lines is what
-            # such a reply is (2026-10-20: the two rules refused every reply
-            # in turn, one for the link lines, one for their absence).
             rest = cur
-            if prev and 'branches/all?query=' in text:
-                owed = [b for _, b, _ in _delete_links_owed()]
-                rest = [i for i in cur if not any(_linked(i, b) for b in owed)]
+            # Nor is a Your next steps bullet that asks for an answer: the
+            # person may read only this reply, so a question still waiting
+            # is restated in every reply until it is answered (Morgan,
+            # 2026-10-29: "I scrolled and scrolled and I can't find it").
+            # Without this the one-line form dropped the question, and the
+            # sessions that obeyed it wrote "the voice pack question, as
+            # before" -- a name for a question, not the question.
+            if prev:
+                asks = [a for q in reqs for a in [q.get('require_ask_states_its_question')]
+                        if isinstance(a, dict) and a.get('item') and a.get('if_matches')]
+                rest = [i for i in rest if not any(
+                    re.search(a['item'], _strip_markdown_emphasis(i.lstrip('-*+ ')), re.I)
+                    and re.search(a['if_matches'], i, re.I) for a in asks)]
             if prev and (len(rest) == len(cur) or len(rest) > 1) and all(
                     item_repeats(i, prev, rep.get('same_when_both_say') or ())
                     for i in rest):
@@ -1588,6 +1745,10 @@ def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None):
                     f"reply's did. With nothing new in it, the whole section "
                     f"is one line"
                     + (f": {one_line_form(rep)}" if rep.get('one_line') else '')
+                    + ("; while a question still waits on the person, add "
+                       "the Your next steps bullet restating it in full"
+                       if any(q.get('require_ask_states_its_question') for q in reqs)
+                       else '')
                     + (f" -- {rep['why']}" if rep.get('why') else '')
                     + (f" (practice: {r['practice']})" if r.get('practice') else ''))})
         one_of = r.get('require_one_of') or []
@@ -1656,6 +1817,13 @@ def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None):
                     continue
                 hit = m
                 break
+            # `unless_reply_matching`: the whole reply carries the line
+            # that settles the pair -- "Don't archive" beside "nothing for
+            # you" is true when What's blocking names what is running, and
+            # require_hold_names_what_runs judges that line (2026-10-30).
+            settled = pair.get('unless_reply_matching')
+            if settled and re.search(settled, quoted_stripped, re.I | re.M):
+                hit = None
             if _norm(trigger) in _norm(quoted_stripped) and hit:
                 out.append({'kind': 'contradiction', 'advisory': advisory, 'message': (
                     f"[{r.get('_source', '?')}] this reply says \"{trigger}\" and "
@@ -1698,7 +1866,8 @@ def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None):
             names = []
             for m in re.finditer(pattern, link_stripped):
                 name = m.group(0).strip('`')
-                if name not in linked and name not in names:
+                if name not in linked and name not in names \
+                        and not _names_no_file_or_branch(name):
                     names.append(name)
             if names:
                 shown = ', '.join(f'"{n}"' for n in names[:8]) \
@@ -1739,6 +1908,140 @@ def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None):
                     f"waiting for, needs someone's word, can't until)"
                     + (f" -- {r.get('why')}" if r.get('why') else '') + "."
                     + (f" (practice: {r['practice']})" if r.get('practice') else ''))})
+
+        # require_ask_states_its_question (Morgan, 2026-10-29, strength:
+        # decided: "you mentioned like 8 times I need to answer the
+        # [voice repo] question but I scrolled and scrolled and I can't
+        # find it ... how do we fix this?"). About eight replies running put
+        # "yes or no on syncing the voice pack" and "the voice pack question"
+        # under Your next steps, never saying what syncing would change. The
+        # person may read only the latest reply, after hours away, so a bullet
+        # that asks for an answer carries the question itself: what each
+        # answer does and the session's pick, in that same bullet.
+        ask = r.get('require_ask_states_its_question')
+        if isinstance(ask, dict) and ask.get('heading') and ask.get('item') and ask.get('if_matches'):
+            units = item_units_under_heading(text, ask['heading'], ask['item']) or []
+            bare = []
+            for u in units:
+                plain = _strip_markdown_emphasis(
+                    re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', u))
+                if not re.search(ask['if_matches'], plain, re.I):
+                    continue
+                # `unless_matches`: a bullet that says there is nothing to
+                # decide asks nothing, "decide" in it or not (2026-10-30:
+                # "Nothing for you to decide right now" was refused).
+                if ask.get('unless_matches') and re.search(
+                        ask['unless_matches'], plain, re.I):
+                    continue
+                missing = [n for n, rx in (ask.get('must_also_match') or {}).items()
+                           if not re.search(rx, plain, re.I)]
+                if missing:
+                    bare.append((plain, missing))
+            if bare:
+                shown = '; '.join(f'"{u[:120]}" (missing: {", ".join(m)})'
+                                  for u, m in bare[:3])
+                out.append({'kind': 'ask_without_question', 'advisory': advisory,
+                            'message': (
+                    f"[{r.get('_source', '?')}] a bullet under Your next steps "
+                    f"asks for an answer without stating the question: {shown}. "
+                    f"Write it for someone who sees only this reply: what is "
+                    f"being decided, what yes and no each do, and your pick, "
+                    f"all in that bullet -- never \"the X question\" or "
+                    f"\"yes or no on X\" alone"
+                    + (f" -- {r.get('why')}" if r.get('why') else '') + "."
+                    + (f" (practice: {r['practice']})" if r.get('practice') else ''))})
+
+        # require_finished_plan_asks_to_act (Morgan, 2026-10-30, strength:
+        # decided: "you made a plan ... nowhere did you suggest that we could
+        # act on this plan ... if a session has just considered or made any
+        # sort of plan, then upon the completion of the plan, it needs to ask
+        # or tell me to see if I want to implement the plan"). A plan is
+        # finished this turn when the turn wrote a plan file, when the
+        # Boildown's first line says Consider and the reply speaks of a plan,
+        # or when a **Plan:** line appears that the last reply's Boildown did
+        # not carry. Then Your next steps asks "Do you want to act on this
+        # plan?" -- whose stakes and pick require_ask_states_its_question
+        # already demands -- or the Boildown tells him the session is acting
+        # on it. practice: the-boildown
+        fin = r.get('require_finished_plan_asks_to_act')
+        if isinstance(fin, dict) and fin.get('heading') and fin.get('ask'):
+            bullets = section_bullets(text, fin['heading']) or []
+            why_fin = None
+            if fin.get('plan_file_written'):
+                hits = [w for w in (written or [])
+                        if re.search(fin['plan_file_written'], w.replace('\\', '/'))]
+                if hits:
+                    why_fin = f"this turn wrote the plan file {hits[0]}"
+            if not why_fin and fin.get('stage_line') and fin.get('plan_words') and bullets:
+                if (re.search(fin['stage_line'], bullets[0], re.I)
+                        and re.search(fin['plan_words'], _strip_quoted_spans(text), re.I)):
+                    why_fin = "the Boildown says Consider and the reply makes a plan"
+            if not why_fin and fin.get('plan_line'):
+                plan_now = [b for b in bullets
+                            if re.search(fin['plan_line'], _strip_markdown_emphasis(b), re.I)]
+                if plan_now:
+                    prev = previous_section(timeline, text, fin['heading'], turn) or []
+                    if not any(re.search(fin['plan_line'], _strip_markdown_emphasis(b), re.I)
+                               for b in prev):
+                        why_fin = "a **Plan:** line appears that the last reply did not carry"
+            if why_fin:
+                units = (item_units_under_heading(text, fin['heading'], fin['item'])
+                         or []) if fin.get('item') else bullets
+                asked = any(re.search(fin['ask'], _strip_markdown_emphasis(u), re.I)
+                            for u in units)
+                told = bool(fin.get('tell')) and any(
+                    re.search(fin['tell'], _strip_markdown_emphasis(b), re.I)
+                    for b in bullets)
+                if not (asked or told):
+                    out.append({'kind': 'plan_without_ask', 'advisory': advisory,
+                                'message': (
+                        f"[{r.get('_source', '?')}] this reply finishes a plan "
+                        f"({why_fin}) and never asks him to act on it. Under "
+                        f"Your next steps, ask \"Do you want to act on this "
+                        f"plan?\", with what acting does and your pick; or, "
+                        f"when this session is already carrying it out, say "
+                        f"\"I'm acting on this plan\" and what that is"
+                        + (f" -- {r.get('why')}" if r.get('why') else '') + "."
+                        + (f" (practice: {r['practice']})" if r.get('practice') else ''))})
+
+        # require_hold_names_what_runs (Morgan, 2026-10-30, strength:
+        # decided: "You tell me not to archive this session, but you also
+        # tell me there's nothing for me to do. Are you doing anything? I
+        # looked and there's no background task"). The session was waiting
+        # on sessions it had spawned; the reason was only implied. When the
+        # archive line holds the session and Your next steps gives him
+        # nothing to do, the What's blocking line says what is running,
+        # where (linked), and when this session acts next. practice:
+        # the-boildown
+        hold = r.get('require_hold_names_what_runs')
+        if (isinstance(hold, dict) and hold.get('if_says') and hold.get('line')
+                and _norm(hold['if_says']) in _norm(_strip_quoted_spans(text))):
+            heading = hold.get('heading') or 'boildown'
+            steps = item_units_under_heading(text, heading, hold.get('item')
+                                             or r'^\W*your next steps\b') or []
+            nothing = bool(steps) and re.search(
+                hold.get('item_says_nothing') or r'\bnothing\b',
+                _strip_markdown_emphasis(steps[0]), re.I) and len(steps) == 1
+            if nothing:
+                lines = [b for b in (section_bullets(text, heading) or [])
+                         if re.search(hold['line'], _strip_markdown_emphasis(b), re.I)]
+                plain = ' '.join(lines)
+                missing = ([n for n, rx in (hold.get('must_also_match') or {}).items()
+                            if not re.search(rx, plain, re.I)]
+                           if lines else ['the line itself'])
+                if missing:
+                    out.append({'kind': 'hold_without_reason', 'advisory': advisory,
+                                'message': (
+                        f"[{r.get('_source', '?')}] this reply says "
+                        f"\"{hold['if_says']}\" while Your next steps gives the "
+                        f"person nothing to do, and its What's blocking line is "
+                        f"missing: {', '.join(missing)}. Say, in plain words on "
+                        f"that line, what is running, where (the session or job, "
+                        f"linked), and when this session next acts (\"when X "
+                        f"reports back, about HH:MM <city> time\") -- or, if "
+                        f"nothing is, say \"You can archive this session\""
+                        + (f" -- {r.get('why')}" if r.get('why') else '') + "."
+                        + (f" (practice: {r['practice']})" if r.get('practice') else ''))})
 
         # require_paired_with: when the reply contains X, it must also
         # contain Y. The mirror of require_no_contradiction -- that one
@@ -1971,13 +2274,6 @@ def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None):
                     f"link on a **Plan handed to:** line."
                     + (f" (practice: {r['practice']})" if r.get('practice') else ''))})
 
-        # require_delete_link_when_landed: a branch that was not on its
-        # landing branch when this turn began and is now has done its job,
-        # and the reply that lands it hands over its one-click delete link
-        # (the-boildown item 6, branch-delete-links). The reply gate printed
-        # NOT YET LANDED for the other half since 2026-09-21; nothing asked
-        # for this half, and a session Booked its branch on 2026-10-06 and
-        # gave no link.
         # require_prompt_block_header (Morgan, 2026-10-10, strength:
         # decided: "Every prompt you give me should have BOTH at the top: the
         # session sending it, and what session it is for ... and enforce
@@ -2080,23 +2376,6 @@ def violations(text, reqs, timeline=None, wake=None, prompt=None, turn=None):
                             'message': f"[{r.get('_source', '?')}] {msg}"
                             + (f" (practice: {r['practice']})" if r.get('practice') else '')})
 
-        if r.get('require_delete_link_when_landed'):
-            for repo, branch, base in _delete_links_owed():
-                enc = urllib.parse.quote(branch, safe='')
-                # Once per branch: a link any earlier reply gave counts, read
-                # from the transcript, so a lost record never asks again.
-                if any(_linked(t, branch) for t in [text] + [t for _, t in timeline or []]):
-                    continue
-                out.append({'kind': 'delete-link', 'advisory': False, 'message': (
-                    f"[{r.get('_source', '?')}] '{branch}' "
-                    f"({pathlib.Path(repo).name}) is this session's and has "
-                    f"landed on '{base}', and no reply has given its delete "
-                    f"link yet. "
-                    f"Add one line to The Boildown with its filtered "
-                    f"branches-page link -- https://github.com/<owner>/<repo>"
-                    f"/branches/all?query={enc} -- and the branch it merged "
-                    f"into. Never delete it yourself."
-                    + (f" (practice: {r['practice']})" if r.get('practice') else ''))})
     return _one_line_wins(out, text, reqs)
 
 
@@ -2146,117 +2425,9 @@ def _full_check_owed(root=None):
         return []
 
 
-def _consume_turn_start(root=None):
-    """A reply that passes has given its delete link for every branch that
-    landed; take those branches off the turn-start record, so each is asked
-    about once. A branch not landed yet stays. Never raises.
-
-    WHY (2026-10-10). The record is written at a turn's start by the
-    UserPromptSubmit hook. A session rooted above its repositories runs no
-    hook, so the one record, written that morning, was read as "this turn's
-    start" all day: every reply after was refused for owing a delete link to
-    a branch merged hours before. With hooks, each turn writes a fresh one
-    anyway; without them, an answered branch is now gone from it."""
-    try:
-        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-        import precedent_gate as _pg
-        root = root or os.environ.get('CLAUDE_PROJECT_DIR') or '.'
-        done = {(r, b) for r, b, _ in _landed_this_turn(root)}
-        if not done:
-            return
-        f = _pg._turn_start_file(root)
-        recs = json.loads(f.read_text(encoding='utf-8')) if f and f.is_file() else []
-        keep = [x for x in recs if isinstance(x, dict)
-                and (x.get('repo'), x.get('branch')) not in done]
-        _pg.record_turn_start_unlanded(root, keep)
-    except Exception:                                         # noqa: BLE001
-        pass
-
-
-# A branch this session made, once landed, is owed its delete link in the
-# reply that sees it landed, whether or not it existed when the turn began.
-# Kept per checkout in .git beside the turn-start record: the branches a
-# passing reply has given the link for, so each is asked about once.
-DELETE_LINKS_GIVEN = 'precedent-delete-links-given.json'
-
-
-def _links_given_file(root):
-    try:
-        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-        import precedent_gate as _pg
-        f = _pg._turn_start_file(root)
-    except Exception:                                         # noqa: BLE001
-        return None
-    return f.with_name(DELETE_LINKS_GIVEN) if f else None
-
-
-def _links_given_files(root):
-    """-> [Path]: the given-links record of this checkout and of each
-    repository this session reaches (precedent_gate._session_roots).
-
-    WHY (2026-10-20). A session rooted ABOVE its repositories has no .git of
-    its own, so the one record kept beside the root's never existed: a
-    passing reply's links were never written down, and every later reply was
-    asked for the same delete links again. Each repository now keeps the
-    record for its own branches, in its own .git."""
-    files = []
-    try:
-        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-        import precedent_gate as _pg
-        roots = _pg._session_roots(root)
-    except Exception:                                         # noqa: BLE001
-        roots = [root]
-    for r in roots:
-        f = _links_given_file(r)
-        if f and f not in files:
-            files.append(f)
-    return files
-
-
-def _links_given(root):
-    out = set()
-    for f in _links_given_files(root):
-        try:
-            recs = json.loads(f.read_text(encoding='utf-8')) if f.is_file() else []
-        except Exception:                                     # noqa: BLE001
-            recs = []
-        out |= {(x.get('repo'), x.get('branch')) for x in recs if isinstance(x, dict)}
-    return out
-
-
-def _linked(text, branch):
-    enc = urllib.parse.quote(branch, safe='')
-    return bool(re.search(r'branches/all\?query=(?:' + re.escape(enc) + '|'
-                          + re.escape(branch) + r')(?![\w%./-])', text or '', re.I))
-
-
-def _record_links_given(text, root=None):
-    """After a reply, passing or refused (both are on screen): every owed
-    branch it linked is given, written into its own repository's record
-    (_links_given_files). Never raises."""
-    try:
-        root = root or os.environ.get('CLAUDE_PROJECT_DIR') or '.'
-        new = [(r, b) for r, b, _ in _delete_links_owed(root) if _linked(text, b)]
-        for repo in {r for r, _ in new}:
-            f = _links_given_file(repo) or _links_given_file(root)
-            if not f:
-                continue
-            try:
-                have = json.loads(f.read_text(encoding='utf-8')) if f.is_file() else []
-            except Exception:                                 # noqa: BLE001
-                have = []
-            keys = {(x.get('repo'), x.get('branch')) for x in have if isinstance(x, dict)}
-            keys |= {(str(pathlib.Path(r).resolve()), b) for r, b in new if r == repo}
-            f.write_text(json.dumps([{'repo': str(r), 'branch': b}
-                                     for r, b in sorted(keys, key=str)]),
-                         encoding='utf-8')
-    except Exception:                                         # noqa: BLE001
-        pass
-
-
 # A branch given up by name -- **Branch disposition:** BRANCH -- drop (why)
 # -- is settled for the rest of the session, not just in the reply that says
-# so. Kept per checkout in .git beside the delete-link record (S. Alexander
+# so. Kept per checkout in .git (S. Alexander
 # Jacobson, 2026-10-20: a branch already given up kept being reported as
 # unlanded, reply after reply).
 BRANCHES_GIVEN_UP = 'precedent-branches-given-up.json'
@@ -2264,10 +2435,21 @@ _GIVEN_UP_RE = re.compile(r'\*\*branch disposition:\*\*\s*`?([^\s`*]+)`?\s*[—-
                           re.I)
 
 
+def _given_up_file(root):
+    """-> the per-checkout file in .git that keeps the branches given up by
+    name, or None outside a git checkout."""
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import precedent_gate as _pg
+        f = _pg._turn_start_file(root)
+    except Exception:                                         # noqa: BLE001
+        return None
+    return f.with_name(BRANCHES_GIVEN_UP) if f else None
+
+
 def given_up_branches(root=None):
     """-> the set of branch names this checkout's session has given up."""
-    f = _links_given_file(root or os.environ.get('CLAUDE_PROJECT_DIR') or '.')
-    f = f.with_name(BRANCHES_GIVEN_UP) if f else None
+    f = _given_up_file(root or os.environ.get('CLAUDE_PROJECT_DIR') or '.')
     try:
         return set(json.loads(f.read_text(encoding='utf-8'))) if f and f.is_file() else set()
     except Exception:                                         # noqa: BLE001
@@ -2279,10 +2461,10 @@ def _record_given_up(text, root=None):
     try:
         root = root or os.environ.get('CLAUDE_PROJECT_DIR') or '.'
         new = set(_GIVEN_UP_RE.findall(text or ''))
-        f = _links_given_file(root)
+        f = _given_up_file(root)
         if not new or not f:
             return
-        f.with_name(BRANCHES_GIVEN_UP).write_text(
+        f.write_text(
             json.dumps(sorted(given_up_branches(root) | new)), encoding='utf-8')
     except Exception:                                         # noqa: BLE001
         pass
@@ -2302,13 +2484,6 @@ def _is_landed(repo, ref, base):
     return bool(files) and subprocess.run(
         ['git', '-C', str(repo), 'diff', '--quiet', f'origin/{base}', ref, '--',
          *files], capture_output=True).returncode == 0
-
-
-def _own_landed_branches(root=None, siblings=True):
-    """-> [(repo, branch, base)] for each branch on origin that this session
-    made and whose work has landed (_own_branches)."""
-    return [(repo, name, base) for repo, name, base, _landing
-            in _own_branches(root, siblings) if base]
 
 
 def _own_unlanded_branches(root=None, siblings=True):
@@ -2336,13 +2511,9 @@ def _own_branches(root=None, siblings=True):
     confirmed on origin with one ls-remote per repository, and dropped when
     it is gone. [] with no session ID to look for.
 
-    WHY (Morgan, 2026-10-19: "you stopped giving me the branches to delete
-    ... I think we should bring that back"). The turn-start record
-    (_landed_this_turn) sees only a branch that already existed, unlanded,
-    when the turn began. Since 2026-10-08 a session usually makes, pushes
-    and merges its branch inside one turn, and a Promote's copy never
-    exists at a turn's start, so neither was ever asked for: about seventy
-    landed branches piled up in BestPractice in a week with no link given."""
+    WHY. Written 2026-10-19 for the delete-link check (retired 2026-10-30);
+    it stays because the first Boildown line names this session's branches
+    not landed yet (_own_unlanded_branches)."""
     try:
         sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
         import precedent_gate as _pg
@@ -2417,67 +2588,6 @@ def _own_branches(root=None, siblings=True):
             continue
     return found
 
-
-def _delete_links_owed(root=None):
-    """-> [(repo, branch, base)]: the branches landed this turn by the
-    turn-start record, and this session's own landed branches, less those a
-    passing reply has already linked."""
-    root = root or os.environ.get('CLAUDE_PROJECT_DIR') or '.'
-    given, seen, out = _links_given(root), set(), []
-    for repo, branch, base in _landed_this_turn(root) + _own_landed_branches(root):
-        key = (str(pathlib.Path(repo).resolve()), branch)
-        if key in seen or key in given or (repo, branch) in given:
-            continue
-        seen.add(key)
-        out.append((repo, branch, base))
-    return out
-
-
-def _landed_this_turn(root=None):
-    """-> [(repo, branch, base)] for each branch the reply gate recorded as
-    not landed at this turn's start (precedent_gate.record_turn_start_unlanded)
-    whose work is on its landing branch now: every commit on it, or, after a
-    squash or rebase merge, every file it changed identical there. [] when
-    nothing was recorded or the gate cannot be imported: an engine too old to
-    record blocks nothing."""
-    try:
-        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-        import precedent_gate as _pg
-        root = root or os.environ.get('CLAUDE_PROJECT_DIR') or '.'
-        f = _pg._turn_start_file(root)
-        recs = json.loads(f.read_text(encoding='utf-8')) if f and f.is_file() else []
-    except Exception:                                         # noqa: BLE001
-        return []
-
-    def git(repo, *args):
-        p = subprocess.run(['git', '-C', str(repo), *args],
-                           capture_output=True, text=True, timeout=20)
-        return p.stdout.strip() if p.returncode == 0 else None
-
-    found = []
-    for rec in recs if isinstance(recs, list) else []:
-        repo, branch, base = (rec.get('repo'), rec.get('branch'), rec.get('base')) \
-            if isinstance(rec, dict) else (None, None, None)
-        if not (repo and branch and base):
-            continue
-        try:
-            tip = git(repo, 'rev-parse', '--verify', '--quiet',
-                      f'refs/heads/{branch}^{{commit}}')
-            if not tip:
-                continue
-            _pg._refresh_remote_branch(repo, base)
-            if git(repo, 'rev-list', '--count', f'origin/{base}..{tip}') == '0':
-                found.append((repo, branch, base))
-                continue
-            mb = git(repo, 'merge-base', f'origin/{base}', tip)
-            files = (git(repo, 'diff', '--name-only', mb, tip) or '').split() if mb else []
-            if files and subprocess.run(
-                    ['git', '-C', str(repo), 'diff', '--quiet', f'origin/{base}',
-                     tip, '--', *files], capture_output=True).returncode == 0:
-                found.append((repo, branch, base))
-        except Exception:                                     # noqa: BLE001
-            continue
-    return found
 
 
 def _stranded_branches(root=None, siblings=True):
@@ -2768,6 +2878,25 @@ def main():
                     bits.append(f'"{ph}" requires a container with nothing '
                                 f'uncommitted and nothing off a remote '
                                 f'(tools/precedent_container_safe.py)')
+            _fin = r.get('require_finished_plan_asks_to_act') or {}
+            if _fin.get('ask'):
+                bits.append('a reply that finishes a plan (a plan file written '
+                            'this turn, Consider on the first line with a plan, '
+                            'or a new **Plan:** line) asks under Your next '
+                            'steps: "Do you want to act on this plan?", or says '
+                            '"I\'m acting on this plan"')
+            _hold = r.get('require_hold_names_what_runs') or {}
+            if _hold.get('if_says'):
+                bits.append(f'"{_hold["if_says"]}" beside a Your next steps '
+                            f'that says nothing for the person needs a '
+                            f'What\'s blocking line with: '
+                            + ', '.join(_hold.get('must_also_match') or {}))
+            _ask = r.get('require_ask_states_its_question') or {}
+            if _ask.get('heading') and _ask.get('item'):
+                bits.append(f"a bullet under /{_ask['heading']}/i's "
+                            f"/{_ask['item']}/i item that asks for an answer "
+                            f"also carries: "
+                            + ', '.join(_ask.get('must_also_match') or {}))
             _rep = r.get('require_section_not_repeated') or {}
             if _rep.get('heading'):
                 bits.append(f"section /{_rep['heading']}/i not a repeat of the "
@@ -2777,9 +2906,6 @@ def main():
                 bits.append('no reply at all to a background job waking the '
                             'turn while its batch still runs (or to a progress '
                             'event), unless it reports a failure')
-            if r.get('require_delete_link_when_landed'):
-                bits.append("a branch of this session's that has landed gets "
-                            'its one-click delete link (branches/all?query=), once')
             if r.get('require_full_check_after_fast_main'):
                 bits.append('a fast move into main whose GitHub test does not '
                             'run has its full local suite on main started, '
@@ -2816,8 +2942,11 @@ def main():
     turn = None
     wake = None
     prompt = None
+    written = None
     if '--text' in argv:
         text = pathlib.Path(argv[argv.index('--text') + 1]).read_text(encoding='utf-8')
+        if '--written' in argv:
+            written = [w for w in argv[argv.index('--written') + 1].split(',') if w]
         if '--prompt' in argv:
             prompt = pathlib.Path(argv[argv.index('--prompt') + 1]).read_text(
                 encoding='utf-8')
@@ -2836,6 +2965,7 @@ def main():
             return 0
         timeline = assistant_timeline(transcript)
         turn = turn_text_count(transcript)
+        written = turn_written_paths(transcript)
         text = last_assistant_text(transcript)
         prompt = last_prompt_text(transcript)
         # A turn a background job woke is judged by its own words only --
@@ -2865,18 +2995,9 @@ def main():
     # reply is refused below for something else (S. Alexander Jacobson,
     # 2026-10-20: a branch already given up kept being reported as unlanded).
     _record_given_up(text)
-    bad = [b for b in violations(text, reqs, timeline, wake, prompt, turn)
+    bad = [b for b in violations(text, reqs, timeline, wake, prompt, turn, written)
            if not b.get('advisory')]
-    # A refused reply has been shown too, so the delete links it gave are
-    # given (2026-10-20: recorded on a pass only, a link given in a refused
-    # reply was owed again in its repair, which another rule refused for
-    # repeating it, and no reply ever passed to record it).
-    # practice: branch-delete-links
-    _record_links_given(text)
     if not bad:
-        # Recorded first: consuming takes the landed branches off the
-        # turn-start record, and they are owed links until recorded given.
-        _consume_turn_start()
         return 0
     # The reply that was just refused has ALREADY been shown to the person --
     # a Stop hook cannot un-show it. So the only correct repair is to emit the
@@ -2943,8 +3064,7 @@ def main():
               'the previous reply\'s, line for line, named below. The person '
               'has ALREADY SEEN it. Output ONLY the one-line form, under the '
               'same heading -- "- The work of this session is now on: <where '
-              'it is>, unchanged since the last update." (and below it any '
-              'delete-link line still owed) -- and end the turn: '
+              'it is>, unchanged since the last update." -- and end the turn: '
               'no correction, no shorter copy, no apology. An empty reply is '
               'not accepted by the harness, so this line is what is owed.',
               file=sys.stderr)
