@@ -1,11 +1,17 @@
 # Python leaves these beside the vendored engine's own scripts.
 __pycache__/
-*.pyc
+*.py[cod]
 
 # Written per-machine by commit-identity.sh (it derives TZ from
 # identity.json and stores it here), so it is never the same on two
 # checkouts and must not be committed.
 .claude/settings.local.json
+
+# Editor and system files, and the worktrees a session makes under
+# .claude/. The same lines templates/gitignore.template carries.
+.DS_Store
+*.swp
+.claude/worktrees/
 
 # Another repository's practice text, resolved into this tree at session
 # start by tools/precedent_session_practices.py and rebuilt every time.
@@ -16,9 +22,3 @@ __pycache__/
 # existed: `git check-ignore` said not ignored, so the generated file was
 # offered to the next `git add -A`.
 .precedent/
-
-# Added by Update Vendors
-*.py[cod]
-.DS_Store
-*.swp
-.claude/worktrees/

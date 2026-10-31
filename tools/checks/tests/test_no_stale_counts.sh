@@ -553,6 +553,38 @@ fixture_declared_exemption_without_reason () {
   declare_count_exemption ""
 }
 
+fixture_record_document () {
+  keep_sources
+  # Q: a document whose frontmatter says kind: record (2026-10-31).
+  mkdir -p notes
+  printf -- '---\nkind: record\nstatus: closed\n---\n# A run\nThat day 999 practices were read.\n' \
+    > notes/run.md
+}
+
+fixture_reference_document () {
+  keep_sources
+  # Q': the same line in a document that is not a record still fires.
+  mkdir -p notes
+  printf -- '---\nkind: reference\nstatus: current\n---\n# A run\nThat day 999 practices were read.\n' \
+    > notes/run.md
+}
+
+fixture_story_and_frontmatter () {
+  keep_sources
+  # R: a count under a ## Story heading and one in frontmatter are history.
+  mkdir -p notes
+  printf -- '---\napproved_by: "yes on all 999 practices"\n---\n# X\n## Rule\nDo.\n## Story\nA sweep converted 999 practices.\n' \
+    > notes/story.md
+}
+
+fixture_after_story () {
+  keep_sources
+  # R': the next ## heading ends the Story; a count after it fires.
+  mkdir -p notes
+  printf -- '# X\n## Story\nA sweep converted 999 practices.\n## Install\nThis set has 999 practices.\n' \
+    > notes/story.md
+}
+
 # --- The runner -----------------------------------------------------------
 #
 # expect is one of: fires | clean | skipped. A non-zero exit is not evidence
@@ -668,6 +700,14 @@ run "O2. a count inside a closed BEGIN/END GENERATED block" clean  fixture_loade
 run "O2'. an unclosed BEGIN GENERATED hides nothing"         fires   fixture_unclosed_loader_generated_block no-engine
 run "P. a path declared in no_stale_counts_exempt"          clean   fixture_declared_exemption no-engine
 run "P'. the same declaration with no reason still fires"   fires   fixture_declared_exemption_without_reason no-engine
+
+# Q-R: records, Stories and frontmatter, found running this check against
+# the engine's own repository again (2026-10-31: about fifty findings, each
+# a measurement of its own day).
+run "Q. a kind: record document's dated count"              clean   fixture_record_document    no-engine
+run "Q'. the same line in a reference document fires"       fires   fixture_reference_document no-engine
+run "R. a count in a ## Story or in frontmatter"            clean   fixture_story_and_frontmatter no-engine
+run "R'. a count after the Story's section ends fires"      fires   fixture_after_story        no-engine
 
 # H/I: the multi-source undercount this change fixes (2026-09-19, closing
 # BestPractice's todo-2026-09-18-no-stale-counts-undercounts-a-multi-
