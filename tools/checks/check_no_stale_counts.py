@@ -534,6 +534,42 @@ def not_actionable_here(rel: str) -> bool:
         or _foreign_practice(rel) or _is_generated(rel) \
         or _is_closed_todo_item(rel) or _declared_exempt(rel)
 
+# --- A practice file's history, which states what was true on a day -------
+#
+# A practice's frontmatter (`approved_by:` quotes the approval verbatim) and
+# its `## Story` section record what happened on a dated day; by the engine's
+# current-rule-governs, Story is history, never a claim about today. Run
+# against the engine's own repository on 2026-10-30, every hit this check
+# found in its practices/ tree sat in one of the two -- "34 practices in one
+# team source", "all 52 practices at phase-1 conversion" -- and none was
+# actionable. Narrowed to files under a practices/ directory and to those two
+# regions: a count in a practice's Rule or Detail is still a live claim and
+# still fires (practice: no-stale-counts).
+_PRACTICE_FILE_RE = re.compile(r"(?:^|/)practices/[^/]+\.md$")
+
+
+def _history_lines(rel: str, text: str) -> set[int]:
+    """-> 1-based line numbers of a practice file's frontmatter and Story."""
+    if not _PRACTICE_FILE_RE.search(rel):
+        return set()
+    lines = text.splitlines()
+    out = set()
+    i = 0
+    if lines and lines[0].strip() == "---":
+        out.add(1)
+        for i in range(1, len(lines)):
+            out.add(i + 1)
+            if lines[i].strip() == "---":
+                break
+    in_story = False
+    for n, line in enumerate(lines, 1):
+        if line.startswith("## "):
+            in_story = line.strip() == "## Story"
+        if in_story:
+            out.add(n)
+    return out
+
+
 def rule_text() -> str:
     # A materialized check runs in whatever repo its source was resolved
     # into, and the practice file it quotes is not guaranteed to be there:
@@ -623,7 +659,7 @@ def find_violations() -> list[str]:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        generated = _generated_lines(text)
+        generated = _generated_lines(text) | _history_lines(rel, text)
         for lineno, line in enumerate(text.splitlines(), 1):
             if lineno in generated:
                 continue

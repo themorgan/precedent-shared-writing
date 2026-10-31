@@ -26,7 +26,9 @@ export PRECEDENT_ALLOW_ANY_AUTHOR=1
 #   O.  a count inside a closed <!--gen:NAME--> block       -- must be clean,
 #       and O' an unclosed marker must not hide what follows;
 #   P.  a path in precedent.json's no_stale_counts_exempt   -- must be clean,
-#       and P' the same entry without a reason must still fire.
+#       and P' the same entry without a reason must still fire;
+#   Q.  a count in a practice's Story or frontmatter        -- must be clean,
+#       and Q' the same count in its Detail must still fire.
 #
 # WHY D AND D' ARE A PAIR. Until 2026-09-10 this check derived the mirror
 # exclusion itself, from process/manifest.json's upstream.vendored_at --
@@ -553,6 +555,37 @@ fixture_declared_exemption_without_reason () {
   declare_count_exemption ""
 }
 
+plant_practice () {   # $1 = the section to put the wrong count in
+  # A retired practice, so the planted file leaves the active count alone.
+  cat > practices/zz-planted-history.md <<MD
+---
+slug: zz-planted-history
+status: retired
+approved_by: "Someone -- \\"do all 999 practices\\""
+---
+## Rule
+A planted rule.
+
+## $1
+This set had 999 practices that day.
+
+## Install
+Nothing.
+MD
+}
+
+fixture_practice_story_count () {
+  keep_sources
+  # Q: a count in a practice's Story (and its frontmatter) is history.
+  plant_practice Story
+}
+
+fixture_practice_rule_count () {
+  keep_sources
+  # Q': the same count in its Detail is a live claim and still fires.
+  plant_practice Detail
+}
+
 # --- The runner -----------------------------------------------------------
 #
 # expect is one of: fires | clean | skipped. A non-zero exit is not evidence
@@ -668,6 +701,12 @@ run "O2. a count inside a closed BEGIN/END GENERATED block" clean  fixture_loade
 run "O2'. an unclosed BEGIN GENERATED hides nothing"         fires   fixture_unclosed_loader_generated_block no-engine
 run "P. a path declared in no_stale_counts_exempt"          clean   fixture_declared_exemption no-engine
 run "P'. the same declaration with no reason still fires"   fires   fixture_declared_exemption_without_reason no-engine
+
+# Q: found running this check against the engine's own repository
+# (2026-10-30): every hit in its practices/ tree was a Story or an
+# approved_by quote. Q' is the control: the same file, the count in Detail.
+run "Q. a count in a practice's Story and frontmatter"      clean   fixture_practice_story_count no-engine
+run "Q'. the same count in a practice's Detail still fires" fires   fixture_practice_rule_count  no-engine
 
 # H/I: the multi-source undercount this change fixes (2026-09-19, closing
 # BestPractice's todo-2026-09-18-no-stale-counts-undercounts-a-multi-
