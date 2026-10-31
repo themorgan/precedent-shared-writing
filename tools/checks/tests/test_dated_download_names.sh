@@ -48,6 +48,21 @@ if ! grep -q "no PreToolUse hook on SendUserFile" <<<"$OUT"; then
 fi
 echo "ok: fires when the hand-over hook is not wired"
 
+# Wired the way a repository that brings this set untracked gets it: listed
+# in .precedent/practice_hooks.json at session start, run by the settings'
+# precedent-hooks.sh PreToolUse entry (2026-10-31: refused in BestPractice
+# while the hook was in place).
+mkdir -p "$SCRATCH/.precedent"
+echo '{"hooks": [{"event": "PreToolUse", "matcher": "SendUserFile", "command": "python3 $CLAUDE_PROJECT_DIR/tools/dated_name.py --hook"}]}' \
+  > "$SCRATCH/.precedent/practice_hooks.json"
+echo '{"hooks": {"PreToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/precedent-hooks.sh PreToolUse"}]}]}}' \
+  > "$SCRATCH/.claude/settings.json"
+if ! python3 "$CHECK" >/dev/null; then
+  echo "FAIL: not clean with the hook in the untracked session list" >&2; python3 "$CHECK" >&2 || true; exit 1
+fi
+echo "ok: clean with the hook in .precedent/practice_hooks.json"
+rm -rf "$SCRATCH/.precedent"
+
 cat > "$SCRATCH/.claude/settings.json" <<'JSON'
 {"hooks": {"PreToolUse": [{"matcher": "SendUserFile", "hooks": [{"type": "command",
   "command": "python3 $CLAUDE_PROJECT_DIR/tools/dated_name.py --hook"}]}]}}

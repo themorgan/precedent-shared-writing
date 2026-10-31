@@ -57,6 +57,9 @@ PRACTICE_FILE = SOURCE_ROOT / "practices" / "dated-download-names.md"
 SCRIPT = ROOT / "tools" / "dated_name.py"
 SETTINGS = ROOT / ".claude" / "settings.json"
 PRACTICE_HOOKS = ROOT / "process" / "practice_hooks.json"
+# The untracked list for a set the repository brings without tracking it
+# (precedent_hooks.py's SESSION_WIRING), run beside the tracked one.
+SESSION_HOOKS = ROOT / ".precedent" / "practice_hooks.json"
 
 CASES = {
     "Joseph Manuscript-2026-12-31.docx": True,
@@ -92,12 +95,20 @@ def hook_wired(settings: dict) -> bool:
 
 
 def registered_hook(settings: dict) -> bool:
-    """True when process/practice_hooks.json lists the hand-over hook and
-    settings.json runs the list at PreToolUse (precedent-hooks.sh)."""
-    try:
-        listed = json.loads(PRACTICE_HOOKS.read_text(encoding="utf-8")).get("hooks") or []
-    except (OSError, ValueError, AttributeError):
-        return False
+    """True when process/practice_hooks.json, or the untracked
+    .precedent/practice_hooks.json, lists the hand-over hook and
+    settings.json runs the lists at PreToolUse (precedent-hooks.sh).
+
+    The untracked list since 2026-10-31: a repository that brings this set
+    without tracking it -- BestPractice is one -- gets the hook there at
+    session start, and precedent_hooks.py runs it. Reading the tracked list
+    alone, this check refused BestPractice for a hook that was in place."""
+    listed = []
+    for path in (PRACTICE_HOOKS, SESSION_HOOKS):
+        try:
+            listed += json.loads(path.read_text(encoding="utf-8")).get("hooks") or []
+        except (OSError, ValueError, AttributeError, TypeError):
+            continue
     on_list = any(isinstance(h, dict) and h.get("event") == "PreToolUse"
                   and "dated_name.py" in str(h.get("command") or "")
                   and "--hook" in str(h.get("command") or "")
