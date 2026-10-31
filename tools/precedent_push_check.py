@@ -1329,6 +1329,31 @@ def _changed_paths(root, since, kinds='AMR'):
     return [l for l in (out or '').splitlines() if l.strip()]
 
 
+def ensure_base(root, since):
+    """-> True when `since` names a commit here, fetching an `origin/<branch>`
+    base first when this clone has no such ref; False when it still does not.
+
+    WHY (2026-10-31, a consumer's very deep check). A clone made with one
+    branch has a fetch refspec for main alone, so `origin/staging` -- the
+    base a push to staging is measured from -- never exists in it, and
+    `git fetch origin staging` writes only FETCH_HEAD. The diff against the
+    missing ref failed, read as no output, and the per-file step reported
+    "0 changed file(s) checked, 0 problem(s)" on a commit that changed 26
+    files, Python among them. An explicit refspec fetches the one branch
+    without widening the clone."""
+    if not since:
+        return False
+    if git(root, 'rev-parse', '--verify', '-q', f'{since}^{{commit}}') is not None:
+        return True
+    if since.startswith('origin/') and len(since) > len('origin/'):
+        branch = since[len('origin/'):]
+        git(root, 'fetch', '-q', 'origin',
+            f'+refs/heads/{branch}:refs/remotes/origin/{branch}')
+        return git(root, 'rev-parse', '--verify', '-q',
+                   f'{since}^{{commit}}') is not None
+    return False
+
+
 def _is_engine_check(root, rel):
     """True for a check script the engine itself ships: BestPractice's own
     tools/checks/, or one a vendored engine's ENGINE_MANIFEST.json lists."""
@@ -1496,6 +1521,10 @@ def _new_tests_have_times(root, since, files, problems):
     diff = git(root, 'diff', '-U0', f'{since}...HEAD', '--',
                'tools/verify_harness.py') or ''
     added = re.findall(r'^\+def (check_\w+)\(', diff, re.M)
+    # 2026-10-30: 7e5d9d26 deleted two tests and left their times, and the
+    # full suite's partition case failed on main until a very deep check
+    # found it -- a deletion is the other half of the same record.
+    removed = set(re.findall(r'^-def (check_\w+)\(', diff, re.M)) - set(added)
     try:
         known = json.loads((root / 'tools' / 'harness_check_times.json')
                            .read_text(encoding='utf-8')).get('seconds') or {}
@@ -1508,6 +1537,147 @@ def _new_tests_have_times(root, since, files, problems):
             f'recorded time ({", ".join(missing)}) -- run `python3 '
             f'tools/verify_harness.py --record-new-times` and commit '
             f'tools/harness_check_times.json with them')
+    stale = sorted(n for n in removed if n in known)
+    if stale:
+        problems.append(
+            f'tools/verify_harness.py deletes {len(stale)} test(s) whose '
+            f'recorded time is still kept ({", ".join(stale)}) -- run '
+            f'`python3 tools/verify_harness.py --record-new-times`, which '
+            f'drops them, and commit tools/harness_check_times.json')
+
+
+# A FAILURE REPORTED AS A RAW TAIL (Morgan, 2026-10-31, strength: decided:
+# "that should be a more general rule"). A harness test reported a failure
+# as `out[-600:]`, and the VIOLATION line naming the check that fired sat
+# earlier, so the report never said which check it was. verify_harness.py's
+# failure_detail() puts the failure-naming lines first; this refuses a
+# change that ADDS a raw tail to a check( or cases.append( detail, and
+# judges only the added lines (practice: control-asserts-which-failure).
+_RAW_TAIL_TEXT_RE = re.compile(r'\[-\d+:\]')
+
+
+def _is_raw_tail(node):
+    """True for `<expr>[-N:]` with N a literal int."""
+    import ast
+    s = getattr(node, 'slice', None)
+    return (isinstance(node, ast.Subscript) and isinstance(s, ast.Slice)
+            and s.upper is None and s.step is None
+            and isinstance(s.lower, ast.UnaryOp)
+            and isinstance(s.lower.op, ast.USub)
+            and isinstance(s.lower.operand, ast.Constant)
+            and type(s.lower.operand.value) is int)
+
+
+def _raw_tails_in(node):
+    """-> the raw tails in a report expression `node`, descending only
+    through what builds a report from its parts (+, an f-string, `a or b`,
+    either branch of `a if c else b`, a tuple or list shown whole) -- never
+    into a comparison or a call, where a tail would be part of what is
+    asserted."""
+    import ast
+    if _is_raw_tail(node):
+        return [node]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        kids = [node.left, node.right]
+    elif isinstance(node, ast.JoinedStr):
+        kids = node.values
+    elif isinstance(node, ast.FormattedValue):
+        kids = [node.value]
+    elif isinstance(node, ast.IfExp):
+        kids = [node.body, node.orelse]
+    elif isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+        kids = node.values
+    elif isinstance(node, (ast.Tuple, ast.List)):
+        kids = node.elts
+    else:
+        kids = []
+    return [t for k in kids for t in _raw_tails_in(k)]
+
+
+def raw_tail_reports(tree):
+    """-> [ast.Subscript] each `<output>[-N:]` in `tree` that a failure is
+    reported with: in a check() call's detail or failure argument (third
+    on), in the third element on of a tuple handed to an .append(), or in
+    an f-string handed to an .append() (a list of what went wrong)."""
+    import ast
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, ast.Name) and f.id == 'check':
+            report = list(node.args[2:]) + [k.value for k in node.keywords
+                                            if k.arg in ('detail', 'failure')]
+        elif (isinstance(f, ast.Attribute) and f.attr == 'append'
+              and len(node.args) == 1 and isinstance(node.args[0], ast.Tuple)
+              and len(node.args[0].elts) >= 3):
+            report = node.args[0].elts[2:]
+        elif (isinstance(f, ast.Attribute) and f.attr == 'append'
+              and len(node.args) == 1 and isinstance(node.args[0], ast.JoinedStr)):
+            report = node.args
+        else:
+            continue
+        for arg in report:
+            found += _raw_tails_in(arg)
+    return found
+
+
+def _added_raw_tail_reports(root, since, files, problems):
+    """A change to tools/verify_harness.py adds no failure report that is
+    the raw tail of a tool's output. Reads the diff for the added lines,
+    and parses only the top-level function around each candidate -- the
+    whole file takes seconds to parse, one function a few milliseconds."""
+    import ast
+    rel = 'tools/verify_harness.py'
+    if rel not in files:
+        return
+    diff = git(root, 'diff', '-U0', f'{since}...HEAD', '--', rel) or ''
+    added, line = set(), 0
+    for d in diff.splitlines():
+        m = re.match(r'^@@ -\S+ \+(\d+)(?:,(\d+))? @@', d)
+        if m:
+            line = int(m.group(1))
+            continue
+        if d.startswith('+') and not d.startswith('+++'):
+            if _RAW_TAIL_TEXT_RE.search(d):
+                added.add(line)
+            line += 1
+    if not added:
+        return
+    try:
+        lines = (root / rel).read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return
+    seen = set()
+    for n in sorted(added):
+        start = n - 1
+        while start > 0 and not re.match(r'(?:def|class|async def) ', lines[start]):
+            start -= 1
+        if start in seen:
+            continue
+        seen.add(start)
+        end = start + 1
+        while end < len(lines) and (not lines[end] or lines[end][0] in ' \t#'
+                                    or lines[end].startswith(')')):
+            end += 1
+        try:
+            tree = ast.parse('\n'.join(lines[start:end]))
+        except SyntaxError:
+            continue
+        for t in raw_tail_reports(tree):
+            first, last = t.lineno + start, t.end_lineno + start
+            if not any(first <= a <= last for a in added):
+                continue
+            seg = ast.get_source_segment('\n'.join(lines[start:end]), t) or ''
+            value = ast.unparse(t.value)
+            limit = t.slice.lower.operand.value
+            problems.append(
+                f'{rel}:{first}: reports a failure as the raw tail of a '
+                f'tool\'s output, `{seg[:120]}`, which drops the line that '
+                f'names what failed -- report it as `failure_detail('
+                f'{value[:80]}, {limit})`, which puts the VIOLATION, FAIL, '
+                f'ERROR or REFUSED lines first (practice: '
+                f'control-asserts-which-failure)')
 
 
 def _retired_engine_files_unanswered(root, since):
@@ -1618,6 +1788,18 @@ def changed_files_check(root, since):
     """-> 0 when every file the change touches is sound, 1 with each
     problem named. Reads nothing but the changed files, and the views a
     changed practice feeds."""
+    # A base that does not resolve is a scan that cannot run, never a clean
+    # one (ensure_base has the incident; practice: very-deep-check, "never
+    # pass silently on a scan that never ran").
+    if not ensure_base(root, since):
+        branch = since[len('origin/'):] if str(since).startswith('origin/') \
+            else '<branch>'
+        print(f'changed_files: the base `{since}` names no commit here, even '
+              f'after fetching it, so no changed file could be read -- this '
+              f'is not a pass. Fetch it (`git fetch origin '
+              f'+refs/heads/{branch}:refs/remotes/origin/{branch}`) or name '
+              f'the base with --changed-since REF, and run it again.')
+        return 1
     files = _changed_paths(root, since)
     problems = []
     for rel in files:
@@ -1778,6 +1960,7 @@ def changed_files_check(root, since):
                 f'sentence and the anchor in catalogue_stats.py together. '
                 + ' | '.join(fails)[:500])
     _new_tests_have_times(root, since, files, problems)
+    _added_raw_tail_reports(root, since, files, problems)
     for line in problems:
         print(f'  {line}')
     if tests:
@@ -2500,6 +2683,11 @@ def main(argv):
     if note:
         print(note, file=sys.stderr)
     since = _changed_since(root, argv) if tier == BASIC else None
+    if since:
+        # Fetched once here, so every check reading PRECEDENT_CHANGED_SINCE
+        # gets a ref that resolves; changed_files_check refuses if it still
+        # does not.
+        ensure_base(root, since)
     # Where the push goes and what it changes, for the checks this runs: a
     # practice set's own check may judge a push by its destination -- the
     # ladder's go-update refuses a high-risk change landing with no pull

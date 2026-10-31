@@ -203,10 +203,26 @@ Run:
       -- the TEST WORTH section alone, after the session has judged the
       tests it listed: re-reads tools/test_verdicts.json and rewrites the
       test review block in the run's write-up. Nothing else runs.
+  python3 tools/very_deep_check.py --refresh-blocks
+      -- every block the run writes into its account (warnings, checks by
+      stage, set independence, test review, token budgets, long Rules),
+      rewritten and stamped with this time; no ledger row. Run it after the
+      run's last fix, before committing the account: the account check
+      refuses a block older than the run's last commit to tools/ or
+      practices/.
   python3 tools/very_deep_check.py --record-pass '2=done,findings=3,tokens=120000,note=...'
       -- record a hand-worked pass's outcome against the most recent run in
       the ledger, and exit. `findings`, `tokens` and `note` are each
       optional; an absent one is recorded as absent, never estimated.
+      For a run from 2026-11-01 on: STATUS is done, partial or not run;
+      partial and not run also carry `skipped=` (what was not done) and
+      `agreed=` (the person's words, quoted); a pass is refused until a
+      green `verify_harness.py --all --record-times` run has finished
+      since the run started and, for done or partial, since the pass
+      recorded before it; pass 1 is refused until the run has a consumer
+      entry, `consumer=PATH` (a consumer repository it checked) or
+      `consumer_declined=` (the person's words). Values may hold commas;
+      `note=` still runs to the end.
   python3 tools/very_deep_check.py --record-read 'tools/verify_harness.py,by=...,note=...'
       (note= comes last and runs to the end, commas included)
       -- record that somebody read that file END TO END today, in
@@ -617,11 +633,25 @@ def freshen(repo_dir, verdict):
 
 def _contains_origin_base(repo_dir, out):
     """For a branch origin does not have: True, with `out` set to 'ahead',
-    when HEAD contains origin's declared base branch (else `main`)."""
+    when HEAD contains origin's declared base branch (else `main`), or
+    origin's live branch, `main`.
+
+    THE LIVE BRANCH COUNTS TOO (2026-10-31). The practice says to read
+    `main`, the version people actually run, from a working branch cut from
+    `origin/main`; until this date the gate accepted only the declared base,
+    so in a repo whose base is `staging` and whose staging was ahead of main
+    it refused exactly the branch the practice tells a run to cut. The
+    2026-10-30 run worked around it by branching from staging instead. A
+    branch at or past origin/main is current for what the check reads, and
+    what staging carries that main does not is LIVE VERSUS LANDING's job."""
     base = _declared_base_branch(repo_dir) or 'main'
-    _run_git(repo_dir, 'fetch', *_depth(repo_dir, 50), 'origin', base)
-    ref = f'origin/{base}'
-    if _run_git(repo_dir, 'merge-base', '--is-ancestor', ref, 'HEAD')[0] != 0:
+    for ref_branch in dict.fromkeys((base, 'main')):
+        _run_git(repo_dir, 'fetch', *_depth(repo_dir, 50), 'origin',
+                 ref_branch)
+        ref = f'origin/{ref_branch}'
+        if _run_git(repo_dir, 'merge-base', '--is-ancestor', ref, 'HEAD')[0] == 0:
+            break
+    else:
         return False
     # What no origin ref has, never what the base lacks: a branch cut from
     # origin/main in a repo whose base is staging carries main's merge
@@ -739,7 +769,21 @@ def _second_practice_lists(repo_dir, threshold=0.8):
     r = subprocess.run(['git', '-C', str(root), 'ls-files'],
                        capture_output=True, text=True)
     out = []
-    pats = {s: re.compile(r'(?<![\w-])' + re.escape(s) + r'(?![\w-])') for s in slugs}
+    # One alternation, longest first, read once per file: 176 separate
+    # patterns over every tracked file cost over a minute a run.
+    pat = re.compile(r'(?<![\w-])(' + '|'.join(
+        re.escape(s) for s in sorted(slugs, key=len, reverse=True))
+        + r')(?![\w-])')
+    # A LIST, NOT A FILE THAT MENTIONS (2026-10-31). Counted across the whole
+    # file, tools/verify_harness.py -- some 94,000 lines of tests, each citing
+    # the practice it guards -- named most of the catalogue and came up as a
+    # candidate on every run, though no stretch of it lists the catalogue: the
+    # citations are scattered one per test. A candidate that is wrong every
+    # time teaches a reader to skip the section. So the slugs must sit
+    # together: within WINDOW_LINES_PER_SLUG lines per active practice, which
+    # the real case (routing_scope.json, about seven lines an entry) fits
+    # with room to spare.
+    window = WINDOW_LINES_PER_SLUG * len(slugs)
     for rel in r.stdout.split():
         if rel.startswith('practices/') or rel in generated:
             continue
@@ -749,10 +793,36 @@ def _second_practice_lists(repo_dir, threshold=0.8):
             text = (root / rel).read_text(encoding='utf-8', errors='ignore')
         except OSError:
             continue
-        named = sum(1 for s in slugs if pats[s].search(text))
+        found = [(m.start(), m.group(1)) for m in pat.finditer(text)]
+        if len({s for _p, s in found}) < threshold * len(slugs):
+            continue
+        named = _densest_slug_window(text, found, window)
         if named >= threshold * len(slugs):
             out.append((rel, named, len(slugs)))
     return out
+
+
+WINDOW_LINES_PER_SLUG = 10
+
+
+def _densest_slug_window(text, found, window):
+    """-> the most distinct slugs named within any `window` consecutive
+    lines of `text`, given `found` as [(offset, slug)] (see
+    _second_practice_lists)."""
+    import bisect
+    starts = [0] + [m.end() for m in re.finditer('\n', text)]
+    hits = sorted((bisect.bisect_right(starts, off) - 1, s) for off, s in found)
+    best, lo, live = 0, 0, {}
+    for line, slug in hits:
+        live[slug] = live.get(slug, 0) + 1
+        while hits[lo][0] <= line - window:
+            old = hits[lo][1]
+            live[old] -= 1
+            if not live[old]:
+                del live[old]
+            lo += 1
+        best = max(best, len(live))
+    return best
 
 
 def _tracked_blobs(repo_dir):
@@ -1158,7 +1228,8 @@ def _github_slug(repo_dir):
 NEVER_DELETE_BRANCHES = frozenset({
     'main', 'master', 'staging', 'precedent-beta-v01',
     'precedent-promote-lock', 'precedent-check-receipts',
-    'data-promote-lock', 'data-check-receipts'})
+    'data-promote-lock', 'data-check-receipts',
+    'coord', 'result-cache', 'data-leases', 'data-result-cache'})
 
 # Branches that hold machinery, never work: Promote's lock (claims and
 # releases) and the push check's receipts (precedent_push_check.RECEIPT_BRANCH,
@@ -1167,8 +1238,16 @@ NEVER_DELETE_BRANCHES = frozenset({
 # print for the receipts branch in every repo, could never resolve it.
 # Both names of each since 2026-10-11 (precedent_data_branches.py): data-
 # on the ladder, the old name elsewhere.
+# The board libraries' branches too (2026-10-31, pass 4 of a very deep
+# check): `coord` holds the lease board, the landing queue and the
+# maintainer heartbeat (lease_board.py, land_queue.py,
+# precedent_heartbeat.py), `result-cache` the shared result cache, and a
+# ladder host may name them `data-leases` and `data-result-cache`. `coord`
+# was missing here, so every run listed it as unmerged work with "deepen
+# and re-check", which no depth could ever settle.
 INFRA_BRANCHES = ('precedent-promote-lock', 'precedent-check-receipts',
-                  'data-promote-lock', 'data-check-receipts')
+                  'data-promote-lock', 'data-check-receipts',
+                  'coord', 'result-cache', 'data-leases', 'data-result-cache')
 
 
 _NEVER_DELETABLE_CACHE = {}
@@ -4009,16 +4088,10 @@ def token_budgets_section(targets, repo_root, fire=True, out=None):
             continue
         if pathlib.Path(path).resolve() == pathlib.Path(repo_root).resolve():
             label = pathlib.Path(path).resolve().name
-        try:
-            man = json.loads((pathlib.Path(path) / 'precedent-source.json')
-                             .read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            man = {}
-        if isinstance(man, dict) and man.get('visibility') != 'public' \
-                and pathlib.Path(path).resolve() != pathlib.Path(repo_root).resolve():
-            private[man.get('name') or label] = (
-                f"a private {man.get('level') or 'practice'} set")
-            private[label] = private[man.get('name') or label]
+        _general, _name = _private_source_label(path, repo_root)
+        if _general:
+            private[_name or label] = _general
+            private[label] = _general
         # build_views narrates every deduplicated practice it skips; that is
         # its own business, not this table's.
         with contextlib.redirect_stderr(io.StringIO()):
@@ -4715,6 +4788,126 @@ def _resident_practices(repo_dir):
     return [out[s] for s in sorted(out)]
 
 
+# LONGEST RULES (practice: very-deep-check, Pass 3; Morgan, 2026-10-31,
+# strength: assented). The 2026-10-30 run cut four Rules by hand, the
+# longest of them from 9,301 words to 1,773, and nothing had ever pointed at
+# them: a Rule grows a sentence at a time, each one right on its day. So
+# every run lists the longest quarter of each repo's active Rules for the
+# session to read whole. It lists and does not judge: in a small set the
+# longest quarter can already be tight, and cutting to a quota would delete
+# what still bites.
+LONG_RULES_EMBED = 'long-rules'
+
+
+def longest_rules(practices_dir):
+    """-> {'active': n, 'median': words, 'listed': [(slug, words), ...]} for
+    one `practices/` directory, or None when it holds no practice in force.
+
+    `listed` is the longest quarter -- n/4 rounded half up, at least one --
+    longest first, ties by slug so an unchanged catalogue prints the same
+    list run to run. Words are the `## Rule` section split on whitespace,
+    from the one practice parser (split_practices, through
+    build_views.load_practices, which keeps only `status: active`), the same
+    count catalogue_stats.py's "Rules still over 150 words" uses."""
+    rows = []
+    for fm, sections, f in bv.load_practices(pathlib.Path(practices_dir),
+                                             announce=False):
+        slug = bv._json_str(fm.get('slug', '')) or f.stem
+        rows.append((slug, len(sections.get('rule', '').split())))
+    if not rows:
+        return None
+    rows.sort(key=lambda r: (-r[1], r[0]))
+    words = sorted(w for _s, w in rows)
+    mid = len(words) // 2
+    median = (words[mid] if len(words) % 2
+              else (words[mid - 1] + words[mid]) / 2)
+    return {'active': len(rows), 'median': median,
+            'listed': rows[:max(1, (len(rows) + 2) // 4)]}
+
+
+def _private_source_label(path, repo_root):
+    """-> (general terms, manifest name): the words a private source is
+    named in, in a tracked file of a public repo ('a private individual
+    set'), or None when the source declares itself public or is this
+    checkout (practice: private-repo-scrub); and the name its
+    precedent-source.json gives, or None. Shared by TOKEN BUDGETS and
+    LONGEST RULES, so the two write-up blocks scrub the same sources."""
+    try:
+        man = json.loads((pathlib.Path(path) / 'precedent-source.json')
+                         .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        man = {}
+    man = man if isinstance(man, dict) else {}
+    if (man.get('visibility') == 'public' or pathlib.Path(path).resolve()
+            == pathlib.Path(repo_root).resolve()):
+        return None, man.get('name')
+    return f"a private {man.get('level') or 'practice'} set", man.get('name')
+
+
+def longest_rules_section(sources, repo_root, out=None, write=True):
+    """Print LONGEST RULES for every source in force (`enumerate_scope()`'s
+    `data['sources']`, which already carries this checkout as the universal
+    or repo-local source), and write its block into the run's write-up.
+    -> the number of Rules listed, every repo together."""
+    out = out or sys.stdout
+    root = pathlib.Path(repo_root).resolve()
+    seen, listed, md = set(), 0, []
+    public = bv.repo_is_public(repo_root)
+    for s in sources:
+        path = s.get('path')
+        if not path:
+            continue
+        pdir = pathlib.Path(path) / 'practices'
+        key = pdir.resolve()
+        if key in seen or not pdir.is_dir():
+            continue
+        seen.add(key)
+        label = f"{s.get('name')} ({s.get('level')}"
+        label += ', this checkout)' if pathlib.Path(path).resolve() == root else ')'
+        try:
+            r = longest_rules(pdir)
+        except Exception as exc:                            # noqa: BLE001
+            print(f"  {label}: NOT READ ({type(exc).__name__}: {exc})", file=out)
+            md.append(f"- **{label}**: not read ({type(exc).__name__}).")
+            continue
+        if r is None:
+            continue
+        listed += len(r['listed'])
+        head = (f"{r['active']} active, median {r['median']:g} words; "
+                f"the longest {len(r['listed'])}")
+        print(f"  {label}: {head}:", file=out)
+        for slug, words in r['listed']:
+            print(f"    {words:6,d}  {slug}", file=out)
+        print(file=out)
+        private = public and _private_source_label(path, repo_root)[0]
+        if private:
+            md.append(f"- **{private}**: {head}, named in the console and the "
+                      f"reply, never in this public file.")
+        else:
+            md.append(f"- **{label}**: {head}: " + ', '.join(
+                f"`{slug}` {words:,}" for slug, words in r['listed']) + '.')
+    if not md:
+        print("  none -- no source in force has a practices/ directory.", file=out)
+    print("  For each one listed: read the Rule whole. Keep it if every "
+          "sentence is\n  something a session must do or must not do; "
+          "otherwise move the rest, word\n  for word, into Detail or Story "
+          "(reduction-pass) -- never delete, never cut\n  to a quota. Record "
+          "each verdict, kept or cut with its word counts, under\n  the "
+          "run's `## Long Rules` block.", file=out)
+    if write:
+        md = (['Listed by this run (`tools/very_deep_check.py`, LONGEST RULES): '
+               'the longest quarter of each repo\'s active Rules, by words in '
+               'the `## Rule` section, longest first. The session\'s verdict '
+               'on each, kept or cut with its word counts, goes below this '
+               'list.', ''] + (md or ['None: no source in force has a '
+                                     'practices/ directory.']))
+        written = _write_run_block(repo_root, LONG_RULES_EMBED, 'Long Rules',
+                                   'LONGEST RULES', '\n'.join(md))
+        if written:
+            print(f"\n  List written into {written}.", file=out)
+    return listed
+
+
 def _doc_currency(repo_dir):
     """-> (findings, notes) for the documentation-currency sweep.
 
@@ -4881,6 +5074,13 @@ def _template_freshness(sources):
     NOT_SKELETON |= (set(bss.ALL_SESSION_HOOKS)
                      | {'settings.json', 'CLAUDE.md', 'precedent.json',
                         'precedent-source.json'})
+    # OPTIONAL CONTENT, keyed to the set's own practices. A missing
+    # reply_check.json means "this set declares no reply requirement"
+    # (precedent_reply_check.declared_requirements), so an empty one in the
+    # skeleton would say nothing a missing one does not. Two shared sets that
+    # each enforce a reply rule both carry one; the 2026-10-30 run reported
+    # that as a template gap (practice: very-deep-check).
+    NOT_SKELETON |= {'reply_check.json'}
     # WHICH DIRECTORIES COUNT. Root files plus the two directories bootstrap
     # itself writes into -- those are the set's SHAPE. `practices/` and
     # anything else is the set's own content, where a name every set happens
@@ -5765,11 +5965,24 @@ def _unmerged_row(repo_dir, name, ref, target_ref, target, stale_days=None):
     if row['unique'] is None:
         # Never guess here. A fabricated verdict is worse than none: this is
         # the branch someone might delete on it.
-        row['verdict'] = (f'UNKNOWN -- no merge base between {target} and this '
-                          f'branch resolves in this clone, so the patch '
-                          f'comparison cannot run and its result would be '
-                          f'fiction. Deepen with `git fetch --depth=5000 '
-                          f'origin` and re-check before acting')
+        # On a full clone no depth will ever find a merge base: the branch
+        # shares no history with the target (an orphan), so "deepen" sent
+        # a run after something it could not get (2026-10-31, pass 4).
+        _rc, _sh, _ = _run_git(repo_dir, 'rev-parse',
+                               '--is-shallow-repository')
+        if _rc == 0 and _sh.strip() == 'false':
+            row['verdict'] = (f'UNKNOWN -- this branch shares no history with '
+                              f'{target} (an orphan branch, and this clone is '
+                              f'not shallow, so deepening will not help). Read '
+                              f'its log to say what it holds before giving it '
+                              f'a verdict')
+        else:
+            row['verdict'] = (f'UNKNOWN -- no merge base between {target} and '
+                              f'this branch resolves in this clone, so the '
+                              f'patch comparison cannot run and its result '
+                              f'would be fiction. Deepen with `git fetch '
+                              f'--depth=5000 origin` and re-check before '
+                              f'acting')
     elif row['unique'] == 0:
         row['verdict'] = (f'ALREADY LANDED as patches -- every commit has an '
                           f'equivalent on {target} (rebased or squash-merged '
@@ -6861,6 +7074,35 @@ def _referenced_repos(repo_dir):
     return found
 
 
+# FIXTURE-ONLY NAMES ARE NOT ASKED ABOUT (2026-10-30 very deep check, the
+# GITHUB API BUDGET finding: 187 calls against 150). The visibility audit
+# asked GitHub about every owner/name pair the tree mentions, and 110 of 149
+# were mentioned only by the harness and the check tests -- acme/widget,
+# o/zz-set -- one call each, every run. A pair is skipped only when every
+# file naming it is a test AND its owner appears nowhere outside tests, so
+# a real account pasted into a fixture is still asked about; what is
+# skipped is listed in the audit's notes, never dropped silently.
+_FIXTURE_PATHS = ('tools/verify_harness.py', 'tools/checks/tests/', 'tests/')
+
+
+def _is_fixture_file(rel):
+    return rel.startswith(_FIXTURE_PATHS) or '/tests/' in rel
+
+
+def _drop_fixture_only_refs(refs):
+    """-> (refs to ask about, ['owner/name' skipped]) -- see above."""
+    real_owners = {o.lower() for (o, _n), files in refs.items()
+                   if any(not _is_fixture_file(f) for f in files)}
+    keep, skipped = {}, []
+    for (owner, name), files in refs.items():
+        if owner.lower() not in real_owners and all(
+                _is_fixture_file(f) for f in files):
+            skipped.append(f'{owner}/{name}')
+        else:
+            keep[(owner, name)] = files
+    return keep, sorted(skipped)
+
+
 # RENAMED REPOSITORIES, and what the run does about them (Morgan,
 # 2026-09-29, strength: decided). Every audit that asks GitHub about a
 # repository records here when the answer comes back under a different full
@@ -7096,6 +7338,14 @@ def repo_visibility_audit(repo_dir, blocklist_path=None, out=None,
         return findings, notes
 
     refs = _referenced_repos(repo_dir)
+    refs, fixture_only = _drop_fixture_only_refs(refs)
+    if fixture_only:
+        notes.append(
+            f'{len(fixture_only)} name(s) appear only in test fixtures, under an '
+            f'owner named nowhere else in this tree, and were not asked about '
+            f'(one API call each, and a made-up name in a fixture is no '
+            f'disclosure): {", ".join(fixture_only)}. A fixture that names a '
+            f'real owner is still asked about.')
     # A repository whose name is DELIBERATELY public here -- named on purpose,
     # with the exposure accepted -- is declared in the blocklist file itself,
     # as a comment the audit reads:
@@ -7903,7 +8153,8 @@ def repos_in_force_audit(repo_root, sources=(), missing=(), base_url=None,
 # one a 20-section row whose averages and quiet-section verdicts were about
 # a temporary directory. The cross-run read is a comparison, so a foreign
 # row does not merely add noise: it moves every number in it.
-LEDGER_RELPATH = pathlib.Path('record') / 'very-deep-check-ledger.json'
+LEDGER_NAME = 'very-deep-check-ledger.json'
+LEDGER_RELPATH = pathlib.Path('record') / LEDGER_NAME
 
 
 def ledger_path_for(repo_root=None):
@@ -7992,7 +8243,8 @@ class RunLedger:
         self._real_stdout = sys.stdout
         sys.stdout = _Tee(sys.stdout)
 
-    def end(self, findings=None, items=None, status=None, extra_seconds=0.0):
+    def end(self, findings=None, items=None, status=None, extra_seconds=0.0,
+            extra=None):
         """Close the open section.
 
         `findings` is the count of things a person has to act on. None is
@@ -8017,6 +8269,10 @@ class RunLedger:
             'seconds': round(time.monotonic() - self._open['started']
                              + (extra_seconds or 0.0), 2),
         }
+        # `extra`: what the account check later holds the account against
+        # -- the incidents this run listed, the tests it left to judge
+        # (Morgan, 2026-10-31: "How do we make sure future runs do it?").
+        row.update(extra or {})
         if status:
             row['status'] = status
         elif findings is None:
@@ -8151,7 +8407,7 @@ class RunLedger:
                 seen[name].append((run, row))
         print(f"  {'runs':>5}  {'found':>5}  {'tok/run':>8}  {'last found':>10}"
               f"  section", file=out)
-        quiet, unknown, gone = [], [], []
+        quiet, unknown, gone = quiet_sections(runs), [], []
         for name in order:
             rows = seen[name]
             ran = [r for _, r in rows if r.get('status') != 'skipped']
@@ -8172,10 +8428,6 @@ class RunLedger:
                   f"{last:>10}  {name}", file=out)
             if name not in {r['name'] for r in self.components}:
                 gone.append(name)
-            elif (len(ran) >= QUIET_RUNS_BEFORE_QUESTION and not with_find
-                    and not unk
-                    and any(r.get('kind') == 'mechanical' for _, r in rows)):
-                quiet.append((name, len(ran), avg))
             if len(unk) >= QUIET_RUNS_BEFORE_QUESTION:
                 unknown.append((name, len(unk)))
         # Usefulness is only half the question Morgan asked; the other half
@@ -8228,13 +8480,159 @@ class RunLedger:
         print(file=out)
 
 
+def quiet_sections(runs):
+    """-> [(name, runs it ran, average tokens)]: the sections the cross-run
+    read names as FOUND NOTHING, ACROSS EVERY RECORDED RUN, as of the last
+    run in `runs`. One function, so the printed read and the account check
+    (precedent_check.py --only very-deep-check) cannot disagree about which
+    sections the run owes an answer for."""
+    if len(runs) < 2:
+        return []
+    current = {r.get('name') for r in runs[-1].get('components', [])}
+    seen, order = {}, []
+    for run in runs:
+        for row in run.get('components', []):
+            name = row.get('name')
+            if name not in seen:
+                seen[name] = []
+                order.append(name)
+            seen[name].append(row)
+    out = []
+    for name in order:
+        rows = seen[name]
+        if name not in current:
+            continue
+        ran = [r for r in rows if r.get('status') != 'skipped']
+        if (len(ran) >= QUIET_RUNS_BEFORE_QUESTION
+                and not any((r.get('findings') or 0) > 0 for r in rows)
+                and not any(r.get('status') == 'unknown' for r in rows)
+                and any(r.get('kind') == 'mechanical' for r in rows)):
+            toks = [r.get('output_tokens', 0) for r in rows]
+            out.append((name, len(ran), int(sum(toks) / len(toks)) if toks else 0))
+    return out
+
+
+def unmeasured_sections(run):
+    """-> [name]: the sections of `run` that could not produce a count
+    (status 'unknown'). An unknown is never a quiet section, and the
+    account answers each one too (Morgan, 2026-10-31)."""
+    return [r.get('name') for r in run.get('components', [])
+            if r.get('status') == 'unknown']
+
+
+# THE GUARDS ON --record-pass (Morgan, 2026-10-31, strength: decided: "why
+# didnt this run do it? How do we make sure future runs do it?", then
+# "Update the very deep instructions so to fix this in the future"). The
+# 2026-10-30 run recorded every pass `partial` with nothing saying what was
+# skipped or who agreed; its step-2 suite failed a case, was fixed and never
+# re-run green, so question 27 had no fresh times; and no pass was followed
+# by a re-run. From a run dated RECORD_PASS_RULE_DATE on, a pass is
+# refused unless each of these holds. A run before it is recorded as before.
+RECORD_PASS_RULE_DATE = '2026-11-01'
+PASS_STATUSES = ('done', 'partial', 'not run')
+# Every key --record-pass reads. A value runs to the next `,key=`, so prose
+# may carry commas; `note=` runs to the end, as it always has.
+_PASS_KEYS = ('findings', 'tokens', 'skipped', 'agreed', 'consumer_declined',
+              'consumer', 'note')
+_PASS_SPLIT = re.compile(r',\s*(?=(?:' + '|'.join(_PASS_KEYS) + r')=)')
+STEP2_COMMAND = ("python3 tools/verify_harness.py --all --record-times "
+                 "--because 'very deep check, step 2'")
+GREEN_FULL_RUN_KEY = 'green_full_run'     # verify_harness.py writes it
+
+
+def _parse_stamp(value, tz=None):
+    """-> an aware datetime for an ISO stamp or a bare date, else None. A
+    stamp with no offset takes `tz` (else UTC)."""
+    try:
+        d = datetime.datetime.fromisoformat(str(value or '').strip())
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=tz or datetime.timezone.utc)
+    return d
+
+
+def _green_full_run(repo_root):
+    """-> (applies, stamp): whether `repo_root` runs a harness of its own,
+    and when its last green whole-suite `--all --record-times` run finished
+    (tools/harness_check_times.json's green_full_run), or None."""
+    root = pathlib.Path(repo_root)
+    if not (root / 'tools' / 'verify_harness.py').is_file():
+        return False, None
+    try:
+        rec = json.loads((root / 'tools' / 'harness_check_times.json')
+                         .read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return True, None
+    return True, (rec.get(GREEN_FULL_RUN_KEY) if isinstance(rec, dict) else None)
+
+
+def _unquote(s):
+    return str(s or '').strip().strip('"\'“”').strip()
+
+
+def _pass_refusals(name, status, fields, target, harness_root):
+    """-> [refusal text] for recording pass `name` with `status` against
+    `target`, a run dated RECORD_PASS_RULE_DATE or later."""
+    out = []
+    if status not in PASS_STATUSES:
+        out.append(f"very deep check FAIL: pass {name}'s status must be "
+                   f"{', '.join(PASS_STATUSES[:-1])} or {PASS_STATUSES[-1]}, "
+                   f"not {status!r}.")
+    if status in ('partial', 'not run') and not (
+            _unquote(fields.get('skipped')) and _unquote(fields.get('agreed'))):
+        out.append(f"very deep check FAIL: pass {name} is {status!r} and does "
+                   f"not say what was skipped and who agreed. A narrowed pass "
+                   f"is said up front and agreed by the person: add "
+                   f"skipped='<what this pass did not do>' and "
+                   f"agreed='<the person's words, quoted>' (practice: "
+                   f"very-deep-check, \"Saying the scope out loud\").")
+    if name == '1' and not (target.get('consumer') or fields.get('consumer')
+                            or _unquote(fields.get('consumer_declined'))
+                            or (pathlib.Path(harness_root) / 'tools'
+                                / 'ENGINE_MANIFEST.json').is_file()):
+        out.append("very deep check FAIL: pass 1 needs a real consumer "
+                   "repository, and this run has none on record. Ask the "
+                   "person for one before pass 1 (step 6), then record it "
+                   "with this pass: consumer=<path of the consumer checked>, "
+                   "or, if they decline, consumer_declined='<their words, "
+                   "quoted>'.")
+    elif name == '1' and fields.get('consumer'):
+        c = pathlib.Path(fields['consumer']).expanduser()
+        if not (c / 'tools' / 'ENGINE_MANIFEST.json').is_file():
+            out.append(f"very deep check FAIL: consumer={fields['consumer']} "
+                       f"is not a consumer repository (no "
+                       f"tools/ENGINE_MANIFEST.json there). Name the clone of "
+                       f"the consumer this run checked.")
+    applies, green = _green_full_run(harness_root)
+    if applies:
+        start = _parse_stamp(target.get('run_id')) or _parse_stamp(target.get('date'))
+        since, what = start, 'this run started'
+        if status in ('done', 'partial'):
+            for p in target.get('passes') or []:
+                at = _parse_stamp(p.get('recorded'))
+                if str(p.get('pass')) != name and at and (since is None or at > since):
+                    since, what = at, f"pass {p.get('pass')} was recorded"
+        g = _parse_stamp(green)
+        if g is None or (since is not None and g < since):
+            out.append(f"very deep check FAIL: pass {name} cannot be recorded: "
+                       f"no green whole-suite run since {what} "
+                       f"({since.isoformat() if since else 'unknown'}); the "
+                       f"last green one finished {green or 'never'} "
+                       f"(tools/harness_check_times.json, {GREEN_FULL_RUN_KEY}). "
+                       f"Fix the failure, re-run `{STEP2_COMMAND}` until it is "
+                       f"green, then record the pass.")
+    return out
+
+
 def _record_pass(value, path=None, repo=None):
     """--record-pass: append a hand-worked pass's outcome to the last run.
 
     The four passes are where this check actually spends its time, and their
     cost is the session's own measurement -- so it is recorded when a session
     has it and left absent when it does not, never estimated here
-    (practice: no-invented-specifics).
+    (practice: no-invented-specifics). From a run dated
+    RECORD_PASS_RULE_DATE on, _pass_refusals() says what else it needs.
     """
     head, _, rest = value.partition('=')
     name = head.strip()
@@ -8244,14 +8642,13 @@ def _record_pass(value, path=None, repo=None):
               file=sys.stderr)
         return 1
     fields, note = {}, None
-    parts = rest.split(',')
     # `note=` takes the rest of the string verbatim, commas included -- it is
     # prose, and splitting it would truncate the one field a person wrote.
-    for i, part in enumerate(parts):
-        if part.strip().startswith('note='):
-            note = ','.join(parts[i:]).strip()[len('note='):].strip()
-            parts = parts[:i]
-            break
+    m = re.search(r'(?:^|,)\s*note=', rest)
+    if m:
+        note = rest[m.end():].strip()
+        rest = rest[:m.start()]
+    parts = _PASS_SPLIT.split(rest)
     status = parts[0].strip() if parts else ''
     for part in parts[1:]:
         k, _, v = part.partition('=')
@@ -8268,6 +8665,9 @@ def _record_pass(value, path=None, repo=None):
                   f"number, not {raw!r}.", file=sys.stderr)
             return 1
         entry[key] = int(raw)
+    for key in ('skipped', 'agreed'):
+        if _unquote(fields.get(key)):
+            entry[key] = _unquote(fields[key])
     if note:
         entry['note'] = note
     path = pathlib.Path(path) if path is not None else ledger_path_for(repo)
@@ -8309,6 +8709,34 @@ def _record_pass(value, path=None, repo=None):
     # entry beside the first, so the run carried two answers for one pass
     # and every reader took whichever it met first. The newer one replaces
     # the older, in place.
+    if str(target.get('date') or '') >= RECORD_PASS_RULE_DATE:
+        if repo:
+            harness_root = pathlib.Path(repo)
+        elif path.resolve().parent.name == 'record':
+            harness_root = path.resolve().parent.parent
+        else:
+            harness_root = path.resolve().parent
+        refusals = _pass_refusals(name, status, fields, target, harness_root)
+        if refusals:
+            for r in refusals:
+                print(r, file=sys.stderr)
+            print(f"  nothing recorded: pass {name} stays as it was in {path}.",
+                  file=sys.stderr)
+            return 1
+        _, green = _green_full_run(harness_root)
+        if green:
+            entry['suite_green'] = green
+        if name == '1' and not target.get('consumer'):
+            if fields.get('consumer'):
+                # Whether, never which: the ledger is tracked, and a
+                # consumer is often private (practice: private-repo-scrub).
+                target['consumer'] = {'checked': entry['recorded']}
+            elif _unquote(fields.get('consumer_declined')):
+                target['consumer'] = {
+                    'declined': _unquote(fields['consumer_declined']),
+                    'recorded': entry['recorded']}
+            else:
+                target['consumer'] = {'run_in_a_consumer': entry['recorded']}
     passes = target.setdefault('passes', [])
     same = [i for i, p in enumerate(passes) if str(p.get('pass')) == name]
     if same:
@@ -8597,7 +9025,12 @@ def emit_merged_stale_checkout(repo_root=None):
         scan, redact=_leak_matched_branch_names(repo_root or ROOT, names))
 
 
-SPEC_DOC_RELPATH = pathlib.Path('spec') / 'VERY_DEEP_CHECK.md'
+# The run record's name is the engine's, so it is a *_NAME constant: that is
+# how filename-separator and document-status-header tell it from a name the
+# repository chose (2026-10-31: written into a consumer whose spec/ used
+# hyphens and stamped nothing, it alone turned both checks red there).
+SPEC_DOC_NAME = 'VERY_DEEP_CHECK.md'
+SPEC_DOC_RELPATH = pathlib.Path('spec') / SPEC_DOC_NAME
 
 # Named rather than singular since 2026-09-23, when 'practice-catalogue'
 # joined 'merged-stale-checkout' as a second block this same document
@@ -8840,7 +9273,8 @@ def _update_spec_doc_block(repo_root, name, markdown):
 # happened with this very deep check."
 WARNINGS_EMBED = 'warnings'
 TOKEN_BUDGETS_EMBED = 'token-budgets'
-LATEST_RUN_RELPATH = pathlib.Path('spec') / 'VERY_DEEP_CHECK_LATEST_RUN.md'
+LATEST_RUN_NAME = 'VERY_DEEP_CHECK_LATEST_RUN.md'
+LATEST_RUN_RELPATH = pathlib.Path('spec') / LATEST_RUN_NAME
 
 
 def _warnings_doc_path(repo_root):
@@ -8861,6 +9295,9 @@ def _write_warnings_block(repo_root, markdown):
                             markdown, 'refresh with --refresh-warnings')
 
 
+RUN_BLOCK_STAMP = '<!--vdc-measured: '
+
+
 def _write_run_block(repo_root, embed, heading, section, markdown, how=''):
     """Rewrite the `embed` block in the run's write-up, appending a
     `## <heading>` section that carries it when the write-up has none: the
@@ -8870,6 +9307,12 @@ def _write_run_block(repo_root, embed, heading, section, markdown, how=''):
     path = _warnings_doc_path(repo_root)
     if path is None:
         return None
+    # STAMPED WITH WHEN IT WAS MEASURED (2026-10-31). The 2026-10-30 run's
+    # account still showed blocks measured before the run's last fixes; the
+    # account check compares this stamp with the run's last commit to
+    # tools/ or practices/ (precedent_check.py --only very-deep-check).
+    markdown = (f'{RUN_BLOCK_STAMP}{precedent_time.stamp_iso(repo_root)} -->\n'
+                + markdown)
     text = path.read_text(encoding='utf-8')
     pattern = _vdc_embed_re(embed)
     if pattern.search(text):
@@ -9039,37 +9482,74 @@ def stage_checks(tree):
                                      + (ast.get_source_segment(per_file, node) or
                                         'a call')[:120]))
     routes = []
-    pb_path = tools / 'precedent_branches.py'
-    if pb_path.is_file():
-        src = pb_path.read_text(encoding='utf-8')
+    # WHERE THE MOVES LIVE (2026-10-30 very deep check). Produce moved out of
+    # precedent_branches.py into the moves tool a practice set supplies
+    # (branch_moves in its precedent-source.json), and this scan read only
+    # the engine's file: Produce printed "no check found" and "`--full` on
+    # request: none" while the set's moves still ran the quick tier before
+    # the fast move and the full one on --full. Every file that holds a move
+    # is read, the set's by the key the engine knows, never by a set's name.
+    sources = [('precedent_branches.py', tools / 'precedent_branches.py')]
+    moves_key = getattr(pb, 'MOVES_KEY', None) if pb is not None else None
+    if moves_key:
+        try:
+            import precedent_resolve as _pr
+            found = _pr.set_tool(tree, moves_key)
+        except Exception:                                    # noqa: BLE001
+            found = None
+        if found and pathlib.Path(found).is_file():
+            fp = pathlib.Path(found).resolve()
+            home = next((d for d in fp.parents
+                         if (d / 'precedent-source.json').is_file()), None)
+            try:
+                label = str(fp.relative_to(tree))
+            except ValueError:
+                label = (f'{home.name}/{fp.relative_to(home)}' if home
+                         else str(fp))
+            sources.append((label, fp))
+
+    def _is_check(node):
+        f = node.func
+        return (isinstance(f, ast.Name) and f.id == '_check') or (
+            isinstance(f, ast.Attribute) and f.attr == '_check')
+
+    def _tier_name(arg):
+        name = arg.id if isinstance(arg, ast.Name) else (
+            arg.attr if isinstance(arg, ast.Attribute) else None)
+        return {'BASIC': 'basic', 'FULL': 'full'}.get(name, name) if name else None
+
+    for label, path in sources:
+        if not path.is_file():
+            continue
+        src = path.read_text(encoding='utf-8')
         for fn in ast.walk(ast.parse(src)):
             if not isinstance(fn, ast.FunctionDef):
                 continue
             for node in ast.walk(fn):
-                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                        and node.func.id == '_check' and len(node.args) >= 3
-                        and isinstance(node.args[2], ast.Name)):
-                    tier = {'BASIC': 'basic', 'FULL': 'full'}.get(node.args[2].id,
-                                                                 node.args[2].id)
-                    move, when, dest = STAGE_ROUTES.get(
-                        fn.name, (None, None, None))
-                    routes.append({'fn': fn.name, 'line': node.lineno,
-                                   'tier': tier, 'move': move, 'when': when,
-                                   'dest': dest})
-                    if move is None:
-                        findings.append(('FINDING', f'precedent_branches.py:'
-                                         f'{node.lineno}: {fn.name} runs the '
-                                         f'{tier} check and no stage names it '
-                                         f'-- add it to STAGE_ROUTES in '
-                                         f'tools/very_deep_check.py, saying '
-                                         f'whether it runs before a push'))
-                    elif when == 'before' and tier != 'basic' and dest in (
-                            'staging', 'main'):
-                        findings.append(('VIOLATION', f'{move} runs the {tier} '
-                                         f'check before it pushes '
-                                         f'(precedent_branches.py:{node.lineno},'
-                                         f' {fn.name}) -- only the quick tier '
-                                         f'may run before a push to {dest}'))
+                if not (isinstance(node, ast.Call) and _is_check(node)
+                        and len(node.args) >= 3):
+                    continue
+                tier = _tier_name(node.args[2])
+                if tier is None:
+                    continue
+                move, when, dest = STAGE_ROUTES.get(fn.name, (None, None, None))
+                routes.append({'fn': fn.name, 'line': node.lineno, 'file': label,
+                               'tier': tier, 'move': move, 'when': when,
+                               'dest': dest})
+                if move is None:
+                    findings.append(('FINDING', f'{label}:'
+                                     f'{node.lineno}: {fn.name} runs the '
+                                     f'{tier} check and no stage names it '
+                                     f'-- add it to STAGE_ROUTES in '
+                                     f'tools/very_deep_check.py, saying '
+                                     f'whether it runs before a push'))
+                elif when == 'before' and tier != 'basic' and dest in (
+                        'staging', 'main'):
+                    findings.append(('VIOLATION', f'{move} runs the {tier} '
+                                     f'check before it pushes '
+                                     f'({label}:{node.lineno},'
+                                     f' {fn.name}) -- only the quick tier '
+                                     f'may run before a push to {dest}'))
     gates = {}
     if pb is not None and hasattr(pb, 'tier_for_branch'):
         staging = pb.staging_branch(tree) if hasattr(pb, 'staging_branch') else 'staging'
@@ -9221,10 +9701,11 @@ def _test_targets(repo_root, user_config=None):
     return out
 
 
-def test_worth_section(targets, repo_root):
+def test_worth_section(targets, repo_root, by_repo=None):
     """Print TEST WORTH for every repository in `targets` [(name, path)],
     write its block into the run's write-up, and -> the number of tests
-    still to judge."""
+    still to judge. `by_repo`, a dict, is filled with that number per
+    repository, for the ledger."""
     import test_review as tr
     results = []
     today = precedent_time.today(repo_root)
@@ -9248,6 +9729,8 @@ def test_worth_section(targets, repo_root):
         print()
         results.append((name, r))
     n = sum(len(tr.to_judge(r)) for _n, r in results)
+    if by_repo is not None:
+        by_repo.update({name: len(tr.to_judge(r)) for name, r in results})
     if n:
         print(f'  {n} test(s) to judge in this pass, slowest first: keep (with '
               f'its importance), cheapen, or retire -- recorded in that '
@@ -9286,8 +9769,10 @@ def _stage_lines(name, r):
         return [x for x in r['routes'] if x['fn'] == fn]
 
     def tiers(fn):
-        return ', '.join(f'{x["tier"]} tier (precedent_branches.py:{x["line"]})'
-                         for x in by(fn)) or 'no check found'
+        return ', '.join(f'{x["tier"]} tier ({x.get("file", "precedent_branches.py")}:'
+                         f'{x["line"]})' for x in by(fn)) or (
+            'no move here (no set in force names one)'
+            if fn.startswith('_promote') else 'no check found')
     st, gates = r['staging'], r['gates']
 
     def gate(b):
@@ -9320,7 +9805,7 @@ def _stage_lines(name, r):
         for x in other:
             out.append(f'      {x["move"] or x["fn"]}: {x["tier"]} tier, '
                        f'{x["when"] or "unclassified"} '
-                       f'(precedent_branches.py:{x["line"]})')
+                       f'({x.get("file", "precedent_branches.py")}:{x["line"]})')
         for k, g in gates.items():
             if k.startswith('for a person'):
                 out.append(f'      a push to {g["branch"]}, {k}: {g["tier"]} tier')
@@ -9349,7 +9834,8 @@ def _stage_markdown(results):
 
         def tier(fn):
             return ', '.join(sorted({x['tier'] for x in r['routes']
-                                     if x['fn'] == fn})) or 'none'
+                                     if x['fn'] == fn})) or (
+                'no move here' if fn.startswith('_promote') else 'none')
         g = {b: (v['tier'] or 'unread') for b, v in r['gates'].items()}
         gh_s = ', '.join(r['gh_after']['staging']) or 'none'
         gh_m = ', '.join(r['gh_after']['main']) or 'none'
@@ -9441,7 +9927,7 @@ def warnings_section(repo_root, precedent_check_output=None, refresh=False,
     groups, collected, notes = wr.collect(
         repo_root, precedent_check_output=precedent_check_output)
     entries, problems = wr.load_registry(repo_root)
-    result = wr.review(groups, entries, collected)
+    result = wr.review(groups, entries, collected, root=repo_root)
     history = _warnings_open_history(repo_root)
     start = None
     if refresh and history and history[-1][0] == result['today']:
@@ -9753,7 +10239,8 @@ BOOLEAN_FLAGS = ('--json', '--allow-missing-sources', '--skip-branch-scan',
                  '--checklist', '--with-harness', '--skip-visibility',
                  '--skip-liveness', '--landable-only', '--skip-endgame-merge',
                  '--skip-base-drift', '--skip-session-sweep', '--allow-stale',
-                 '--freshen', '--refresh-warnings', '--refresh-tests', '--help',
+                 '--freshen', '--refresh-warnings', '--refresh-tests',
+                 '--refresh-blocks', '--help',
                  '-h')
 
 
@@ -9868,6 +10355,23 @@ def _main(box):
         # this checkout, rewriting the write-up's block.
         root = pathlib.Path(repo or ROOT).resolve()
         test_worth_section(_test_targets(root, user_config), root)
+        return 0
+    if '--refresh-blocks' in args:
+        # THE LAST STEP BEFORE THE ACCOUNT IS COMMITTED (2026-10-31). The
+        # 2026-10-30 run's account still showed blocks measured before its
+        # own fixes, hours earlier; a whole re-run would add a ledger row
+        # and leave the passes on the older one. This rewrites every block
+        # the run writes, stamped, and adds no row.
+        root = pathlib.Path(repo or ROOT).resolve()
+        targets = _test_targets(root, user_config)
+        warnings_section(root, refresh=True)
+        checks_by_stage_section(targets, root)
+        set_independence_section(root)
+        test_worth_section(targets, root)
+        token_budgets_section(targets, root)
+        longest_rules_section(enumerate_scope(root, user_config)['sources'], root)
+        print('\nrefreshed: every block in the run\'s account, stamped with '
+              'this time. Commit the account.')
         return 0
 
     if '--emit' in args:
@@ -11121,7 +11625,9 @@ def _main(box):
     print()
     if led:
         led.end(items=len(_ic_rows) if not _ic_note else None,
-                findings=_ic_findings if not _ic_note else None)
+                findings=_ic_findings if not _ic_note else None,
+                extra={'listed': [r[1] for r in _ic_rows]} if not _ic_note
+                else None)
         led.start('FIX SWEEP -- new detectors, run everywhere')
 
     print("FIX SWEEP -- every detector added since the last run, against "
@@ -11345,6 +11851,13 @@ def _main(box):
     print()
     if led:
         led.end(items=len(_resp))
+        led.start('LONGEST RULES', kind='read')
+
+    print("LONGEST RULES -- the longest quarter of every repo's active Rules\n")
+    _lr_n = longest_rules_section(data['sources'], repo_root)
+    print()
+    if led:
+        led.end(items=_lr_n)
         led.start('RULES WE SHIP SOMEWHERE ELSE', kind='read')
 
     print("RULES WE SHIP SOMEWHERE ELSE -- inert here, binding there\n")
@@ -11492,10 +12005,11 @@ def _main(box):
 
     print("TEST WORTH -- does every test still test something in use, and is "
           "it worth its time for how much it matters\n")
-    _tw_open = test_worth_section(_orph_targets, repo_root)
+    _tw_by_repo = {}
+    _tw_open = test_worth_section(_orph_targets, repo_root, by_repo=_tw_by_repo)
     print()
     if led:
-        led.end(findings=_tw_open)
+        led.end(findings=_tw_open, extra={'to_judge': _tw_by_repo})
         led.start('CROSS-REPO LINKS')
 
     print("CROSS-REPO LINKS -- do absolute github.com links into a repo "
