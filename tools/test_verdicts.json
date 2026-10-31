@@ -1,0 +1,63 @@
+{
+ "verdicts": {
+  "tools/checks/tests/test_assorted_notes.sh": {
+   "verdict": "keep",
+   "importance": "low",
+   "why": "assorted-notes is active but advisory (a link-placement convention). Cheapened 2026-10-31: fixture git runs with the global commit hooks off (core.hooksPath=/dev/null), which were most of its 13 fixture commits' cost; same cases and failure words, and it still fails against a check that never fires. 17.4 s -> 5.3 s in the review's measurement; 9.4 s -> 5.5 s in this pass's.",
+   "date": "2026-10-31",
+   "by": "agent",
+   "seconds": 5.5
+  },
+  "tools/checks/tests/test_create_word_doc.sh": {
+   "verdict": "keep",
+   "importance": "medium",
+   "why": "End-to-end builds of tools/create_word_doc.py, the Word builder two consuming repositories' deliverables use (footer, TOC, lists, quotes, code spans, --rebuild); a miss is a malformed document handed to a reader. No git commits; a second run took 5.7 s, so the first included warm-up.",
+   "date": "2026-10-31",
+   "by": "agent",
+   "seconds": 9.2
+  },
+  "tools/checks/tests/test_dated_download_names.sh": {
+   "verdict": "keep",
+   "importance": "high",
+   "why": "Covers the SendUserFile hook that refuses undated downloads and replace(), which deletes older copies of a document; a miss there deletes the wrong file.",
+   "date": "2026-10-31",
+   "by": "agent",
+   "seconds": 1.4
+  },
+  "tools/checks/tests/test_deliverables_carry_no_process.sh": {
+   "verdict": "keep",
+   "importance": "high",
+   "why": "Severity-error check used by two consuming repositories (both declare output_paths): attribution stamps, practice slugs and practices/ links leaking into a document an outside reader sees; the SKIP-not-pass cases guard a past false-green.",
+   "date": "2026-10-31",
+   "by": "agent",
+   "seconds": 5.7
+  },
+  "tools/checks/tests/test_draft_marker.sh": {
+   "verdict": "keep",
+   "importance": "medium",
+   "why": "Guards a draft placeholder shipping in a deliverable. Cheapened 2026-10-31: fixture git runs with the global commit hooks off (core.hooksPath=/dev/null); same cases and failure words, and it still fails against a check that never fires. 15.4 s -> 2.8 s in the review's measurement; 5.0 s -> 1.4 s in this pass's.",
+   "date": "2026-10-31",
+   "by": "agent",
+   "seconds": 1.4
+  },
+  "tools/checks/tests/test_no_stale_counts.sh": {
+   "verdict": "keep",
+   "importance": "low",
+   "why": "Active check, but it guards wording (a stale practice count in prose). Cheapened 2026-10-31: its fixture git now runs with the machine's global commit hooks off (core.hooksPath=/dev/null beside PRECEDENT_ALLOW_ANY_AUTHOR=1), which were most of its 27 fixture commits' cost; same cases, same controls, same failure words, and it still fails against a check that never fires. 52.3 s -> 11.2 s in the review's measurement; 34.3 s -> 9.2 s in this pass's. Its lead ('team' level) is fixture data for non-existent sibling sources, not a retired mechanism.",
+   "date": "2026-10-31",
+   "by": "agent",
+   "seconds": 9.2,
+   "leads": [
+    "names the word 'team (as a level)' (retired 2026-09-18)"
+   ]
+  },
+  "tools/checks/tests/test_style_guide.sh": {
+   "verdict": "keep",
+   "importance": "low",
+   "why": "Active visual-style-guide check (palette, fonts, logo size, generated guide not hand-edited), used in a consuming repository; formatting-level and sub-second.",
+   "date": "2026-10-31",
+   "by": "agent",
+   "seconds": 0.9
+  }
+ }
+}
