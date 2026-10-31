@@ -528,6 +528,48 @@ def _declared_exempt(rel: str) -> bool:
                for p in _declared_exemptions()[0])
 
 
+# --- Records: what was true on a day, in the words of the day --------------
+#
+# A document whose frontmatter says `kind: record` (doc_lifecycle's kinds),
+# a practice's `## Story`, and frontmatter itself (approved_by and the dated
+# fields) each record what happened. A count in one is the measurement of
+# that day, the "tied to what it counts" case the Rule's Detail exempts, and
+# rewriting it would falsify the record. Run against the engine's own
+# repository on 2026-10-31 this check printed about fifty findings, nearly
+# all of them in exactly these places; the same carve-out the engine's
+# set-words-stay-in-their-set check makes for records.
+_RECORD_KIND_RE = re.compile(r"^kind:\s*record\s*$", re.M)
+
+
+def _frontmatter_end(lines: list) -> int:
+    """-> the 1-based line number of the closing `---`, or 0 when none."""
+    if not lines or lines[0].strip() != "---":
+        return 0
+    for i, line in enumerate(lines[1:], 2):
+        if line.strip() == "---":
+            return i
+    return 0
+
+
+def _is_record(text: str) -> bool:
+    lines = text.splitlines()
+    end = _frontmatter_end(lines)
+    return bool(end) and bool(_RECORD_KIND_RE.search("\n".join(lines[:end])))
+
+
+def _history_lines(text: str) -> set:
+    """-> line numbers in frontmatter or under a `## Story` heading."""
+    lines = text.splitlines()
+    out = set(range(1, _frontmatter_end(lines) + 1))
+    in_story = False
+    for i, line in enumerate(lines, 1):
+        if line.startswith("## "):
+            in_story = line.strip().lower() == "## story"
+        elif in_story:
+            out.add(i)
+    return out
+
+
 def not_actionable_here(rel: str) -> bool:
     prefixes = _mirrored_prefixes()
     return (bool(prefixes) and rel.startswith(prefixes)) \
@@ -623,7 +665,9 @@ def find_violations() -> list[str]:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        generated = _generated_lines(text)
+        if _is_record(text):
+            continue
+        generated = _generated_lines(text) | _history_lines(text)
         for lineno, line in enumerate(text.splitlines(), 1):
             if lineno in generated:
                 continue
