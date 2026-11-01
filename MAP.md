@@ -71,6 +71,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/full_practice_audit.py](tools/full_practice_audit.py) | The full practice audit — on-demand, whole-catalogue sweep across every source |
 | [tools/generated_blocks.py](tools/generated_blocks.py) | Whether a line is inside a generated block, in both marker styles, closing marker required -- the one answer every scan that skips generated text uses |
 | [tools/github_budget.py](tools/github_budget.py) | What this account has left of GitHub's API allowances and what each tool spent -- read off the X-RateLimit headers of calls already being made, because /rate_limit answers a pristine window from inside a session |
+| [tools/harness_parts.py](tools/harness_parts.py) | Where the harness's tests live -- the one answer every reader of them uses |
 | [tools/land_next.py](tools/land_next.py) | The lander as one command: land every queued branch on the trunk, oldest first, or say exactly why not |
 | [tools/land_queue.py](tools/land_queue.py) | The landing queue: branches waiting for the lander to merge them into the trunk, one record per branch on the coord branch |
 | [tools/leak_gate.py](tools/leak_gate.py) | The push-time leak gate — structural rules always, private-term blocklist when configured |
@@ -116,6 +117,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_python.py](tools/precedent_python.py) | precedent_python.py -- one Python per repository (practice: one-python). |
 | [tools/precedent_regenerate.py](tools/precedent_regenerate.py) | Rebuilds the generated files whose inputs a commit touches, and stages them -- run by the commit backstop, never refuses a commit |
 | [tools/precedent_reply_check.py](tools/precedent_reply_check.py) | The reply gate's BLOCKING half — refuses a stop when the reply missed what a source's reply_check.json requires |
+| [tools/precedent_repo_id.py](tools/precedent_repo_id.py) | One answer to "is this the same repository?", whatever the spelling. |
 | [tools/precedent_resolve.py](tools/precedent_resolve.py) | Resolves the universal, shared and individual sources into one set, by precedence |
 | [tools/precedent_resolve_merge.py](tools/precedent_resolve_merge.py) | Finishes a merge that stopped only on generated files: rebuilds them from the merged sources and stages them, the way a landing does |
 | [tools/precedent_review_page.py](tools/precedent_review_page.py) | The very deep check's session-only page: branches to delete, with a link each, and every active practice by source |
