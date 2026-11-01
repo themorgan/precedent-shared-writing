@@ -167,6 +167,15 @@ import split_practices as sp
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import precedent_time  # noqa: E402
 import generated_blocks  # noqa: E402
+try:                                     # practice: upstream-fix
+    from precedent_repo_id import same_repo  # noqa: E402
+except ImportError:
+    # This file is also copied on its own, into a fixture or a repository
+    # with no engine beside it; there, folded text is the same test.
+    def same_repo(a, b):
+        def norm(x):
+            return str(x or '').strip().rstrip('/').removesuffix('.git').lower()  # repo-name-compare: ok -- fallback when the helper is absent
+        return bool(norm(a)) and norm(a) == norm(b)
 
 
 # Which trees this repo MIRRORS from somewhere else, and therefore may not
@@ -2556,14 +2565,14 @@ def _practice_links_travel(ctx):
                 # it is locally resolvable, which it is in every repo that
                 # declares one) is checked too -- see _universal_source_root's
                 # own docstring for the real case this missed.
-                if slug is not None and url_repo.lower() == slug.lower():
+                if slug is not None and same_repo(url_repo, slug):
                     check_root, subject, u_branch = ROOT, 'this repository', branch
                 else:
                     uroot = _universal_source_root()
                     u_slug = _origin_slug(uroot) if uroot else None
                     if uroot is None or u_slug is None:
                         continue                # cannot tell universal apart
-                    if url_repo.lower() != u_slug.lower():
+                    if not same_repo(url_repo, u_slug):
                         # A practice file in ANOTHER set, linked by URL -- the
                         # Rule's "never", which this branch used to wave
                         # through as somebody else's repository. That is how a
@@ -6279,6 +6288,82 @@ def _new_hook_joins_the_registry(ctx):
         shutil.rmtree(tmp, ignore_errors=True)
     return found
 
+@check('repo-name-compare-via-helper', 'tree',
+       'no Python file in tools/ compares, looks up or case-folds a '
+       'repository name, URL or origin by itself -- with ==, !=, in, or '
+       '.lower() -- instead of through tools/precedent_repo_id.py, where '
+       'capitalization never decides whether two names are one repository',
+       'a variable whose name does not say it holds a repository (`u`, '
+       '`url`, `a`): the check reads names, not values. A comparison it '
+       'flags wrongly takes `# repo-name-compare: ok -- <why>` on its line.',
+       practice_backed=False, selects_on=('tools/*.py',))
+def _repo_name_compare_via_helper(ctx):
+    """Morgan, 2026-10-31 (strength: decided): "in any way the repo names
+    are used, the capitalization should never matter". Four earlier fixes
+    each mended one tool's letter-for-letter comparison (a56ef8cb,
+    561a37f0, a78d30dc, 8e938154), and the next tool brought the shape
+    back: the freshness check's `origin == repo_url` read a lowercase
+    add_repo clone of a capitalized source as NOT VERIFIED. This check is
+    what stops the next one (practice: upstream-fix; practice:
+    judgment-check-or-tool)."""
+    import precedent_repo_id as rid
+    out = []
+    for f in _tools_py(ROOT / 'tools'):
+        if f.name in ('precedent_repo_id.py', 'verify_harness.py') \
+                or f.name.startswith('test_'):
+            continue
+        for line, src in rid.raw_comparisons(f):
+            out.append(Finding(
+                f'tools/{f.name}:{line}',
+                f'compares or case-folds a repository name by itself: {src}. '
+                f'Use precedent_repo_id.same_repo / repo_key / find_repo, so '
+                f'two spellings of one repository are one repository'))
+    return out
+
+
+@check('declared-repo-spelling', 'tree',
+       'every copy manifest (process/manifest_<name>.json) records its '
+       'source\'s repository in the spelling precedent.json declares for '
+       'it, not a second spelling of the same repository',
+       'whether the declaration itself is GitHub\'s spelling: no network is '
+       'asked. A declaration typed wrong is fixed in precedent.json, and '
+       'flows out from there.',
+       practice_backed=False,
+       selects_on=('precedent.json', 'process/manifest_*.json'))
+def _declared_repo_spelling(ctx):
+    """Morgan, 2026-10-31 (strength: decided): wherever a repository is
+    named internally, use "the same capitalization as is used in the
+    official name of the repo". checkin.py record used to copy a clone's
+    origin into the manifest, and add_repo hands out lowercase clone URLs,
+    so a consumer's manifests spelled two declared sources in lowercase
+    while precedent.json spelled them as GitHub does. Update Vendors now
+    writes the declared spelling back on its next run; this check says so
+    until it has (practice: upstream-fix)."""
+    import precedent_repo_id as rid
+    try:
+        cfg = json.loads((ROOT / 'precedent.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise NotApplicable('this repo has no readable precedent.json')
+    out = []
+    for e in cfg.get('sources') or [] if isinstance(cfg, dict) else []:
+        if not isinstance(e, dict) or not e.get('repo') or not e.get('name'):
+            continue
+        mp = ROOT / 'process' / f'manifest_{e["name"]}.json'
+        try:
+            rec = (json.loads(mp.read_text(encoding='utf-8')).get('upstream')
+                   or {}).get('repo')
+        except (OSError, ValueError, AttributeError):
+            continue
+        want = str(e['repo']).strip()
+        if rec and rid.same_repo(rec, want) and rec != want:
+            out.append(Finding(
+                f'process/manifest_{e["name"]}.json',
+                f'records {rec}, and precedent.json declares the same '
+                f'repository as {want}. Update Vendors writes the declared '
+                f'spelling back on its next run'))
+    return out
+
+
 @check('no-hardcoded-git-identity', 'tree',
        'a tracked .claude/settings.json never names a person\'s '
        'GIT_AUTHOR_NAME or GIT_AUTHOR_EMAIL in its env block -- '
@@ -9026,7 +9111,7 @@ def _enforcement_lives_with_its_practice(ctx):
         if rel in shipped_here:
             continue
         hits = _set_names_in_strings(path, wanted, set_only, names)
-        test = rel == 'tools/verify_harness.py' or '/tests/' in rel \
+        test = _is_harness_file(rel) or '/tests/' in rel \
             or pathlib.PurePosixPath(rel).name.startswith('test_')
         for h in sorted(hits):
             what = (f'the set {h}' if h in names else
@@ -11617,7 +11702,7 @@ def _repo_retired_terms(cfg_path, _ol):
                                AGENT_WORKTREES.rstrip('/'))]
         for name in filenames:
             rel = f'{rel_dir}/{name}' if rel_dir else name
-            if rel in RETIRED_VOCAB_SKIP_FILES:
+            if rel in RETIRED_VOCAB_SKIP_FILES or _is_harness_file(rel):
                 continue
             if any(_exempt_matches(rel, e) for e in exempt_files):
                 continue
@@ -11880,7 +11965,7 @@ def _practice_file_shape(ctx):
                                            f'practice in this catalogue'))
         for m in _GITHUB_REPO_RE.finditer(f.read_text(encoding='utf-8', errors='ignore')):
             owner_repo = f'{m.group(1)}/{m.group(2)}'
-            if owner_repo.lower() != _UPSTREAM_OWNER_REPO.lower():
+            if not same_repo(owner_repo, _UPSTREAM_OWNER_REPO):
                 out.append(Finding(rel(f), f'links {owner_repo}, a repository a '
                                            f'reader of a shipped practice has no '
                                            f'reason to be able to open -- name it '
@@ -12876,9 +12961,22 @@ def _retired_term_re(term):
     return re.compile(r'(?<![\w-])' + re.escape(term) + r'(?![\w-])')
 
 
+def _is_harness_file(rel):
+    """True for tools/verify_harness.py and its area files
+    (tools/harness_parts.py). Imported here, not at the top: a tree that
+    copies this file without harness_parts.py, as many fixtures and older
+    vendored copies do, has no harness parts either."""
+    try:
+        import harness_parts
+    except ImportError:
+        return rel == 'tools/verify_harness.py'
+    return harness_parts.is_harness(rel)
+
+
 RETIRED_VOCAB_CONFIG = 'process/retired_vocabulary.json'
-# tools/verify_harness.py plants retired-term fixture text (to test this
-# very check) inside its own source, so scanning it for real violations
+# tools/verify_harness.py and its area files under tools/harness/
+# (_is_harness_file) plant retired-term fixture text (to test this
+# very check) inside their own source, so scanning it for real violations
 # would fail on its own planted fixtures every time it runs against a copy
 # of this repo -- the one file excluded, mechanically, not a content carve-out.
 RETIRED_VOCAB_SKIP_FILES = {'tools/verify_harness.py'}
@@ -13498,7 +13596,8 @@ def _todo_gotcha_stale_reference(ctx):
     mirrored = _mirrored(ctx.root)
     out = []
     for rel in sorted(tracked):
-        if rel in STALE_TODO_REF_EXEMPT_FILES or rel.startswith(mirrored):
+        if rel in STALE_TODO_REF_EXEMPT_FILES or _is_harness_file(rel) \
+                or rel.startswith(mirrored):
             continue
         text = ctx.read(rel)
         if not text:
@@ -13666,6 +13765,37 @@ def _upstream_bug_stops_here(ctx):
                             'upstream -- the expected state in a repository '
                             'that is itself upstream')
     return upstream_edits.findings(ROOT)
+
+@check('exported-files-received', 'tree',
+       'a test or check a declared source ships that this repository never '
+       'received, because no practice in force here claims it -- recorded by '
+       'the sync in MANIFEST.json under "not_received"',
+       'whether the file should reach this repository: the fix is at the '
+       'source (a checked_by, or a `practice: SLUG` line in the test\'s '
+       'header), never here. Files the sync was never told about, and a '
+       'repository with no MANIFEST.json, are not judged',
+       practice_backed=False,
+       selects_on=('MANIFEST.json',))
+def _exported_files_received(ctx):
+    # 2026-10-31 (Morgan, strength: decided): a consuming repository's push
+    # check printed "no practice in force here claims these, not vendored"
+    # for two of a shared set's tests, and passed. Every file a source is
+    # meant to copy in is checked as copied in; the sync records what it
+    # left behind (precedent_materialize.NOT_RECEIVED_KEY) and this fails on it.
+    path = ROOT / 'MANIFEST.json'
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise NotApplicable('no MANIFEST.json here: nothing was synced from a source')
+    left = data.get('not_received') or []
+    return [Finding('MANIFEST.json',
+                    f'{item}: shipped by its source, never received here -- no '
+                    f'practice in force here claims it. Fix it at the source: '
+                    f'name it in the practice\'s checked_by, or add a '
+                    f'`practice: SLUG` line to its header naming the practice '
+                    f'it tests; then sync again')
+            for item in left if isinstance(item, str)]
+
 
 @check('open-items-outside-todo', 'tree',
        'an open item (todo-<date>-*.md) or gotcha (gotcha-<date>-*.md) '
@@ -14909,7 +15039,10 @@ def _github_api_budget(ctx):
                 if not k.startswith('_') and v}
     for rel in callers:
         text = (ROOT / rel).read_text(encoding='utf-8', errors='replace')
-        if 'import github_budget' in text or rel in declared:
+        # A key ending in "/" declares a folder: the harness's area files,
+        # tools/harness/, one entry for every file of them (2026-10-31).
+        if 'import github_budget' in text or rel in declared or any(
+                k.endswith('/') and rel.startswith(k) for k in declared):
             continue
         out.append(Finding(rel, 'calls the GitHub API directly. Route it '
                                 'through tools/github_budget.py so its calls '
