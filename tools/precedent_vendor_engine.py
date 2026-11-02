@@ -692,6 +692,11 @@ ENGINE_FILES = [
     # named 'precedent_reply_check')" on every single turn. Reproduced in a
     # stripped vendor tree before this line was added.
     'precedent_reply_check.py',
+    # The registry of files the engine reads from a set's own folder, which
+    # the reply check, close detection, the vocabulary list, the resolver and
+    # the set copier all take their names from (2026-11-01,
+    # spec/SET_COPY_CARRIES_WHAT_THE_ENGINE_READS_PLAN.md). Imports nothing.
+    'precedent_set_files.py',
     # The one predicate in that file that looks at the DISK rather than at
     # the reply (2026-09-22): does this container hold work that exists
     # nowhere else? It travels for the same reason the reply check itself
@@ -2532,6 +2537,19 @@ def _write_engine_files(dest_tools, engine_dir, source_commit, kind=DEFAULT_KIND
                   "and refused without --force."),
     }
     manifest_path = dest_tools / MANIFEST_NAME
+    # A practice set's own record that its first Update Vendors with the
+    # set-files registry has run, after which set-file-decided is strict
+    # there (precedent_set_files.DECIDED_MARKER_KEY). Kept across a refresh:
+    # rewritten from scratch, the manifest dropped it, and the set's check
+    # went back to advisory on every update.
+    try:
+        import precedent_set_files as _psf
+        held = json.loads(manifest_path.read_text(encoding='utf-8')).get(
+            _psf.DECIDED_MARKER_KEY)
+        if held:
+            manifest[_psf.DECIDED_MARKER_KEY] = held
+    except (OSError, ValueError, AttributeError, ImportError):
+        pass
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n',
                              encoding='utf-8')
     written.append(manifest_path)
@@ -8101,6 +8119,42 @@ def _repo_local_practices_dir(dest_root):
     return None
 
 
+_MOVED_STUB_RE = re.compile(
+    r'Moved word for word to \[[^\]]*\]\(([^)#\s]+)(?:#[^)\s]*)?\)')
+
+
+def _moved_word_for_word(dest_root, section_text, key):
+    """-> (repo-relative path, first, end, text) of the section a stub
+    points at, or None. A reduction pass leaves a retired AGENTS.md section
+    as a stub, "**Moved word for word to [docs/x.md](docs/x.md#anchor)**"
+    and an index of its entries, with the full text in that file under the
+    same heading at any level.
+
+    WHY (2026-11-01, a voice repository's update). The retirement took the
+    stub for the section: it moved the one-line index into the add-on
+    practice and left the full text in docs/, reported but never moved, so
+    the add-on carried an index of entries that were no longer anywhere it
+    pointed. It now follows the stub."""
+    m = _MOVED_STUB_RE.search(section_text)
+    if not m:
+        return None
+    rel = m.group(1)
+    target = (dest_root / rel).resolve()
+    if dest_root.resolve() not in target.parents or not target.is_file():
+        return None
+    try:
+        text = target.read_text(encoding='utf-8')
+    except (OSError, UnicodeDecodeError):
+        return None
+    want = _heading_key(key.lstrip('#'))
+    lines = text.split('\n')
+    for k, first, end in _md_sections(text):
+        if _heading_key(k.lstrip('#')) == want:
+            return (target.relative_to(dest_root.resolve()).as_posix(), first, end,
+                    _section_text(lines, first, end))
+    return None
+
+
 def _retired_agents_md_plan(dest_root, kind, templates_dir):
     """-> [(key, slug, action, span, own_blocks, where)] for each retired
     template section this repository still carries; see the block above."""
@@ -8134,7 +8188,11 @@ def _retired_agents_md_plan(dest_root, kind, templates_dir):
         if len(spans) > 1:
             continue
         span = spans[0]
-        own = _own_blocks(_section_text(lines, *span), versions)
+        moved = _moved_word_for_word(dest_root, _section_text(lines, *span), key)
+        # A stub's index lines summarize the moved text; the text itself is
+        # what the repository wrote (_moved_word_for_word).
+        own = _own_blocks(moved[3] if moved else _section_text(lines, *span),
+                          versions)
         if not own:
             action = 'remove'
         elif key in _RETIRED_KEEP_IF_OWN:
@@ -8203,6 +8261,57 @@ def _addon_rel(dest_root, slug):
     return (d / f'{slug}-in-this-repo.md').relative_to(dest_root.resolve()).as_posix()
 
 
+def _rebase_links(text, from_dir, to_dir):
+    """-> `text` with every relative Markdown link target rewritten from
+    `from_dir` (where the text was) to `to_dir` (where it now lives).
+    Links with a scheme, an absolute path or only a fragment are left as
+    they are. 2026-11-01: a voice repository's retired merge runbook moved
+    word for word from AGENTS.md into local/practices/, and all 22 of its
+    links, written from the repository root, pointed at nothing there."""
+    from_dir, to_dir = pathlib.Path(from_dir), pathlib.Path(to_dir)
+
+    def fix(m):
+        label, target = m.group(1), m.group(2)
+        if re.match(r'([a-z][a-z0-9+.-]*:|#|/)', target, re.I):
+            return m.group(0)
+        path, sep, frag = target.partition('#')
+        if not path:
+            return m.group(0)
+        new = pathlib.PurePath(os.path.relpath(
+            os.path.normpath(from_dir / path), to_dir)).as_posix()
+        if path.endswith('/') and not new.endswith('/'):
+            new += '/'
+        return f'{label}({new}{sep}{frag})'
+    return re.sub(r'(!?\[[^\]]*\])\(([^)\s]+)\)', fix, text)
+
+
+def _addon_story(key, slug, today):
+    """-> the ## Story a written add-on carries: where its lines came from,
+    never an incident nobody recorded. 2026-11-01: an add-on with a Rule and
+    no Story was refused by cite-the-incident at the Produce's check against
+    main, in the first repository the move ran in."""
+    when = f' on {today}' if today else ''
+    return (f"These lines were this repository's own in its AGENTS.md section "
+            f"\"{key.lstrip('# ')}\". When that section moved upstream into "
+            f"practice `{slug}`, Update Vendors moved them here{when}, word for "
+            f"word, so that nothing of this repository's was lost. No incident "
+            f"was recorded with them there; each guards against the failure "
+            f"its own words name.")
+
+
+def _insert_at_end_of_rule(text, body):
+    """-> `text` with `body` added as the last paragraphs of its ## Rule,
+    ahead of any section after it, so an appended line never lands inside
+    the Story."""
+    m = re.search(r'^## Rule\n', text, re.M)
+    if not m:
+        return text.rstrip('\n') + '\n\n' + body + '\n'
+    nxt = re.search(r'^## ', text[m.end():], re.M)
+    cut = m.end() + nxt.start() if nxt else len(text)
+    head, tail = text[:cut].rstrip('\n'), text[cut:]
+    return head + '\n\n' + body + '\n' + ('\n' + tail if tail else '')
+
+
 def _apply_retired_agents_md(dest_root, plan):
     """Write the add-ons and delete the retired sections, bottom-up.
     -> the paths written."""
@@ -8217,14 +8326,24 @@ def _apply_retired_agents_md(dest_root, plan):
         today = str(precedent_time.today())
     except Exception:                                           # noqa: BLE001
         today = None
+    moved_copies = []
     for key, slug, action, (first, end), own, _w in sorted(rows, key=lambda r: -r[3][0]):
+        moved = _moved_word_for_word(dest_root, _section_text(lines, first, end), key)
+        if moved:
+            moved_copies.append(moved)
         if action == 'addon':
             d = _repo_local_practices_dir(dest_root)
             target = d / f'{slug}-in-this-repo.md'
-            body = '\n\n'.join(own)
+            # The lines were written from AGENTS.md's folder, the repository
+            # root, or from the file a stub points at; the add-on sits in the
+            # repo-local source's practices/.
+            src_dir = (dest_root / moved[0]).parent if moved else dest_root
+            body = _rebase_links('\n\n'.join(own), src_dir.resolve(),
+                                 target.parent.resolve())
             if target.is_file():
-                prior = target.read_text(encoding='utf-8').rstrip('\n')
-                target.write_text(prior + '\n\n' + body + '\n', encoding='utf-8')
+                prior = target.read_text(encoding='utf-8')
+                target.write_text(_insert_at_end_of_rule(prior, body),
+                                  encoding='utf-8')
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(
@@ -8250,12 +8369,27 @@ def _apply_retired_agents_md(dest_root, plan):
                     f'repository\'s own lines in AGENTS.md {key.lstrip("# ")}, when that '
                     f'section moved upstream into practice {slug} (Morgan, 2026-10-31, '
                     f'strength: decided)"\n'
-                    '---\n## Rule\n' + body + '\n', encoding='utf-8')
+                    '---\n## Rule\n' + body + '\n\n## Story\n'
+                    + _addon_story(key, slug, today) + '\n', encoding='utf-8')
             written.append(target)
         while end < len(lines) and not lines[end].strip():
             end += 1
         del lines[first:end]
     path.write_text('\n'.join(lines), encoding='utf-8')
+    # The full text a stub pointed at is in the add-on now, or was all
+    # template text: its copy goes too, bottom-up within each file.
+    by_file = collections.defaultdict(list)
+    for rel, first, end, _t in moved_copies:
+        by_file[rel].append((first, end))
+    for rel, spans in by_file.items():
+        other = dest_root / rel
+        olines = other.read_text(encoding='utf-8').split('\n')
+        for first, end in sorted(spans, reverse=True):
+            while end < len(olines) and not olines[end].strip():
+                end += 1
+            del olines[first:end]
+        other.write_text('\n'.join(olines).rstrip('\n') + '\n', encoding='utf-8')
+        written.append(other)
     return [path] + written
 
 
@@ -10425,6 +10559,29 @@ def newest_passed_main(clone, tip, pb=None, window=PASSED_WINDOW):
     return None, len(commits)
 
 
+def _write_missing_engine_files(clone, kind, ref, dest_tools):
+    """Write each file of `kind`'s list that `dest_tools` lacks, from the
+    commit this refresh takes, and -> their names. Only a file that is not
+    there: one on disk is the later write's to judge (drift, a hand edit),
+    so nothing here can overwrite work."""
+    missing = [n for n in KINDS.get(kind, ()) if not (dest_tools / n).exists()]
+    if not missing:
+        return []
+    try:
+        _c, engine_dir = _source_tools_at(clone, kind, ref=ref, fetch=False)
+    except SystemExit:
+        return []
+    written = []
+    try:
+        for name in missing:
+            if (engine_dir / name).is_file():
+                shutil.copy2(engine_dir / name, dest_tools / name)
+                written.append(name)
+    finally:
+        shutil.rmtree(engine_dir, ignore_errors=True)
+    return written
+
+
 def refresh(clone, force=False, ref=None, take_anyway=False):
     """`ref`, when given, names the exact commit or ref inside `clone` to
     vendor from, instead of resolving FOLLOWED_BRANCH there.
@@ -10443,6 +10600,15 @@ def refresh(clone, force=False, ref=None, take_anyway=False):
     kind = manifest.get('kind', DEFAULT_KIND)  # older manifests predate 'kind' -- 'source'
     # False only in a second pass whose first pass handed nothing over.
     handed_over = _take_carried_left() is not False
+    # In a second pass, what the new file list adds is written first: the
+    # first pass ran the older list, so a module the new engine imports may
+    # not be on disk yet, and the sweeps below import the engine's own
+    # modules (precedent_check, for an approved workflow). Rehearsed
+    # 2026-11-01: with tools/precedent_set_files.py new, precedent_check
+    # did not import there, every approved workflow read as unapproved, and
+    # a voice repository's update stopped on three it had approved.
+    if os.environ.get(_SECOND_PASS_ENV):
+        _write_missing_engine_files(clone, kind, ref, dest_tools)
 
     # Before anything else, including the drift check below: a retired CI
     # workflow entry is cleaned up unconditionally, --force or not, so its
