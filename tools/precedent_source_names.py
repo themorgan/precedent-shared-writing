@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Whether each declared source repository is still CALLED what this repo calls it -- a rename redirects forever, so only the GitHub API can answer it
+"""Whether each source repository in force is still CALLED what this repo calls it -- a rename redirects forever, so only the GitHub API can answer it
 
 precedent_source_names.py -- answers one question a git command cannot:
-is every practice-source repository this repo declares still CALLED what this
-repo calls it?
+is every practice-source repository in force here -- the ones this repo
+declares and the ones the person's individual set brings in -- still CALLED
+what this repo calls it?
 
 WHY THIS EXISTS, AND THE INCIDENT THAT PRODUCED IT (practice:
 cite-the-incident). A shared source was renamed on GitHub. A consuming repo
@@ -258,14 +259,13 @@ def api_full_name(owner, name, env=None):
                    f'hosted session\'s proxy refuses the API, and github.com '
                    f'itself, for any repository it has not attached -- public '
                    f'ones too -- and git cannot show a rename because it '
-                   f'follows redirects silently. To verify, attach it '
-                   f'(add_repo; a public repository attaches only with access '
-                   f'"push", since read access is already served) and run this '
-                   f'again. If that attach is refused, list the account\'s '
-                   f'repositories (list_repos) and pass each full_name it '
-                   f'gives with --canonical OWNER/NAME; or run it from a '
-                   f'machine with a GitHub token, or open '
-                   f'https://github.com/{owner}/{name} in a browser')
+                   f'follows redirects silently. To verify without attaching '
+                   f'anything, list the account\'s repositories (list_repos) '
+                   f'and pass this source\'s full_name with --canonical '
+                   f'OWNER/NAME; or run it from a machine with a GitHub '
+                   f'token, or open https://github.com/{owner}/{name} in a '
+                   f'browser. Update Vendors does not attach a source for '
+                   f'this check (vendor-update-runbook, 2026-11-02)')
         return None, why, False
     except Exception as e:                                   # noqa: BLE001
         return None, f'the API could not be reached ({type(e).__name__}: {e})', False
@@ -316,6 +316,38 @@ def sources_to_check(repo, user_config=None):
             continue
         out.append(src)
     return out
+
+
+def names_in_force(repo, user_config=None):
+    """-> ([OWNER/NAME, ...], [level/name, ...]): the GitHub name of every
+    source this tool will check, and the sources whose name could not be
+    read offline. Read from each clone's origin, else from the declared
+    `repo` URL; never from the network.
+
+    WHY IT EXISTS (2026-11-02). Update Vendors' DONE output told the session
+    to pass --canonical "per declared source". This tool checks every
+    source IN FORCE, which includes what the person's individual set brings
+    in, so a session that took the line at its word passed two names, and
+    the individual source and the shared set it declares came back
+    UNVERIFIED. DONE now prints the command with every name filled in."""
+    names, unnamed = [], []
+    for src in sources_to_check(repo, user_config=user_config):
+        owner = name = None
+        clone = pathlib.Path(src['path'])
+        if (clone / '.git').exists():
+            ok, url = _git(['git', '-C', str(clone), 'remote', 'get-url',
+                            'origin'])
+            if ok:
+                owner, name = parse_remote(url)
+        if not owner and src.get('repo'):
+            owner, name = parse_remote(src['repo'])
+        if owner:
+            full = f'{owner}/{name}'
+            if full not in names:
+                names.append(full)
+        else:
+            unnamed.append(f"{src['level']}/{src['name']}")
+    return names, unnamed
 
 
 def assess(repo, env=None, user_config=None, canonical=()):
