@@ -74,6 +74,14 @@ same face, without its backticks. The rules are typography.py's, shared with
 every other builder for an outside reader; smarten() does the same for a
 document built by hand.
 
+A line holding only an image, ![alt text](path), puts the picture itself
+in the document, centered, at its own size up to IMAGE_MAX_WIDTH (4.5
+inches), with the alt text as the picture's description for a screen
+reader. The path is read relative to the manuscript, the way Markdown reads
+it, and a missing file stops the build. A web address can't be fetched
+here, so it prints as a link to the image instead. add_image() does the
+same for a document built by hand.
+
 Default page is A4 with 0.75-inch margins on all four sides, default
 line spacing is 1.3x. A "Words: <count>"
 line (with an optional trailing parenthetical, e.g. "(PART 1)") is
@@ -266,6 +274,11 @@ HEADER_IMAGE_GAP = 12  # points
 # until Morgan asked for about 60% of that (2026-10-16). A builder that puts
 # a logo on its cover reads this rather than its own number.
 COVER_LOGO_WIDTH = 1.56
+# practice: create-word-doc -- an image line becomes the picture, never the
+# text "!alt" (Morgan, 2026-11-04: a memo's xkcd cartoon came out as its alt
+# text, and a consuming repository patched the file after every build).
+IMAGE_LINE_RE = re.compile(r"^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
+IMAGE_MAX_WIDTH = 4.5  # inches
 
 
 def set_style_font(style, name):
@@ -941,6 +954,22 @@ def add_contents(doc):
     first_part.insert_paragraph_before().add_run().add_break(WD_BREAK.PAGE)
 
 
+def add_image(doc, image_path, alt=""):
+    """A picture on a paragraph of its own, centered, at its own size up to
+    IMAGE_MAX_WIDTH inches wide, with alt as its description."""
+    from docx.image.image import Image as DocxImage
+
+    native = DocxImage.from_file(str(image_path))
+    width = min(IMAGE_MAX_WIDTH, native.px_width / (native.horz_dpi or 96))
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run().add_picture(str(image_path), width=Inches(width))
+    if alt:
+        for doc_pr in p._p.iter(qn("wp:docPr")):
+            doc_pr.set("descr", alt)
+    return p
+
+
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
               section_breaks=True, header_image=None, soft_wraps=False,
               header_on_first_page=False, footer_label=None):
@@ -999,6 +1028,21 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             last_para = p
             last_was_heading = False
             continue
+
+        image = IMAGE_LINE_RE.match(first) if len(block) == 1 else None
+        if image and not re.match(r"^(?:https?:)?//", image.group(2)):
+            # practice: create-word-doc (images)
+            image_path = (manuscript_path.parent / image.group(2)).resolve()
+            if not image_path.is_file():
+                sys.exit(f"error: image {image.group(2)} in "
+                         f"{manuscript_path} does not exist")
+            last_para = add_image(doc, image_path, image.group(1))
+            last_was_heading = False
+            continue
+        if image:
+            # A web image can't be fetched here: print it as a link to it.
+            block = [f"[{image.group(1) or image.group(2)}]({image.group(2)})"]
+            first = block[0]
 
         if not saw_title and re.match(r"^# ", first) and len(block) == 1:
             last_para = doc.add_heading(heading_text(first[2:]), level=0)
