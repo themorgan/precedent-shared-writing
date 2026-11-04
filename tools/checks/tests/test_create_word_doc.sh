@@ -517,3 +517,40 @@ PY
   exit 1
 fi
 echo "ok: a document records its build, and --rebuild repeats it, with an override winning"
+
+# 16. A line holding only ![alt](path) puts the picture in, centered, with
+#     the alt text as its description, never the text "!alt" (a consuming
+#     repository, 2026-11-04). A web image prints as a link to it, and a
+#     missing local file stops the build, naming the path.
+mkdir -p "$SCRATCH/memo/img"
+cp "$SCRATCH/logo.png" "$SCRATCH/memo/img/cartoon.png"
+printf '# Memo\n\nBefore.\n\n![A cartoon](img/cartoon.png)\n\n![Web one](https://example.com/x.png)\n\nAfter.\n' \
+  > "$SCRATCH/memo/memo.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/memo/memo.md" \
+  --out "$SCRATCH/out/Memo.docx" --no-footer > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Memo.docx" <<'PY' 2>&1
+import sys, docx
+d = docx.Document(sys.argv[1])
+texts = [p.text for p in d.paragraphs]
+assert not any(t.startswith("!") for t in texts), texts
+pics = [p for p in d.paragraphs if "graphicData" in p._p.xml]
+assert len(pics) == 1, f"{len(pics)} picture paragraph(s)"
+assert pics[0].alignment == 1, pics[0].alignment  # centered
+assert 'descr="A cartoon"' in pics[0]._p.xml, "the alt text was not kept"
+assert "Web one" in texts, texts
+PY
+)"; then
+  echo "FAIL: an image line did not become a picture: $OUT" >&2
+  exit 1
+fi
+printf '# Memo\n\n![Gone](img/missing.png)\n' > "$SCRATCH/memo/bad.md"
+set +e
+OUT="$(python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/memo/bad.md" \
+  --out "$SCRATCH/out/Bad.docx" --no-footer 2>&1)"
+CODE=$?
+set -e
+if [[ $CODE -eq 0 ]] || ! grep -q "image img/missing.png in .* does not exist" <<<"$OUT"; then
+  echo "FAIL: a missing image did not stop the build by name (exit $CODE): $OUT" >&2
+  exit 1
+fi
+echo "ok: an image line becomes a centered picture with its alt text; a web image is a link; a missing one stops the build"
