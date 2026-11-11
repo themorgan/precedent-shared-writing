@@ -10,7 +10,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 
 ## The practice catalogue
 
-`practices/` holds 19 practice files (2 resident, 17 on-demand). One file per practice.
+`practices/` holds 20 practice files (2 resident, 18 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
@@ -24,6 +24,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [draft-marker](practices/draft-marker.md) | on-demand | leaving a placeholder or fill-in-later note mid-draft |
 | [durable-list-anchors](practices/durable-list-anchors.md) | on-demand | a numbered list's entries are durable content likely to be cited by position |
 | [language-variety](practices/language-variety.md) | resident | writing anything in English or in Spanish -- a reply, a document, a commit message |
+| [last-updated-line](practices/last-updated-line.md) | on-demand | changing a document that carries a 'last updated' line |
 | [list-item-parity](practices/list-item-parity.md) | on-demand | drafting or revising a list, or a document with list-like sections |
 | [list-restraint](practices/list-restraint.md) | on-demand | about to format connected prose as bullet points |
 | [name-the-branch](practices/name-the-branch.md) | on-demand | naming a branch in anything written |
