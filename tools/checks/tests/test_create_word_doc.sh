@@ -137,6 +137,35 @@ PY
 fi
 echo "ok: --contents puts Word's own TOC, linked to the headings, on its own page; no update-fields prompt"
 
+# 4b. With --contents, a contents list written by hand -- a "Contents"
+#     heading over nothing but in-page links, and the "---" after it -- is
+#     dropped, so the reader gets one contents list, not two, and Word's
+#     never lists "Contents" itself (the AM guide, 2026-11-11). Without
+#     --contents it stays: then it is the only contents list there is.
+printf '# Sample\n\nA preface.\n\n## Contents\n\n- [Part I](#part-i)\n  - [One](#one)\n\n---\n\n## Part I\n### One\nText.\n' \
+  > "$SCRATCH/book-sample/HANDMADE.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/HANDMADE.md" \
+  --out "$SCRATCH/out/Handmade.docx" --date 2026-01-01 --contents > /dev/null
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/HANDMADE.md" \
+  --out "$SCRATCH/out/HandmadePlain.docx" --date 2026-01-01 > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Handmade.docx" "$SCRATCH/out/HandmadePlain.docx" <<'PY' 2>&1
+import sys
+import docx
+paras = [(p.style.name, p.text) for p in docx.Document(sys.argv[1]).paragraphs]
+assert [t for _s, t in paras].count("Contents") == 1, f"two contents lists: {paras}"
+assert ("TOC Heading", "Contents") in paras, "Word's own contents page is missing"
+assert not any(s.startswith("Heading") and t == "Contents" for s, t in paras), \
+    "the hand-made Contents heading survived"
+plain = [(p.style.name, p.text) for p in docx.Document(sys.argv[2]).paragraphs]
+assert any(s.startswith("Heading") and t == "Contents" for s, t in plain), \
+    "without --contents the hand-made list was dropped"
+PY
+)"; then
+  echo "FAIL: --contents kept a hand-made contents list beside Word's own: $OUT" >&2
+  exit 1
+fi
+echo "ok: --contents drops a hand-made contents list; without it, the list stays"
+
 # 5. A heading straight after the title shares the title's page (Morgan,
 #    2026-10-05: a blurbs file's cover held only the logo and the title);
 #    later headings still break. --no-section-breaks drops every break.
