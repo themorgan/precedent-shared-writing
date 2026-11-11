@@ -323,6 +323,41 @@ def _this_session_id():
     return precedent_detect.this_session_id()
 
 
+def _once_per_session(root, key, line):
+    """-> `line` the first time this session is shown it, and a one-line
+    pointer every time after. The full text is kept in .precedent/said-once.json
+    by session, so a resumed session sees it in full once more.
+
+    WHY (S. Alexander Jacobson, 2026-11-04, in a consumer's reduction pass):
+    the private-source paragraph is about 250 words and the reply gate printed
+    it on every UserPromptSubmit, a third of what the per-turn channel cost,
+    saying the same thing each time. The first telling is the one that matters
+    (practice: fail-gracefully); the rest is the pointer. With no session id
+    and no transcript path there is nothing to key on, and the line is printed
+    in full as before (practice: session-load-budget)."""
+    sid = _this_session_id() or os.environ.get('PRECEDENT_TRANSCRIPT_PATH', '').strip()
+    if not sid:
+        return line
+    path = pathlib.Path(root) / '.precedent' / 'said-once.json'
+    try:
+        said = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    except (OSError, ValueError):
+        said = {}
+    seen = said.get(key, {})
+    if sid in seen:
+        short = line.split(' -- ')[0].split(', and ')[0][:160]
+        return (f"{short}; said in full earlier this session -- "
+                f"`python3 tools/precedent_source_credentials.py` prints it again.")
+    seen[sid] = __import__('datetime').datetime.now(
+        __import__('datetime').timezone.utc).isoformat(timespec='seconds')
+    said[key] = seen
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(said, indent=1), encoding='utf-8')
+    except OSError:
+        pass
+    return line
+
 def _range_is_this_sessions(repo, rng, own, _git):
     """-> True when a commit in `rng` carries this session's trailer: the
     branch or flow those commits sit on is one this session worked on.
@@ -1046,50 +1081,46 @@ def _print_hard_requirements(root):
                       f"remote -- and the scanner that checks it "
                       f"(tools/precedent_container_safe.py) is not vendored "
                       f"beside this script, so it is NOT being enforced here.")
-            elif _verdict and not _is_code_owner(root):
-                # NOT FOR A PERSON WHO IS NOT A CODE OWNER (Morgan,
-                # 2026-10-12, strength: decided: "Anything on the inner works
+            elif _verdict:
+                # SETTLED SILENTLY, FOR EVERYONE (2026-11-02). Non-owners got
+                # this from 2026-10-12 (Morgan: "Anything on the inner works
                 # of how BP works including things like file management,
-                # dealing with temporary files, dealing with temporary repos
-                # etc -- should only be for codeowners"; practice:
-                # inner-workings-for-code-owners). The session settles it
-                # itself and the person hears nothing about it.
+                # dealing with temporary files ... should only be for
+                # codeowners"; practice: inner-workings-for-code-owners).
+                # Code owners were still handed a `**Checkout
+                # disposition:**` line to write into the reply. Morgan,
+                # 2026-11-02 (strength: decided), a code owner: "check that
+                # internally to make sure the checkout disposition is great,
+                # but to NOT print it". So the verdict goes into the
+                # scanner's ledger (--discard), and the reply carries
+                # nothing about it. What differs by reader is only the one
+                # sentence for work that cannot be settled.
+                _owner = _is_code_owner(root)
                 print(f"- [{src}] DO NOT SAY \"{_ph}\" IN THIS REPLY YET -- "
                       f"the stop hook will refuse it. This container holds "
                       f"files found nowhere else:\n{_verdict}\n"
-                      f"  The person is not one of this repository's code "
-                      f"owners, so settle this yourself and SAY NOTHING ABOUT "
-                      f"IT: commit and push what belongs in the repository, "
-                      f"and delete what you made and could make again -- "
-                      f"never a helper's output not yet filed. Never "
-                      f"name a folder, a file, a clone or this check to them, "
-                      f"and never write a disposition line. If something "
-                      f"cannot be settled, close with \"Don't archive this "
-                      f"session\" and one plain sentence about their work, "
-                      f"such as \"I still have some of today's work to put "
-                      f"away\" (practice: inner-workings-for-code-owners).")
-            elif _verdict:
-                print(f"- [{src}] DO NOT SAY \"{_ph}\" IN THIS REPLY -- "
-                      f"the stop hook will refuse it. This container holds "
-                      f"work that exists nowhere else:\n{_verdict}")
-                # The escape the stop hook already honours, said HERE too
-                # (2026-09-26). Printed without it, this line read as
-                # absolute, so a session that had itself called the flagged
-                # files regenerated output still closed on "Don't archive
-                # this session" -- Morgan: if it is regenerated at every
-                # session start, why is it a reason not to archive? The same
-                # gap as 2026-09-23 (reply_check.json's `why`), one rung up:
-                # the check accepted the escape, the instruction hid it.
-                if (r.get('unless_reply_declares_loss') or {}).get('marker'):
-                    print(f"  UNLESS you have looked at each one and it is "
-                          f"meant to be lost (engine output the next refresh "
-                          f"rewrites, say) -- then give each up by name, one "
-                          f"line per checkout, and the archive line is "
-                          f"allowed: **Checkout disposition:** <name> -- "
-                          f"discard (why it is safe to lose). Never for work "
-                          f"you have not read, nor for a helper's output not "
-                          f"yet filed (2026-10-31: 62 verdicts lost so); push "
-                          f"anything you would keep.")
+                      f"  Settle it yourself and SAY NOTHING ABOUT IT: push "
+                      f"or merge what anyone would keep; delete your own "
+                      f"throwaway files (logs, drafts, copies of what is "
+                      f"committed); never delete a helper's output not yet "
+                      f"filed (2026-10-31: 62 verdicts were lost so) -- file "
+                      f"it. Something you have read, cannot push and is "
+                      f"meant to be lost: `python3 tools/"
+                      f"precedent_container_safe.py --discard NAME --why "
+                      f"'...'`, which records it where the stop hook reads "
+                      f"it. Never write a disposition line in the reply.")
+                if _owner:
+                    print("  If real work cannot be settled (unpushed commits, "
+                          "uncommitted edits, a helper's output not filed), "
+                          "close with \"Don't archive this session\", and the "
+                          "reply's first line says what is unfiled and where.")
+                else:
+                    print("  If something cannot be settled, close with "
+                          "\"Don't archive this session\" and one plain "
+                          "sentence about their work, such as \"I still have "
+                          "some of today's work to put away\" -- never a "
+                          "folder, a file, a clone or this check (practice: "
+                          "inner-workings-for-code-owners).")
 
         # A REQUIREMENT THIS ENGINE CANNOT EVALUATE, named here rather than
         # left silent. A source's reply_check.json is read live; the engine
@@ -1241,7 +1272,7 @@ def main():
             import precedent_source_credentials as psc
             line = psc.remind(root, prefix='precedent gate')
             if line:
-                print(f"{line}\n")
+                print(f"{_once_per_session(root, 'credential-reminder', line)}\n")
         except ImportError:
             pass
 
