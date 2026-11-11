@@ -775,6 +775,45 @@ def strip_front_matter(text):
     return text
 
 
+HANDMADE_CONTENTS_HEADING_RE = re.compile(
+    r"^#{1,6}\s+(?:table\s+of\s+)?contents\s*$", re.IGNORECASE)
+HANDMADE_CONTENTS_ITEM_RE = re.compile(
+    r"^\s*(?:[-*+]|\d+[.)])\s+\[[^\]]+\]\(#[^)\s]*\)\s*$")
+RULE_LINE_RE = re.compile(r"^\s*(?:-\s*){3,}$|^\s*(?:\*\s*){3,}$|^\s*(?:_\s*){3,}$")
+
+
+def strip_handmade_contents(text):
+    """Drop a contents list written by hand -- a "Contents" (or "Table of
+    Contents") heading whose section is nothing but list items that each
+    link inside the page -- and a "---" rule right after it. With
+    --contents, Word builds its own list, and keeping the hand-made one
+    gave the reader two, the second listing "Contents" itself as an entry
+    (practice: create-word-doc, the contents page; the AM guide,
+    2026-11-11). A "Contents" section with any prose in it is kept: it is
+    writing, not a list of links. Text without one comes back unchanged."""
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if not HANDMADE_CONTENTS_HEADING_RE.match(line):
+            continue
+        j, items = i + 1, 0
+        while j < len(lines) and not lines[j].lstrip().startswith("#"):
+            if HANDMADE_CONTENTS_ITEM_RE.match(lines[j]):
+                items += 1
+            elif RULE_LINE_RE.match(lines[j]) and items:
+                j += 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                break
+            elif lines[j].strip():
+                items = 0  # prose in the section: writing, keep it
+                break
+            j += 1
+        at_heading = j >= len(lines) or lines[j].lstrip().startswith("#")
+        if items and at_heading:
+            return "\n".join(lines[:i] + lines[j:])
+    return text
+
+
 def heading_slug(raw, seen):
     """The id GitHub gives a heading, so "[Section](#section)" finds it:
     lower case, markup and punctuation gone, spaces as hyphens, and "-1",
@@ -1219,6 +1258,8 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
               header_on_first_page=False, footer_label=None):
     text = strip_front_matter(strip_comments(
         manuscript_path.read_text(encoding="utf-8")))
+    if contents:
+        text = strip_handmade_contents(text)
     STRAY_ASTERISKS.clear()
     CODE_SPANS.clear()
     lines = text.split("\n")
