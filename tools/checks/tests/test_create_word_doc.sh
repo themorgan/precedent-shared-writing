@@ -554,3 +554,133 @@ if [[ $CODE -eq 0 ]] || ! grep -q "image img/missing.png in .* does not exist" <
   exit 1
 fi
 echo "ok: an image line becomes a centered picture with its alt text; a web image is a link; a missing one stops the build"
+
+# 17. Ordinary Markdown a consuming repository had to rewrite before every
+#     build (2026-11-11, a guide for new account managers). Each case is
+#     checked on its own and named when it fails:
+#     front matter is never text; a "---" rule is a real rule, not a dash; a
+#     pipe table is a real Word table, header row bold and shaded, cells
+#     keeping bold and links; a bullet under a numbered item is a nested
+#     bullet and the numbering carries on; a "# Part" after the title is a
+#     Heading 1, moving "##" down to Heading 2; *italic* in a heading is
+#     italic, not asterisks; "[x](#heading)" jumps to that heading.
+mkdir -p "$SCRATCH/gaps"
+cat > "$SCRATCH/gaps/guide.md" <<'MD'
+---
+title: A guide
+owner: someone
+---
+
+# The Guide
+
+See [the clients part](#from-beloved-by-clients).
+
+---
+
+# Part One
+
+1. First step
+   - a detail under it
+   - another *detail*
+2. Second step
+
+| Who | What |
+|---|---|
+| **Dina** | [Notes](https://example.com) |
+| Andre | *Recordings* |
+
+## From *Beloved by Clients*
+
+Text.
+
+# Part Two
+
+More.
+MD
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/gaps/guide.md" \
+  --out "$SCRATCH/out/Gaps.docx" --no-footer > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Gaps.docx" <<'PY' 2>&1
+import re, sys, docx
+from docx.oxml.ns import qn
+d = docx.Document(sys.argv[1])
+paras = d.paragraphs
+texts = [p.text for p in paras]
+body = d.element.body.xml
+failed = []
+
+def case(name, ok):
+    if not ok:
+        failed.append(name)
+
+case("front matter: printed as text",
+     not any("title: A guide" in t or "owner:" in t for t in texts))
+case("rule: printed as a dash, or no rule drawn",
+     not any(t.strip() in ("---", "—", "–") for t in texts)
+     and any(p._p.pPr is not None and p._p.pPr.find(qn("w:pBdr")) is not None
+             for p in paras))
+tables = d.tables
+cells = [[c.text for c in r.cells] for r in tables[0].rows] if tables else []
+case("table: not a real Word table",
+     cells == [["Who", "What"], ["Dina", "Notes"], ["Andre", "Recordings"]]
+     and not any("|" in t for t in texts))
+if tables:
+    head, dina, andre = (r.cells for r in tables[0].rows)
+    case("table: header row not bold and shaded",
+         all(all(r.bold for r in c.paragraphs[0].runs) for c in head)
+         and all('w:fill="' in c._tc.xml for c in head))
+    case("table: a cell lost its bold, italic or link",
+         dina[0].paragraphs[0].runs[0].bold
+         and "w:hyperlink" in dina[1]._tc.xml
+         and andre[1].paragraphs[0].runs[0].italic)
+nested = [p for p in paras if p.style.name == "List Bullet 2"]
+numbered = [p for p in paras if p.style.name == "List Number"]
+case("nested bullets: run into the numbered item, not a nested list",
+     [p.text for p in nested] == ["a detail under it", "another detail"]
+     and [p.text for p in numbered] == ["First step", "Second step"])
+if len(numbered) == 2:
+    ids = [p._p.pPr.numPr.numId.val for p in numbered]
+    case("nested bullets: the numbering does not carry on after them",
+         ids[0] == ids[1])
+levels = [(p.style.name, p.text) for p in paras if p.style.name.startswith(("Heading", "Title"))]
+case("second # heading: not a Heading 1, or ## not moved down to Heading 2",
+     levels == [("Title", "The Guide"), ("Heading 1", "Part One"),
+                ("Heading 2", "From Beloved by Clients"), ("Heading 1", "Part Two")])
+h = next((p for p in paras if "Beloved" in p.text), None)
+case("heading emphasis: asterisks printed, or not italic",
+     h is not None and "*" not in h.text
+     and any(r.italic and r.text == "Beloved by Clients" for r in h.runs))
+case("heading emphasis: a plain run turned the heading style's bold off",
+     h is not None and all(r.bold is not False for r in h.runs))
+anchor = re.search(r'w:hyperlink [^>]*w:anchor="([^"]+)"', body)
+case("in-page link: not a link that jumps to its heading",
+     anchor is not None and h is not None
+     and f'w:name="{anchor.group(1)}"' in h._p.xml)
+assert not failed, "; ".join(failed)
+PY
+)"; then
+  echo "FAIL: ordinary Markdown came out wrong: $OUT" >&2
+  exit 1
+fi
+echo "ok: front matter, rules, tables, nested bullets, # Parts, heading emphasis and in-page links"
+
+# 18. Each heading level has its own look (Morgan, 2026-11-11: "Your Header
+#     2 and Header 3 are almost identical, including the same color"):
+#     sizes step down with Heading 2 halfway between 1 and 3, and no two
+#     levels share size and color.
+if ! OUT="$(python3 - "$SCRATCH/out/Gaps.docx" <<'PY' 2>&1
+import sys, docx
+d = docx.Document(sys.argv[1])
+looks = []
+for n in (1, 2, 3, 4):
+    f = d.styles[f"Heading {n}"].font
+    looks.append((f.size.pt, str(f.color.rgb)))
+sizes = [s for s, _c in looks]
+assert sizes == sorted(sizes, reverse=True) and len(set(sizes)) == 4, looks
+assert abs(sizes[1] - (sizes[0] + sizes[2]) / 2) <= 1, f"Heading 2 not halfway: {looks}"
+assert len({c for _s, c in looks}) == 4, f"two levels share a color: {looks}"
+PY
+)"; then
+  echo "FAIL: heading levels do not each look different: $OUT" >&2
+  exit 1
+fi
+echo "ok: each heading level has its own size and shade; Heading 2 sits halfway between 1 and 3"

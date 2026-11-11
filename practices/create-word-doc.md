@@ -16,7 +16,7 @@ status:      active
 supersedes:  []
 overrides:   null
 added:       2026-09-18
-approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2; revised again the same day at his own request, so a contents page looks like one; revised again the same day at his own request, for 0.75-inch page margins on all four sides; revised again the same day at his own request, so each contents entry is set in the footer's sans-serif face and underlined, to read as a link; revised 2026-10-13 at Morgan F's own request (\"in precedent-shared-writing we have a bunch of rules about making .md docs into MS Word docs and let's do that with this doc - including using the Pesty logo in the header\"), for the first non-manuscript document built with it: backslash escapes, web links kept as links, #### headings, a footer label of the document's own, and the logo on page one; revised again 2026-10-13 at his own request: lists a quarter inch in (\"half an inch ... is far too much for my taste\"), real numbered lists, and curly quotes and dashes in every Word document (\"they ALWAYS should\"), dashes by judgment (\"--\" between two words without spaces is always an em dash); and the same day, that a lead-in line has no space between it and its list, and a list's end half the normal space; and that a lead-in always stays on the page of its list; revised 2026-10-14 at his own request (\"I think we need that same space before the bullet list\"), so a lead-in leaves the same half gap above its list as the list leaves below it; revised 2026-10-15 from a consuming repository's root-issues handoff, which Morgan F passed to this set's maintainers without a word on approval (strength: unknown): no --short-name demanded when nothing uses it, and every document records its build for --rebuild; revised 2026-10-16 at Morgan F's own request (\"Please leave a bit more space ... this is a small tweak\"; the front-page logo \"about 60% size it is now ... consistent for ALL pages as a sort of default practice\"), for a small gap under the running header's logo and a 1.56-inch front-page logo by default; revised 2026-10-17 by the session under Morgan F's delegation of that day (\"Fix the other issues you found including the checks that never run. Tell me what you decide. I will be offline so don't wait for me. Approved, act, and Booked.\"): index_required, so a session building a Word file sees it; where the file goes and its name deferred to generated-docs-in-output and dated-download-names; the procedure moved from the Rule into Detail"
+approved_by: "Morgan F, 2026-09-18, via Go Update -- moved here from a private repo-local set, generalized from a book-*/MANUSCRIPT.md-specific rule to any structured-document export; revised again 2026-09-18, Morgan F, via Go Update, to switch the chapter-break mechanism from a heading paragraph property to an explicit page-break run in the preceding paragraph; revised a third time same day, Morgan F, via Go Update, to skip the break when a heading has no body of its own before the next heading (found via Part II, verified on Microsoft (MS) Word desktop macOS 16.78.3); revised 2026-10-04 at Morgan F's own request, to set a \"> \" block as an indented block quotation rather than printing the markers; revised 2026-10-05 at Morgan F's own request, so a downloaded document never asks to update its fields when it opens; revised 2026-10-05 at Morgan F's own request, so a heading straight after the title shares its page, with an optional running header image on every page but the first; revised 2026-10-05 at Morgan F's own request, to set bullet lists half an inch in from the margin rather than flush with it; revised 2026-09-26, Morgan F, \"Go ahead on shared writing\" (strength: assented), to declare the script in ships: so it travels with the practice instead of being copied in by hand; revised 2026-10-05 at Morgan F's own request, so no emphasis asterisk reaches a Word document's text -- italic nested in bold, or wrapped over two lines, printed its asterisks in the Joseph manuscript; revised again the same day at his own request, so crossed emphasis takes the outer mark's form; revised again the same day at his own request, for a sans-serif footer a touch smaller than the body, a running header logo half as big again, and a Heading 1 clearly bigger than Heading 2; revised again the same day at his own request, so a contents page looks like one; revised again the same day at his own request, for 0.75-inch page margins on all four sides; revised again the same day at his own request, so each contents entry is set in the footer's sans-serif face and underlined, to read as a link; revised 2026-10-13 at Morgan F's own request (\"in precedent-shared-writing we have a bunch of rules about making .md docs into MS Word docs and let's do that with this doc - including using the Pesty logo in the header\"), for the first non-manuscript document built with it: backslash escapes, web links kept as links, #### headings, a footer label of the document's own, and the logo on page one; revised again 2026-10-13 at his own request: lists a quarter inch in (\"half an inch ... is far too much for my taste\"), real numbered lists, and curly quotes and dashes in every Word document (\"they ALWAYS should\"), dashes by judgment (\"--\" between two words without spaces is always an em dash); and the same day, that a lead-in line has no space between it and its list, and a list's end half the normal space; and that a lead-in always stays on the page of its list; revised 2026-10-14 at his own request (\"I think we need that same space before the bullet list\"), so a lead-in leaves the same half gap above its list as the list leaves below it; revised 2026-10-15 from a consuming repository's root-issues handoff, which Morgan F passed to this set's maintainers without a word on approval (strength: unknown): no --short-name demanded when nothing uses it, and every document records its build for --rebuild; revised 2026-10-16 at Morgan F's own request (\"Please leave a bit more space ... this is a small tweak\"; the front-page logo \"about 60% size it is now ... consistent for ALL pages as a sort of default practice\"), for a small gap under the running header's logo and a 1.56-inch front-page logo by default; revised 2026-10-17 by the session under Morgan F's delegation of that day (\"Fix the other issues you found including the checks that never run. Tell me what you decide. I will be offline so don't wait for me. Approved, act, and Booked.\"): index_required, so a session building a Word file sees it; where the file goes and its name deferred to generated-docs-in-output and dated-download-names; the procedure moved from the Rule into Detail; revised 2026-11-11 from a consuming repository's handoff that Morgan F asked for (\"Yes, do that fix in a new session you start rooted in the writing practice repo\"), with his own words on headings (\"Your Header 2 and Header 3 are almost identical, including the same color\"): tables, front matter, rules, nested bullets, a \"# Part\" after the title, emphasis in headings and in-page links, and a distinct look for each heading level"
 ---
 ## Rule
 **Any Word document built for someone to download carries a footer -- a
@@ -104,7 +104,8 @@ today via [`tools/precedent_time.py`](https://github.com/alex137/BestPractice/bl
 -- a bare `date.today()` would silently stamp the container's UTC date,
 which is wrong for part of every day.
 
-**Every `##` and `###` heading starts on a fresh page** -- a page break
+**Every Part and chapter heading (Heading 1 and Heading 2) starts on a
+fresh page** -- a page break
 before the heading, not after whatever came before it, so a section that
 ends mid-page never runs its last paragraph into the next section's
 title. The break is an explicit page-break run appended to the end of
@@ -185,13 +186,40 @@ prints as its character (`\$15k` is `$15k`, `\[A\]` is `[A]`); a link
 to the web (`http:`, `https:`, `mailto:`) stays a real hyperlink, blue and
 underlined, while a link to a path in the repository still prints as its
 text alone; and a `####` heading is a real Heading 3 that flows on with
-no page break.
+no page break. A link to a heading in the same document
+(`[Section](#section)`, as a hand-made contents list writes it) jumps to
+that heading; one to an id no heading has prints as its text. `*italic*`
+inside a heading is italic, never asterisks.
 
-**Heading 1 stands clearly between the title and Heading 2**: 20
-point, where Word's stock 14 point sat barely above Heading 2's 13 and
-the title is 26. `style_heading_1(doc)` sets it; `build_doc()` calls it,
-and a document built by hand with its own sizes keeps the same order --
-title, then Heading 1 well below it, then Heading 2 well below that.
+**Which heading is which level.** The first `#` is the title. Normally
+`##` is a Heading 1 (a Part), `###` a Heading 2 (a chapter), `####` a
+Heading 3. **A document with more `#` headings after its title** -- a
+`# Part One`, a `# Part Two` -- uses `#` for its Parts, so every level
+moves down one: `#` a Heading 1, `##` a Heading 2, `###` a Heading 3,
+`####` a Heading 4. Either way the page breaks follow the Word level, not
+the number of `#`s: Heading 1 and 2 start a page, the rest flow on.
+
+**More Markdown, read as Markdown means it.** YAML front matter (`---`
+... `---` at the very top) is data about the file and never printed. A
+`---` line on its own is a thin grey rule across the text. A pipe table
+(`| a | b |` over a `|---|` row) is a real Word table: a grid, its header
+row bold on a pale tint of the heading blue and repeated on each page the
+table runs onto, each cell keeping its bold, italic and links. A `- `
+line indented under a list item is a bullet nested under it, and a
+numbered list's count carries on after it.
+
+**Every heading level has a look of its own.** Each steps down in size
+and goes a shade lighter in the same heading blue: Heading 1 is 20 point
+(the title is 26), Heading 2 17, halfway between Heading 1 and Heading
+3, Heading 3 14, and Heading 4 12 and italic. Word's stock sizes put
+Heading 2 and 3 at 13 and 12 point in one color, and Morgan could not
+tell them apart (2026-11-11). Heading 3 is not underlined, though that
+was considered: beside a document's links, which are blue and
+underlined, it read as one more link. `style_headings(doc)` sets all
+four (`style_heading_1(doc)` sets Heading 1 alone); `build_doc()` calls
+it, and a document built by hand with its own sizes keeps the same order.
+A project with a palette of its own (`visual-palette`) may restyle them
+in its own colors.
 
 **Page is A4 with 0.75-inch margins on all four sides, default line
 spacing is 1.3x**, set once on the `Normal`
@@ -300,7 +328,7 @@ one), and nothing in the old file says which flags made it.
 
 ### The parser, and how the script travels
 
-The parser handles a working subset of Markdown: `#`/`##`/`###` headings
+The parser handles a working subset of Markdown: `#` to `######` headings
 (even when not followed by a blank line -- some manuscripts' own section
 headers have none, and an earlier draft of this script merged the
 heading into the following paragraph and leaked the `#` characters into

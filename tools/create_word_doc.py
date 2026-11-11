@@ -4,14 +4,14 @@ with a confidential-draft footer stamped on every page.
 
 # practice: create-word-doc
 
-Parses the manuscript's plain Markdown (headings up to ####, **bold**,
+Parses the manuscript's plain Markdown (headings up to ######, **bold**,
 *italic* and ***both***, nested either way and carried across a wrapped
 line, as Markdown reads them, [links](...) printed as their text, "- " bullet lists whose
 items may wrap onto indented lines, "> " block quotations, and
 multi-line blocks such as song lyrics where each physical line is a hard
 break within one paragraph; HTML comments are dropped) and
 renders it as a Word document using python-docx's built-in Title/
-Heading 1/Heading 2/List Bullet styles, so the result carries real
+Heading 1-4/List Bullet/List Number/Table Grid styles, so the result carries real
 heading structure (Word's Navigation Pane, an auto-updating TOC) rather
 than merely looking like headings.
 
@@ -24,11 +24,19 @@ a touch smaller than the body (10 point against 12), so it reads as page
 furniture against the serif text. style_footer() does the same for a
 document built by hand.
 
-Heading 1 is 20 point, between the title's 26 and Heading 2's 13: Word's
-stock 14 point barely stood out from Heading 2. style_heading_1() does
-the same for a document built by hand.
+The first "# " is the title; "##" is a Heading 1 (a Part), "###" a Heading
+2 (a chapter), "####" a Heading 3. A document with more "# " headings after
+its title ("# Part One", "# Part Two") uses "#" for its Parts, so every level
+moves down one: "#" a Heading 1, "##" a Heading 2, and so on. *Emphasis*
+in a heading is read as it is in text.
 
-Every Part (##) and chapter (###) heading starts on a new page -- a
+Each heading level looks clearly different: sizes step down -- title 26,
+Heading 1 20, Heading 2 17 (halfway between 1 and 3), Heading 3 14,
+Heading 4 12 and italic -- and each goes a shade lighter in the same
+heading blue. Word's stock Heading 2 and 3 were 13 and 12 point in one
+color. style_headings() does the same for a document built by hand.
+
+Every Part (Heading 1) and chapter (Heading 2) starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
 that ends mid-page never bleeds into the next one's heading. The title
 page is the one exception: nothing precedes it, so no break is needed --
@@ -73,6 +81,13 @@ line for line in Courier New, and a code span keeps its characters in the
 same face, without its backticks. The rules are typography.py's, shared with
 every other builder for an outside reader; smarten() does the same for a
 document built by hand.
+
+YAML front matter at the top of the file is left out. A "---" line is a
+thin grey rule. A pipe table (a "| a | b |" row over a "|---|" row) is a
+real Word table, its header row bold and shaded and repeated on each page,
+every cell read like a paragraph. A "- " line indented under a list item is
+a bullet nested under it, and a numbered list keeps counting after it. A
+link to a heading in the same document, [Section](#section), jumps to it.
 
 A line holding only an image, ![alt text](path), puts the picture itself
 in the document, centered, at its own size up to IMAGE_MAX_WIDTH (4.5
@@ -217,6 +232,7 @@ LINK_RE = re.compile(r"\[([^\]]+)\]\([^)\s]*\)")
 # that pointed its reader at "the original proposal" lost the address
 # (Morgan, 2026-10-13). Marked here, made a real hyperlink in add_inline().
 WEB_LINK_RE = re.compile(r"(?<!\\)\[([^\]]+)\]\(((?:https?|mailto):[^)\s]*)\)")
+ANCHOR_LINK_RE = re.compile(r"(?<!\\)\[([^\]]+)\]\(#([^)\s]+)\)")
 LINK_OPEN, LINK_MID, LINK_CLOSE = "\x01", "\x02", "\x03"
 LINK_MARK_RE = re.compile("\x01([^\x02]*)\x02|\x03")
 # practice: create-word-doc -- Markdown's backslash escape: "\\$15k" and
@@ -253,9 +269,25 @@ CODE_SPANS = []
 FOOTER_FONT = "Arial"
 FOOTER_SIZE = 10
 # practice: create-word-doc -- Heading 1 sits clearly between the title
-# (26 point) and Heading 2 (13): Word's stock 14 point barely stood out
-# from Heading 2 (Morgan, 2026-10-05).
+# (26 point) and Heading 2: Word's stock 14 point barely stood out from
+# Heading 2 (Morgan, 2026-10-05).
 HEADING_1_SIZE = 20
+# practice: create-word-doc -- every heading level looks clearly different
+# (Morgan, 2026-11-11: "Your Header 2 and Header 3 are almost identical,
+# including the same color"). Word's stock Heading 2 and 3 were 13 and 12
+# point in the same blue. Now each level steps down in size and goes a
+# shade lighter in the same heading blue, and Heading 4 is italic, so
+# no two levels share a look. Heading 2 sits halfway between Heading 1 and
+# Heading 3. Heading 3 is not underlined, though Morgan suggested it: set
+# beside a document's links, which are blue and underlined, an underlined
+# blue heading read as one more link. Level: (points, color, italic,
+# underline).
+HEADING_LOOK = {
+    1: (HEADING_1_SIZE, "1F3F6E", False, False),
+    2: (17, "2E5C99", False, False),
+    3: (14, "3D72B8", False, False),
+    4: (12, "4F81BD", True, False),
+}
 # practice: create-word-doc -- the page margin on all four sides, in inches.
 # It was one inch until Morgan asked for 0.75 (2026-10-05). A builder that
 # lays out its own page reads this rather than its own number.
@@ -279,6 +311,20 @@ COVER_LOGO_WIDTH = 1.56
 # text, and a consuming repository patched the file after every build).
 IMAGE_LINE_RE = re.compile(r"^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$")
 IMAGE_MAX_WIDTH = 4.5  # inches
+# practice: create-word-doc -- ordinary Markdown that once came out wrong
+# (2026-11-11, a guide for new account managers, which its repository had to
+# rewrite before every build): YAML front matter printed as text, a "---"
+# rule as a stray dash, a table as a line of pipes, a "# Part" after the
+# title with its "#", and a bullet under a numbered item run into it.
+HEADING_RE = re.compile(r"^(#{1,6})(?:\s+(.*?))?(?:\s+#+)?\s*$")
+RULE_RE = re.compile(r"^\s{0,3}([-*_])(\s*\1){2,}\s*$")
+TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
+TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+TABLE_HEADER_FILL = "DCE6F2"  # a pale tint of the heading blue
+# A link to a heading in the same document, "[Section](#section)", becomes
+# a link that jumps there: the heading's GitHub-style id -> its bookmark.
+ANCHORS = {}
+ANCHOR_ID_BASE = 100000  # bookmark ids clear of add_contents()' own
 
 
 def set_style_font(style, name):
@@ -312,6 +358,24 @@ def style_heading_1(doc, size=None):
     style = doc.styles["Heading 1"]
     style.font.size = Pt(size or HEADING_1_SIZE)
     return style
+
+
+def style_headings(doc):
+    """Give Heading 1 to 4 the sizes, shades and marks HEADING_LOOK sets,
+    so each level reads as its own at a glance (practice: create-word-doc).
+    A builder that makes its own headings calls this too. Returns the
+    styles, Heading 1 first."""
+    from docx.shared import RGBColor
+    out = []
+    for level, (size, color, italic, underline) in HEADING_LOOK.items():
+        style = doc.styles[f"Heading {level}"]
+        style.font.size = Pt(size)
+        style.font.color.rgb = RGBColor.from_string(color)
+        style.font.bold = True
+        style.font.italic = italic
+        style.font.underline = underline
+        out.append(style)
+    return out
 
 
 def style_contents(doc, section=None):
@@ -394,13 +458,20 @@ def style_list_bullet(doc):
     return style_list(doc, "List Bullet")
 
 
+def style_list_nested(doc):
+    """Word's built-in "List Bullet 2" for a bullet under a list item: its
+    bullet sits under the item's text, LIST_HANG further in, and its own
+    text LIST_HANG past that. Returns the style."""
+    return style_list(doc, "List Bullet 2", indent=LIST_INDENT + LIST_HANG)
+
+
 def style_list_number(doc):
     """Move Word's built-in "List Number" LIST_INDENT in from the margin,
     the same place as a bullet list. Returns the style."""
     return style_list(doc, "List Number")
 
 
-def style_list(doc, name):
+def style_list(doc, name, indent=LIST_INDENT):
     """Move one of Word's built-in list styles LIST_INDENT in from the margin:
     the bullet at LIST_INDENT, the text (and every wrapped line under it) at
     LIST_INDENT + LIST_HANG. The stock style puts the bullet flush with the
@@ -414,7 +485,7 @@ def style_list(doc, name):
     # it, so the gap between a lead-in line and its first item is exactly
     # what lead_into_list leaves there (Morgan, 2026-10-13).
     pf.space_before = Pt(0)
-    pf.left_indent = Inches(LIST_INDENT + LIST_HANG)
+    pf.left_indent = Inches(indent + LIST_HANG)
     pf.first_line_indent = Inches(-LIST_HANG)
     num_pr = style.element.pPr.numPr if style.element.pPr is not None else None
     if num_pr is None or num_pr.numId is None:
@@ -430,12 +501,12 @@ def style_list(doc, name):
             lvl.append(ppr)
         for tab in ppr.iter(qn("w:tab")):
             if tab.get(qn("w:val")) == "num":
-                tab.set(qn("w:pos"), twips(LIST_INDENT + LIST_HANG))
+                tab.set(qn("w:pos"), twips(indent + LIST_HANG))
         ind = ppr.find(qn("w:ind"))
         if ind is None:
             ind = OxmlElement("w:ind")
             ppr.append(ind)
-        ind.set(qn("w:left"), twips(LIST_INDENT + LIST_HANG))
+        ind.set(qn("w:left"), twips(indent + LIST_HANG))
         ind.set(qn("w:hanging"), twips(LIST_HANG))
     return style
 
@@ -492,6 +563,12 @@ def parse_inline(text):
     text = CODE_SPAN_RE.sub(hold, text)
     text = WEB_LINK_RE.sub(
         lambda m: LINK_OPEN + m.group(2) + LINK_MID + m.group(1) + LINK_CLOSE, text)
+    # practice: create-word-doc -- a link to a heading in this document jumps
+    # to it; one to an id no heading has prints as its text, like a path.
+    text = ANCHOR_LINK_RE.sub(
+        lambda m: (LINK_OPEN + "#" + ANCHORS[m.group(2).lower()] + LINK_MID
+                   + m.group(1) + LINK_CLOSE)
+        if m.group(2).lower() in ANCHORS else m.group(1), text)
     text = LINK_RE.sub(r"\1", text)
     text = smarten(text)
     if text.endswith("\\"):
@@ -631,8 +708,13 @@ def add_inline(paragraph, lines, soft_wraps):
                     link = None
                 else:
                     link = OxmlElement("w:hyperlink")
-                    link.set(qn("r:id"), paragraph.part.relate_to(
-                        m.group(1), RT.HYPERLINK, is_external=True))
+                    if m.group(1).startswith("#"):
+                        # In this document: jump to the heading's bookmark.
+                        link.set(qn("w:anchor"), m.group(1)[1:])
+                        link.set(qn("w:history"), "1")
+                    else:
+                        link.set(qn("r:id"), paragraph.part.relate_to(
+                            m.group(1), RT.HYPERLINK, is_external=True))
                     paragraph._p.append(link)
 
 
@@ -679,21 +761,134 @@ def strip_comments(text):
     return "\n".join(kept).lstrip("\n")
 
 
-def bullet_items(block):
-    """A "- " list's items, or None when the block is not a list. An item
-    may wrap: a line that does not start with "- " but is indented
-    continues the item before it."""
-    if not BULLET_RE.match(block[0]):
+def strip_front_matter(text):
+    """Drop a YAML front-matter block -- "---" on the first line, through
+    the next "---" or "..." line -- which is data about the file, never
+    text for the reader (practice: create-word-doc). Text without one
+    comes back unchanged."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return text
+    for i in range(1, len(lines)):
+        if lines[i].strip() in ("---", "..."):
+            return "\n".join(lines[i + 1:]).lstrip("\n")
+    return text
+
+
+def heading_slug(raw, seen):
+    """The id GitHub gives a heading, so "[Section](#section)" finds it:
+    lower case, markup and punctuation gone, spaces as hyphens, and "-1",
+    "-2" after a repeat. `seen` counts the ids already given."""
+    text = ANCHOR_LINK_RE.sub(r"\1", LINK_RE.sub(r"\1", raw))
+    text = re.sub(r"[*_`]", "", text).strip().lower()
+    slug = re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
+    n = seen.get(slug, 0)
+    seen[slug] = n + 1
+    return slug if n == 0 else f"{slug}-{n}"
+
+
+def add_bookmark(paragraph, name, bookmark_id):
+    """Put a bookmark called `name` around a paragraph's text, for an
+    in-document link to jump to."""
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), str(bookmark_id))
+    start.set(qn("w:name"), name)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), str(bookmark_id))
+    p_pr = paragraph._p.pPr
+    if p_pr is not None:
+        p_pr.addnext(start)
+    else:
+        paragraph._p.insert(0, start)
+    paragraph._p.append(end)
+
+
+def table_rows(block):
+    """A pipe table's rows as lists of cell text, header row first, or None
+    when the block is not one: every line a "| ... |" row and the second
+    line the "|---|" row under the header (practice: create-word-doc). An
+    escaped "\\|" stays a character in its cell."""
+    if len(block) < 2 or not all(TABLE_ROW_RE.match(l) for l in block) \
+            or not TABLE_SEP_RE.match(block[1]):
         return None
+    rows = []
+    for line in [block[0]] + block[2:]:
+        body = line.strip()[1:-1].replace("\\|", "\x06")
+        rows.append([c.strip().replace("\x06", "|") for c in body.split("|")])
+    width = max(len(r) for r in rows)
+    return [r + [""] * (width - len(r)) for r in rows]
+
+
+def add_table(doc, rows, soft_wraps):
+    """A real Word table: a grid, the header row bold on a pale tint of the
+    heading blue and repeated at the top of each page the table runs onto,
+    every cell's text read like a paragraph's -- bold, italic, links."""
+    table = doc.add_table(rows=len(rows), cols=len(rows[0]))
+    table.style = doc.styles["Table Grid"]
+    for r, row in enumerate(rows):
+        for c, cell_text in enumerate(row):
+            cell = table.cell(r, c)
+            p = cell.paragraphs[0]
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.line_spacing = 1.0
+            add_inline(p, [cell_text], soft_wraps)
+            if r == 0:
+                for run in p.runs:
+                    run.bold = True
+                for run in p._p.iter(qn("w:r")):
+                    rpr = run.find(qn("w:rPr"))
+                    if rpr is None:
+                        rpr = OxmlElement("w:rPr")
+                        run.insert(0, rpr)
+                    if rpr.find(qn("w:b")) is None:
+                        rpr.insert(0, OxmlElement("w:b"))
+                shade = OxmlElement("w:shd")
+                shade.set(qn("w:val"), "clear")
+                shade.set(qn("w:color"), "auto")
+                shade.set(qn("w:fill"), TABLE_HEADER_FILL)
+                cell._tc.get_or_add_tcPr().append(shade)
+    header = table.rows[0]._tr.get_or_add_trPr()
+    header.append(OxmlElement("w:tblHeader"))
+    return table
+
+
+def list_items(block, marker_re):
+    """A list's items as [level, text] pairs, or None when the block is not
+    a list whose first line matches `marker_re`. Level 0 is the list
+    itself; an indented "- " line under an item is a bullet nested under
+    it, level 1 (practice: create-word-doc: it was being run into the item's
+    own text). Any other indented line continues the item before it."""
+    if not marker_re.match(block[0]):
+        return None
+    indent = lambda l: len(l) - len(l.lstrip())  # noqa: E731
+    base = indent(block[0])
     items = []
     for line in block:
-        if BULLET_RE.match(line):
-            items.append(BULLET_RE.sub("", line).strip())
-        elif line[:1].isspace():
-            items[-1] += " " + line.strip()
+        if marker_re.match(line) and indent(line) <= base:
+            items.append([0, marker_re.sub("", line).strip()])
+        elif BULLET_RE.match(line) and indent(line) > base:
+            items.append([1, BULLET_RE.sub("", line).strip()])
+        elif indent(line) > base or line[:1].isspace():
+            items[-1][1] += " " + line.strip()
         else:
             return None
     return items
+
+
+def bullet_items(block):
+    """A "- " list's [level, text] items, or None when the block is not a
+    list. See list_items()."""
+    return list_items(block, BULLET_RE)
+
+
+def tighten_nesting(paragraphs, items):
+    """No gap where a list steps into or out of a nested bullet: Word drops
+    the space between two items of one style by itself, but not between a
+    numbered item and the bullet under it."""
+    for p, (level, _), nxt in zip(paragraphs, items, items[1:]):
+        if nxt[0] != level:
+            p.paragraph_format.space_after = Pt(0)
+            p.paragraph_format.space_before = Pt(0)
 
 
 def lead_into_list(doc, paragraph):
@@ -728,19 +923,14 @@ def paragraph_space_after(doc):
 
 
 def numbered_items(block):
-    """A "1. " list's (start, items), or None when the block is not one.
-    Wrapping works as in bullet_items()."""
+    """A "1. " list's (start, [level, text] items), or None when the block
+    is not one. Nesting and wrapping work as in list_items(): a bullet
+    under a numbered item nests under it, and the numbering carries on
+    after it."""
     m = NUMBER_RE.match(block[0])
-    if not m:
+    items = list_items(block, NUMBER_RE) if m else None
+    if items is None:
         return None
-    items = []
-    for line in block:
-        if NUMBER_RE.match(line):
-            items.append(NUMBER_RE.sub("", line).strip())
-        elif line[:1].isspace():
-            items[-1] += " " + line.strip()
-        else:
-            return None
     return int(m.group(1)), items
 
 
@@ -809,8 +999,9 @@ def group_blocks(lines):
     and ends its own block even with no blank line around it -- the
     manuscript's section headers are immediately followed by body text
     with no blank line, and merging them would leak the '#' markers into
-    the paragraph as literal text."""
-    is_heading = lambda l: re.match(r"^#{1,3}\s", l)
+    the paragraph as literal text. A "---" rule is a block of its own the
+    same way."""
+    is_heading = lambda l: HEADING_RE.match(l) or RULE_RE.match(l)  # noqa: E731
     blocks, current = [], []
     fence = None   # the fence a code block opened with, while inside one
 
@@ -970,14 +1161,78 @@ def add_image(doc, image_path, alt=""):
     return p
 
 
+def add_heading(doc, raw, level):
+    """A heading whose text is read like a paragraph's: *italic* inside it
+    is italic, never asterisks (practice: create-word-doc, 2026-11-11:
+    "## From *Beloved by Clients*" printed its asterisks)."""
+    p = doc.add_heading("", level=level)
+    add_inline(p, [raw], False)
+    # Plain text takes the heading style's own weight and slant: a run
+    # marked "not bold" would turn a bold heading style off.
+    for run in p.runs:
+        if run.bold is False:
+            run.bold = None
+        if run.italic is False:
+            run.italic = None
+    return p
+
+
+def add_rule(doc):
+    """A "---" line as a thin rule across the text, never a stray dash: an
+    empty paragraph with a light border under it."""
+    p = doc.add_paragraph()
+    p.paragraph_format.line_spacing = 1.0
+    p_pr = p._p.get_or_add_pPr()
+    borders = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    for key, val in (("val", "single"), ("sz", "6"), ("space", "1"),
+                     ("color", "A6A6A6")):
+        bottom.set(qn(f"w:{key}"), val)
+    borders.append(bottom)
+    p_pr.insert_element_before(
+        borders, "w:shd", "w:tabs", "w:suppressAutoHyphens", "w:spacing",
+        "w:ind", "w:jc", "w:outlineLvl", "w:rPr", "w:sectPr")
+    return p
+
+
+def heading_levels(blocks):
+    """Each heading block's Word level, by block index: 0 for the title
+    (the first "# "), and for the rest one less than its "#" count -- "##"
+    a Heading 1, "###" a Heading 2. A document with more "# " headings
+    after its title (a "# Part One", a "# Part Two") uses "#" for its
+    Parts, so every level moves down one: "#" a Heading 1, "##" a Heading 2,
+    "###" a Heading 3 (practice: create-word-doc, 2026-11-11: such a Part
+    printed as "# Part One")."""
+    found = []
+    for i, block in enumerate(blocks):
+        m = HEADING_RE.match(block[0]) if len(block) == 1 else None
+        if m:
+            found.append((i, len(m.group(1))))
+    title = next((i for i, n in found if n == 1), None)
+    shift = 1 if any(n == 1 and i != title for i, n in found) else 0
+    return {i: 0 if i == title else min(9, max(1, n - 1 + shift))
+            for i, n in found}
+
+
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
               section_breaks=True, header_image=None, soft_wraps=False,
               header_on_first_page=False, footer_label=None):
-    text = strip_comments(manuscript_path.read_text(encoding="utf-8"))
+    text = strip_front_matter(strip_comments(
+        manuscript_path.read_text(encoding="utf-8")))
     STRAY_ASTERISKS.clear()
     CODE_SPANS.clear()
     lines = text.split("\n")
     blocks = group_blocks(lines)
+    levels = heading_levels(blocks)
+    # A heading something links to ("[Section](#section)") gets a bookmark
+    # to jump to; one nothing links to is left without.
+    ANCHORS.clear()
+    linked = {m.group(2).lower() for m in ANCHOR_LINK_RE.finditer(text)}
+    seen, bookmarks = {}, {}
+    for i in levels:
+        slug = heading_slug(HEADING_RE.match(blocks[i][0]).group(2) or "", seen)
+        if slug in linked:
+            bookmarks[i] = ANCHORS[slug] = f"_md{len(bookmarks) + 1}"
 
     doc = Document()
     doc.styles["Normal"].font.name = "Times New Roman"
@@ -994,10 +1249,11 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
     quote_style = style_block_quote(doc)  # practice: create-word-doc
     style_footer(doc)  # practice: create-word-doc
     style_heading_1(doc)  # practice: create-word-doc
+    style_headings(doc)
     style_list_bullet(doc)  # practice: create-word-doc
     style_list_number(doc)
+    style_list_nested(doc)
 
-    saw_title = False
     last_para = None  # practice: create-word-doc (chapter page breaks)
     # A heading with no body of its own -- a "## Part" immediately followed
     # by a "### Chapter" and no prose between them, e.g. book-joseph's own
@@ -1008,7 +1264,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
     # is itself a heading we just broke to; skip the next break when it is,
     # so two headings with nothing between them stack on the SAME page.
     last_was_heading = False
-    for block in blocks:
+    for index, block in enumerate(blocks):
         first = block[0]
 
         if FENCE_RE.match(first):
@@ -1044,43 +1300,47 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             block = [f"[{image.group(1) or image.group(2)}]({image.group(2)})"]
             first = block[0]
 
-        if not saw_title and re.match(r"^# ", first) and len(block) == 1:
-            last_para = doc.add_heading(heading_text(first[2:]), level=0)
-            saw_title = True
-            # A heading straight after the title shares its page: a break
-            # there would leave the title alone on page one (Morgan,
-            # 2026-10-05, on a blurbs file whose cover held nothing else).
+        if index in levels:
+            level = levels[index]
+            raw = HEADING_RE.match(first).group(2) or ""
+            if level == 0:
+                last_para = add_heading(doc, raw, 0)
+                # A heading straight after the title shares its page: a
+                # break there would leave the title alone on page one
+                # (Morgan, 2026-10-05, on a blurbs file whose cover held
+                # nothing else).
+            else:
+                # practice: create-word-doc (chapter page breaks) -- a Part
+                # (Heading 1) or a chapter (Heading 2) starts a new page. The
+                # break is an explicit page-break RUN appended to the END of
+                # the paragraph that comes BEFORE this heading, never a
+                # property set on the heading paragraph itself. That way the
+                # break lives in a different, earlier paragraph and can't
+                # land after the heading's own text. A sub-section (Heading 3
+                # and below, "####" -- Morgan, 2026-10-13, a proposal's People
+                # and Processes) flows on.
+                if section_breaks and level <= 2 and last_para is not None \
+                        and not last_was_heading:
+                    last_para.add_run().add_break(WD_BREAK.PAGE)
+                last_para = add_heading(doc, raw, level)
+            if index in bookmarks:
+                add_bookmark(last_para, bookmarks[index], ANCHOR_ID_BASE + index)
             last_was_heading = True
             continue
 
-        if re.match(r"^## ", first) and len(block) == 1:
-            # practice: create-word-doc (chapter page breaks) -- the break
-            # is an explicit page-break RUN appended to the END of the
-            # paragraph that comes BEFORE this heading, never a property
-            # set on the heading paragraph itself. That way the break lives
-            # in a different, earlier paragraph and can't land after the
-            # heading's own text -- the heading paragraph carries no
-            # page-break marking of its own at all.
-            if section_breaks and last_para is not None and not last_was_heading:
-                last_para.add_run().add_break(WD_BREAK.PAGE)
-            last_para = doc.add_heading(heading_text(first[3:]), level=1)
-            last_was_heading = True
+        if RULE_RE.match(first) and len(block) == 1:
+            last_para = add_rule(doc)
+            last_was_heading = False
             continue
 
-        if re.match(r"^### ", first) and len(block) == 1:
-            if section_breaks and last_para is not None and not last_was_heading:
-                last_para.add_run().add_break(WD_BREAK.PAGE)
-            last_para = doc.add_heading(heading_text(first[4:]), level=2)
-            last_was_heading = True
-            continue
-
-        # practice: create-word-doc -- a "#### " sub-section heading is a
-        # real Heading 3, never text with "####" in front of it (Morgan,
-        # 2026-10-13, a proposal's People and Processes). It flows on: a
-        # page break is for a Part or a chapter, not a sub-section.
-        if re.match(r"^#### ", first) and len(block) == 1:
-            last_para = doc.add_heading(heading_text(first[5:]), level=3)
-            last_was_heading = True
+        rows = table_rows(block)
+        if rows is not None:
+            add_table(doc, rows, soft_wraps)
+            # The text after a table starts a little below it, and a page
+            # break for the next chapter lands here, never inside a cell.
+            last_para = doc.add_paragraph()
+            last_para.paragraph_format.line_spacing = 1.0
+            last_was_heading = False
             continue
 
         if all(QUOTE_LINE_RE.match(l) for l in block):
@@ -1101,12 +1361,20 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             # never numbers typed as text (Morgan, 2026-10-13).
             start, items = numbered
             num_id = None
-            for item in items:
-                p = doc.add_paragraph(style="List Number")
-                if num_id is None:
-                    num_id = restart_numbering(doc, p, start)
-                set_num_id(p, num_id)
+            made = []
+            for level, item in items:
+                if level:
+                    # A bullet under a numbered item; the numbering carries
+                    # on after it, since the items share one count.
+                    p = doc.add_paragraph(style="List Bullet 2")
+                else:
+                    p = doc.add_paragraph(style="List Number")
+                    if num_id is None:
+                        num_id = restart_numbering(doc, p, start)
+                    set_num_id(p, num_id)
                 add_inline(p, [item], soft_wraps)
+                made.append(p)
+            tighten_nesting(made, items)
             end_list(doc, p)
             last_para = p
             last_was_heading = False
@@ -1115,9 +1383,13 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         items = bullet_items(block)
         if items is not None:
             lead_into_list(doc, last_para)
-            for item in items:
-                p = doc.add_paragraph(style="List Bullet")
+            made = []
+            for level, item in items:
+                p = doc.add_paragraph(
+                    style="List Bullet 2" if level else "List Bullet")
                 add_inline(p, [item], soft_wraps)
+                made.append(p)
+            tighten_nesting(made, items)
             end_list(doc, p)
             last_para = p
             last_was_heading = False
