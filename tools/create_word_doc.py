@@ -42,8 +42,10 @@ that ends mid-page never bleeds into the next one's heading. The title
 page is the one exception: nothing precedes it, so no break is needed --
 and a heading that follows the title with nothing between them shares
 the title's page, so a title never sits alone on an otherwise empty
-page. `--no-section-breaks` turns the breaks off altogether, for a
-shorter document (notes, a brainstorm) whose sections should flow on.
+page. `--no-section-breaks` turns the breaks off altogether, and only
+when the person asked for that document's sections to flow on: it needs
+`--breaks-off-because "<their words>"`, which the build records, and the
+script refuses it without them.
 `--soft-wraps` reads a source wrapped at a fixed width the way Markdown
 does: a paragraph's lines join with a space, and only a line ending in a
 backslash or two spaces breaks.
@@ -110,7 +112,8 @@ Usage:
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --no-footer
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --contents
   python3 tools/create_word_doc.py notes/NOTES.md --out /path/to/Notes.docx --short-name Notes \
-      --no-section-breaks --header-image logo.png
+      --no-section-breaks --breaks-off-because "Morgan: let the notes flow on" \
+      --header-image logo.png
   python3 tools/create_word_doc.py --rebuild old/Notes.docx --out /path/to/Notes.docx
 
 The short book name is needed only by the default footer line, so a
@@ -1516,7 +1519,7 @@ def derive_short_name(manuscript_path):
 BUILD_MARK = "create_word_doc.py build: "
 # Recorded options: argparse destination -> how it is stored.
 RECORDED_PATHS = ("manuscript", "header_image")
-RECORDED_VALUES = ("short_name", "date", "footer_label")
+RECORDED_VALUES = ("short_name", "date", "footer_label", "breaks_off_because")
 RECORDED_FLAGS = ("no_footer", "contents", "no_section_breaks", "soft_wraps",
                   "header_on_first_page")
 
@@ -1629,7 +1632,15 @@ def main():
     ap.add_argument(
         "--no-section-breaks",
         action="store_true",
-        help="let sections flow on instead of starting each ## and ### on a new page",
+        help="let sections flow on instead of starting each ## and ### on a new page; "
+             "needs --breaks-off-because",
+    )
+    ap.add_argument(
+        "--breaks-off-because",
+        default=None,
+        metavar="WORDS",
+        help="the person's own words asking for this document's sections to flow "
+             "on, quoted with who said them; required by --no-section-breaks",
     )
     ap.add_argument(
         "--soft-wraps",
@@ -1667,6 +1678,14 @@ def main():
         print(f"rebuilding as: {command_line(vars(args), args.out)}")
     if args.manuscript is None:
         ap.error("the manuscript is required (or --rebuild FILE.docx)")
+    # practice: create-word-doc -- page breaks go off only on the person's
+    # word, never a session's judgment (2026-11-12: a 28-page guide was
+    # built without them because "most pages were half empty").
+    if args.no_section_breaks and not (args.breaks_off_because or "").strip():
+        ap.error("--no-section-breaks needs --breaks-off-because \"<the person's "
+                 "own words>\": every Part and chapter starts on a new page "
+                 "unless the person asked for this document's sections to flow "
+                 "on (practice: create-word-doc)")
 
     if not args.manuscript.is_file():
         sys.exit(f"error: {args.manuscript} does not exist")
