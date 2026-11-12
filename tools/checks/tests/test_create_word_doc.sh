@@ -721,9 +721,16 @@ sizes = [s for s, _c in looks]
 assert sizes == sorted(sizes, reverse=True) and len(set(sizes)) == 4, looks
 assert abs(sizes[1] - (sizes[0] + sizes[2]) / 2) <= 1, f"Heading 2 not halfway: {looks}"
 assert len({c for _s, c in looks}) == 4, f"two levels share a color: {looks}"
+# Heading 2, and only Heading 2, has the title's line under it (Morgan,
+# 2026-11-12).
+def bottom(name):
+    b = d.styles[name].element.find(".//" + docx.oxml.ns.qn("w:bottom"))
+    return None if b is None else (b.get(docx.oxml.ns.qn("w:val")), b.get(docx.oxml.ns.qn("w:color")))
+assert bottom("Heading 2") == ("single", "4F81BD"), f"Heading 2 line: {bottom('Heading 2')}"
+assert bottom("Heading 1") is None and bottom("Heading 3") is None, "a line on Heading 1 or 3"
 PY
 )"; then
   echo "FAIL: heading levels do not each look different: $OUT" >&2
   exit 1
 fi
-echo "ok: each heading level has its own size and shade; Heading 2 sits halfway between 1 and 3"
+echo "ok: each heading level has its own size and shade; Heading 2 sits halfway between 1 and 3 and has a line under it"

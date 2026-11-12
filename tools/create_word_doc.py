@@ -34,7 +34,8 @@ Each heading level looks clearly different: sizes step down -- title 26,
 Heading 1 20, Heading 2 17 (halfway between 1 and 3), Heading 3 14,
 Heading 4 12 and italic -- and each goes a shade lighter in the same
 heading blue. Word's stock Heading 2 and 3 were 13 and 12 point in one
-color. style_headings() does the same for a document built by hand.
+color. Heading 2 also has a line under it across the whole width, like
+the title's. style_headings() does the same for a document built by hand.
 
 Every Part (Heading 1) and chapter (Heading 2) starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
@@ -291,6 +292,13 @@ HEADING_LOOK = {
     3: (14, "3D72B8", False, False),
     4: (12, "4F81BD", True, False),
 }
+# practice: create-word-doc -- Heading 2 carries a line under it across the
+# whole width, the same line Word's Title style draws under the title
+# (Morgan, 2026-11-12: "a line below it that goes across whole width, just
+# like you did here for the title ... I think that will help differentiate
+# the Header 2 from Header 3"). w:bottom attributes.
+HEADING_2_RULE = (("val", "single"), ("sz", "8"), ("space", "4"),
+                  ("color", "4F81BD"))
 # practice: create-word-doc -- the page margin on all four sides, in inches.
 # It was one inch until Morgan asked for 0.75 (2026-10-05). A builder that
 # lays out its own page reads this rather than its own number.
@@ -378,6 +386,18 @@ def style_headings(doc):
         style.font.italic = italic
         style.font.underline = underline
         out.append(style)
+    # The line under Heading 2, set on the style so every Heading 2 has it.
+    p_pr = doc.styles["Heading 2"].element.get_or_add_pPr()
+    for old in p_pr.findall(qn("w:pBdr")):
+        p_pr.remove(old)
+    borders = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    for key, val in HEADING_2_RULE:
+        bottom.set(qn(f"w:{key}"), val)
+    borders.append(bottom)
+    p_pr.insert_element_before(
+        borders, "w:shd", "w:tabs", "w:suppressAutoHyphens", "w:spacing",
+        "w:ind", "w:jc", "w:outlineLvl", "w:rPr")
     return out
 
 
