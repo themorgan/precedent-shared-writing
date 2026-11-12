@@ -177,7 +177,7 @@ printf '<!-- header -->\n# Sample\n\n## First\nSee [the notes](OTHER.md).\\\nNex
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
   --out "$SCRATCH/out/Flow.docx" --date 2026-01-01 > /dev/null
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
-  --out "$SCRATCH/out/NoBreaks.docx" --date 2026-01-01 --no-section-breaks > /dev/null
+  --out "$SCRATCH/out/NoBreaks.docx" --date 2026-01-01 --no-section-breaks --breaks-off-because "test: flowing sections" > /dev/null
 if ! OUT="$(python3 - "$SCRATCH/out/Flow.docx" "$SCRATCH/out/NoBreaks.docx" <<'PY' 2>&1
 import sys
 import docx
@@ -209,6 +209,18 @@ PY
   exit 1
 fi
 echo "ok: a heading after the title shares its page; links, wrapped and indented bullets, comments, --no-section-breaks"
+
+# 5b. --no-section-breaks without the person's words is refused, and
+#     builds nothing (Morgan, 2026-11-12: a session turned a guide's breaks
+#     off on its own judgment).
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Refused.docx" --date 2026-01-01 --no-section-breaks \
+  > /dev/null 2>"$SCRATCH/refused.err" || true
+if [ -f "$SCRATCH/out/Refused.docx" ] || ! grep -q -- "--breaks-off-because" "$SCRATCH/refused.err"; then
+  echo "FAIL: --no-section-breaks without --breaks-off-because was not refused: $(cat "$SCRATCH/refused.err")" >&2
+  exit 1
+fi
+echo "ok: --no-section-breaks is refused without the person's words"
 
 # 6. --header-image: the image in the header of every page but the first,
 #    whose own header stays empty and whose footer still carries Page X of Y.
@@ -381,7 +393,7 @@ PY
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/proposal.md" \
   --out "$SCRATCH/out/Proposal.docx" --short-name Proposal --date 2026-01-01 \
   --footer-label "CONFIDENTIAL - PROPOSAL" --header-image "$SCRATCH/logo.png" \
-  --header-on-first-page --no-section-breaks > /dev/null
+  --header-on-first-page --no-section-breaks --breaks-off-because "test: flowing sections" > /dev/null
 if ! OUT="$(python3 - "$SCRATCH/out/Proposal.docx" <<'PY' 2>&1
 import sys, re, zipfile, docx
 path = sys.argv[1]
@@ -411,7 +423,7 @@ echo "ok: escapes print as the character, web links stay links, #### is Heading 
 printf '# T\n\nLead-in:\n\n- a "bullet" -- it'"'"'s here, word--word, 1990-2000 on 2026-10-13\n\n1. one\n2. two\n\nText --- between.\n\n3. three\n4. four\n' \
   > "$SCRATCH/notes/lists.md"
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/lists.md" \
-  --out "$SCRATCH/out/Lists.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
+  --out "$SCRATCH/out/Lists.docx" --short-name T --date 2026-01-01 --no-section-breaks --breaks-off-because "test: flowing sections" > /dev/null
 if ! OUT="$(python3 - "$SCRATCH/out/Lists.docx" <<'PY' 2>&1
 import sys, re, zipfile, docx
 from docx.shared import Inches, Pt
@@ -462,7 +474,7 @@ echo "ok: lists sit a quarter inch in, numbered lists are real and restart, quot
 printf '# T\n\nRun `git push --force` -- "carefully", 1990-2000.\n\n```\n$ cmd --flag "x" -- it'"'"'s\n\n  1990-2000 --- end\n```\n\nAfter -- the code.\n' \
   > "$SCRATCH/notes/code.md"
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/notes/code.md" \
-  --out "$SCRATCH/out/Code.docx" --short-name T --date 2026-01-01 --no-section-breaks > /dev/null
+  --out "$SCRATCH/out/Code.docx" --short-name T --date 2026-01-01 --no-section-breaks --breaks-off-because "test: flowing sections" > /dev/null
 if ! OUT="$(python3 - "$SCRATCH/out/Code.docx" <<'PY' 2>&1
 import sys, docx
 d = docx.Document(sys.argv[1])
@@ -516,7 +528,8 @@ mkdir -p "$SCRATCH/repo/.git" "$SCRATCH/repo/prop/output" "$SCRATCH/repo/assets"
 printf '# Proposal\n\n## One\nBody.\n\n## Two\nMore.\n' > "$SCRATCH/repo/prop/p.md"
 cp "$SCRATCH/logo.png" "$SCRATCH/repo/assets/logo.png"
 (cd "$SCRATCH/repo" && python3 "$SET_ROOT/tools/create_word_doc.py" prop/p.md \
-  --out prop/output/p-1.docx --no-section-breaks --header-image assets/logo.png \
+  --out prop/output/p-1.docx --no-section-breaks --breaks-off-because "test: flowing sections" \
+  --header-image assets/logo.png \
   --header-on-first-page --footer-label "CONFIDENTIAL - PROPOSAL" > /dev/null)
 OUT="$(cd "$SCRATCH/repo/prop" && python3 "$SET_ROOT/tools/create_word_doc.py" \
   --rebuild output/p-1.docx --out output/p-2.docx --date 2026-02-02)"
@@ -531,6 +544,7 @@ mark = "create_word_doc.py build: "
 rec_a = json.loads(a.core_properties.comments[len(mark):])
 assert rec_a == {"manuscript": "prop/p.md", "header_image": "assets/logo.png",
                  "no_section_breaks": True, "header_on_first_page": True,
+                 "breaks_off_because": "test: flowing sections",
                  "footer_label": "CONFIDENTIAL - PROPOSAL"}, rec_a
 rec_b = json.loads(b.core_properties.comments[len(mark):])
 assert rec_b == dict(rec_a, date="2026-02-02"), rec_b
@@ -707,9 +721,16 @@ sizes = [s for s, _c in looks]
 assert sizes == sorted(sizes, reverse=True) and len(set(sizes)) == 4, looks
 assert abs(sizes[1] - (sizes[0] + sizes[2]) / 2) <= 1, f"Heading 2 not halfway: {looks}"
 assert len({c for _s, c in looks}) == 4, f"two levels share a color: {looks}"
+# Heading 2, and only Heading 2, has the title's line under it (Morgan,
+# 2026-11-12).
+def bottom(name):
+    b = d.styles[name].element.find(".//" + docx.oxml.ns.qn("w:bottom"))
+    return None if b is None else (b.get(docx.oxml.ns.qn("w:val")), b.get(docx.oxml.ns.qn("w:color")))
+assert bottom("Heading 2") == ("single", "4F81BD"), f"Heading 2 line: {bottom('Heading 2')}"
+assert bottom("Heading 1") is None and bottom("Heading 3") is None, "a line on Heading 1 or 3"
 PY
 )"; then
   echo "FAIL: heading levels do not each look different: $OUT" >&2
   exit 1
 fi
-echo "ok: each heading level has its own size and shade; Heading 2 sits halfway between 1 and 3"
+echo "ok: each heading level has its own size and shade; Heading 2 sits halfway between 1 and 3 and has a line under it"

@@ -34,7 +34,8 @@ Each heading level looks clearly different: sizes step down -- title 26,
 Heading 1 20, Heading 2 17 (halfway between 1 and 3), Heading 3 14,
 Heading 4 12 and italic -- and each goes a shade lighter in the same
 heading blue. Word's stock Heading 2 and 3 were 13 and 12 point in one
-color. style_headings() does the same for a document built by hand.
+color. Heading 2 also has a line under it across the whole width, like
+the title's. style_headings() does the same for a document built by hand.
 
 Every Part (Heading 1) and chapter (Heading 2) starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
@@ -42,8 +43,10 @@ that ends mid-page never bleeds into the next one's heading. The title
 page is the one exception: nothing precedes it, so no break is needed --
 and a heading that follows the title with nothing between them shares
 the title's page, so a title never sits alone on an otherwise empty
-page. `--no-section-breaks` turns the breaks off altogether, for a
-shorter document (notes, a brainstorm) whose sections should flow on.
+page. `--no-section-breaks` turns the breaks off altogether, and only
+when the person asked for that document's sections to flow on: it needs
+`--breaks-off-because "<their words>"`, which the build records, and the
+script refuses it without them.
 `--soft-wraps` reads a source wrapped at a fixed width the way Markdown
 does: a paragraph's lines join with a space, and only a line ending in a
 backslash or two spaces breaks.
@@ -110,7 +113,8 @@ Usage:
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --no-footer
   python3 tools/create_word_doc.py book-joseph/MANUSCRIPT.md --out /path/to/Joseph.docx --contents
   python3 tools/create_word_doc.py notes/NOTES.md --out /path/to/Notes.docx --short-name Notes \
-      --no-section-breaks --header-image logo.png
+      --no-section-breaks --breaks-off-because "Morgan: let the notes flow on" \
+      --header-image logo.png
   python3 tools/create_word_doc.py --rebuild old/Notes.docx --out /path/to/Notes.docx
 
 The short book name is needed only by the default footer line, so a
@@ -288,6 +292,13 @@ HEADING_LOOK = {
     3: (14, "3D72B8", False, False),
     4: (12, "4F81BD", True, False),
 }
+# practice: create-word-doc -- Heading 2 carries a line under it across the
+# whole width, the same line Word's Title style draws under the title
+# (Morgan, 2026-11-12: "a line below it that goes across whole width, just
+# like you did here for the title ... I think that will help differentiate
+# the Header 2 from Header 3"). w:bottom attributes.
+HEADING_2_RULE = (("val", "single"), ("sz", "8"), ("space", "4"),
+                  ("color", "4F81BD"))
 # practice: create-word-doc -- the page margin on all four sides, in inches.
 # It was one inch until Morgan asked for 0.75 (2026-10-05). A builder that
 # lays out its own page reads this rather than its own number.
@@ -375,6 +386,18 @@ def style_headings(doc):
         style.font.italic = italic
         style.font.underline = underline
         out.append(style)
+    # The line under Heading 2, set on the style so every Heading 2 has it.
+    p_pr = doc.styles["Heading 2"].element.get_or_add_pPr()
+    for old in p_pr.findall(qn("w:pBdr")):
+        p_pr.remove(old)
+    borders = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    for key, val in HEADING_2_RULE:
+        bottom.set(qn(f"w:{key}"), val)
+    borders.append(bottom)
+    p_pr.insert_element_before(
+        borders, "w:shd", "w:tabs", "w:suppressAutoHyphens", "w:spacing",
+        "w:ind", "w:jc", "w:outlineLvl", "w:rPr")
     return out
 
 
@@ -1516,7 +1539,7 @@ def derive_short_name(manuscript_path):
 BUILD_MARK = "create_word_doc.py build: "
 # Recorded options: argparse destination -> how it is stored.
 RECORDED_PATHS = ("manuscript", "header_image")
-RECORDED_VALUES = ("short_name", "date", "footer_label")
+RECORDED_VALUES = ("short_name", "date", "footer_label", "breaks_off_because")
 RECORDED_FLAGS = ("no_footer", "contents", "no_section_breaks", "soft_wraps",
                   "header_on_first_page")
 
@@ -1629,7 +1652,15 @@ def main():
     ap.add_argument(
         "--no-section-breaks",
         action="store_true",
-        help="let sections flow on instead of starting each ## and ### on a new page",
+        help="let sections flow on instead of starting each ## and ### on a new page; "
+             "needs --breaks-off-because",
+    )
+    ap.add_argument(
+        "--breaks-off-because",
+        default=None,
+        metavar="WORDS",
+        help="the person's own words asking for this document's sections to flow "
+             "on, quoted with who said them; required by --no-section-breaks",
     )
     ap.add_argument(
         "--soft-wraps",
@@ -1667,6 +1698,14 @@ def main():
         print(f"rebuilding as: {command_line(vars(args), args.out)}")
     if args.manuscript is None:
         ap.error("the manuscript is required (or --rebuild FILE.docx)")
+    # practice: create-word-doc -- page breaks go off only on the person's
+    # word, never a session's judgment (2026-11-12: a 28-page guide was
+    # built without them because "most pages were half empty").
+    if args.no_section_breaks and not (args.breaks_off_because or "").strip():
+        ap.error("--no-section-breaks needs --breaks-off-because \"<the person's "
+                 "own words>\": every Part and chapter starts on a new page "
+                 "unless the person asked for this document's sections to flow "
+                 "on (practice: create-word-doc)")
 
     if not args.manuscript.is_file():
         sys.exit(f"error: {args.manuscript} does not exist")
