@@ -34,8 +34,10 @@ Each heading level looks clearly different: sizes step down -- title 26,
 Heading 1 20, Heading 2 17 (halfway between 1 and 3), Heading 3 14,
 Heading 4 12 and italic -- and each goes a shade lighter in the same
 heading blue. Word's stock Heading 2 and 3 were 13 and 12 point in one
-color. Heading 2 also has a line under it across the whole width, like
-the title's. style_headings() does the same for a document built by hand.
+color. Heading 1 is centered. Heading 2 also has a line under it across
+the whole width, like the title's, and is single-spaced with a small gap after, as the title is,
+so the line sits just under its words. style_headings() does the same for
+a document built by hand.
 
 Every Part (Heading 1) and chapter (Heading 2) starts on a new page -- a
 page break before it, not after the previous paragraph, so a chapter
@@ -386,6 +388,19 @@ def style_headings(doc):
         style.font.italic = italic
         style.font.underline = underline
         out.append(style)
+    # practice: create-word-doc -- Heading 1 is centered, so a Part never
+    # reads as a chapter (Morgan, 2026-11-12: "the heading 1 should be
+    # centered ... that will also differentiate that").
+    doc.styles["Heading 1"].paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # practice: create-word-doc -- Heading 2 is single-spaced, as the title
+    # is. It inherited body text's 1.3 line spacing, which put its line a
+    # whole gap below the words (Morgan, 2026-11-12: "the line ... is sooo
+    # low it looks broken. It should be just below the text ... identical
+    # 'Title'").
+    doc.styles["Heading 2"].paragraph_format.line_spacing = 1.0
+    # ...and a small gap after the line, as the title has, so the first
+    # line of text doesn't touch it.
+    doc.styles["Heading 2"].paragraph_format.space_after = Pt(8)
     # The line under Heading 2, set on the style so every Heading 2 has it.
     p_pr = doc.styles["Heading 2"].element.get_or_add_pPr()
     for old in p_pr.findall(qn("w:pBdr")):
