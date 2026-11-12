@@ -1111,7 +1111,30 @@ def group_blocks(lines):
         else:
             current.append(line)
     flush()
-    return blocks
+    return split_list_continuations(blocks)
+
+
+def split_list_continuations(blocks):
+    """Split a block that opens with an indented paragraph -- a list item's
+    own second paragraph, written after a blank line -- at the first list
+    marker flush with the margin, so the items after it stay a list
+    (practice: create-word-doc). Markdown reads it that way: the indented
+    lines belong to the item above, and the next "3. " closes that item and
+    carries the list on. Without the split the builder ran "3. ... 4. ..."
+    into one paragraph, numbers typed as text (Morgan, 2026-11-12, an AM
+    guide's first-two-weeks list)."""
+    out = []
+    for block in blocks:
+        while block[0][:1].isspace() and not (
+                NUMBER_RE.match(block[0]) or BULLET_RE.match(block[0])):
+            cut = next((i for i, l in enumerate(block) if i and not l[:1].isspace()
+                        and (NUMBER_RE.match(l) or BULLET_RE.match(l))), None)
+            if cut is None:
+                break
+            out.append(block[:cut])
+            block = block[cut:]
+        out.append(block)
+    return out
 
 
 def add_field(paragraph, instr, cached_text="1"):
@@ -1343,8 +1366,13 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
     # is itself a heading we just broke to; skip the next break when it is,
     # so two headings with nothing between them stack on the SAME page.
     last_was_heading = False
+    # Whether the block before was a list, and a numbered list's count that
+    # the next block may carry on (practice: create-word-doc).
+    in_list, open_count = False, None
     for index, block in enumerate(blocks):
         first = block[0]
+        prev_list, prev_count = in_list, open_count
+        in_list, open_count = False, None
 
         if FENCE_RE.match(first):
             # practice: curly-quotes -- set as typed, never smartened.
@@ -1439,7 +1467,10 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             # practice: create-word-doc -- a "1. " list is a real Word list,
             # never numbers typed as text (Morgan, 2026-10-13).
             start, items = numbered
-            num_id = None
+            # A list that picks up where the one above stopped, with only an
+            # item's own paragraph between them, keeps its count: "3." after
+            # item 2's second paragraph is item 3 of the same list.
+            num_id = prev_count[0] if prev_count and prev_count[1] == start else None
             made = []
             for level, item in items:
                 if level:
@@ -1455,6 +1486,21 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
                 made.append(p)
             tighten_nesting(made, items)
             end_list(doc, p)
+            open_count = (num_id, start + sum(1 for level, _ in items if not level))
+            in_list = True
+            last_para = p
+            last_was_heading = False
+            continue
+
+        if prev_list and all(l[:1].isspace() for l in block):
+            # An indented paragraph straight after a list item is that item's
+            # own second paragraph: set it under the item's text, and the
+            # list's count stays open for the items after it.
+            p = doc.add_paragraph()
+            p.paragraph_format.left_indent = Inches(LIST_INDENT + LIST_HANG)
+            add_inline(p, [l.strip() for l in block], soft_wraps)
+            end_list(doc, p)
+            in_list, open_count = True, prev_count
             last_para = p
             last_was_heading = False
             continue
@@ -1470,6 +1516,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
                 made.append(p)
             tighten_nesting(made, items)
             end_list(doc, p)
+            in_list = True
             last_para = p
             last_was_heading = False
             continue
