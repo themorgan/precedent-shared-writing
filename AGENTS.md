@@ -38,7 +38,7 @@ When changing a document that carries a 'last updated' line:
 When handing a person a document to download:
   dated-download-names — the date goes at the end of its name: Name-2026-12-31.docx
 When leaving a placeholder or fill-in-later note mid-draft:
-  draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️, bold and all caps
+  draft-marker — wrap a draft placeholder in ➡️ TEXT ⬅️: bold, all caps, red when rendered
 When naming a branch in anything written:
   name-the-branch — name it literally, never a role-word like 'the base branch'
 When naming a file, branch, doc or anything with a destination, in a doc, reply, PR or commit:
