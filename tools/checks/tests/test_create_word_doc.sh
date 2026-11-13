@@ -734,3 +734,31 @@ PY
   exit 1
 fi
 echo "ok: each heading level has its own size and shade; Heading 2 sits halfway between 1 and 3 and has a line under it"
+
+# A draft-marker note comes out red, arrows included, in a paragraph and in
+# a table cell; the text around it keeps its own color (practice:
+# draft-marker; Morgan, 2026-11-13).
+mkdir -p "$SCRATCH/book-marker"
+printf '# Marker\n\nBefore **➡️ LINK THE DECK ⬅️** after.\n\n| A | B |\n|---|---|\n| x | (➡️ WHO RUNS IT ⬅️) |\n' \
+  > "$SCRATCH/book-marker/MANUSCRIPT.md"
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-marker/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Marker.docx" --date 2026-01-01 > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Marker.docx" <<'PY' 2>&1
+import sys
+import docx
+d = docx.Document(sys.argv[1])
+paras = list(d.paragraphs) + [c.paragraphs[0] for t in d.tables for r in t.rows for c in r.cells]
+runs = [r for p in paras for r in p.runs if r.text.strip()]
+def red(r):
+    return r.font.color is not None and r.font.color.type is not None and str(r.font.color.rgb) == "FF0000"
+inside = [r for r in runs if any(w in r.text for w in ("➡", "⬅", "LINK THE DECK", "WHO RUNS IT"))]
+outside = [r for r in runs if r not in inside]
+assert len(inside) == 6, f"expected six marker runs, got {[r.text for r in inside]}"
+assert all(red(r) for r in inside), f"a marker run is not red: {[(r.text, r.font.color.rgb) for r in inside]}"
+assert not any(red(r) for r in outside), f"text outside a marker is red: {[r.text for r in outside if red(r)]}"
+PY
+)"; then
+  echo "FAIL: draft-marker notes are not set in red: $OUT" >&2
+  exit 1
+fi
+echo "ok: a draft-marker note is red, arrows included, in text and tables; nothing around it is"

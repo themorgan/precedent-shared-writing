@@ -49,6 +49,11 @@ page. `--no-section-breaks` turns the breaks off altogether, and only
 when the person asked for that document's sections to flow on: it needs
 `--breaks-off-because "<their words>"`, which the build records, and the
 script refuses it without them.
+A draft note -- **➡️ TEXT OF THE NOTE ⬅️**, the marker for what the person
+still has to fill in or do -- comes out in bright red (MARKER_RED), arrows
+included, so it stands out on the page (practice: draft-marker; Morgan,
+2026-11-13: "in a bright color, like red text ... so it easily stands out").
+
 `--soft-wraps` reads a source wrapped at a fixed width the way Markdown
 does: a paragraph's lines join with a space, and only a line ending in a
 backslash or two spaces breaks.
@@ -215,7 +220,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK  # noqa: E402
 from docx.oxml import OxmlElement  # noqa: E402
 from docx.oxml.ns import qn  # noqa: E402
 from docx.opc.constants import RELATIONSHIP_TYPE as RT  # noqa: E402
-from docx.shared import Emu, Inches, Mm, Pt  # noqa: E402
+from docx.shared import Emu, Inches, Mm, Pt, RGBColor  # noqa: E402
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import precedent_time  # noqa: E402  (practice: timestamps-carry-offset)
@@ -265,6 +270,10 @@ FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 CODE_SPAN_RE = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)")
 CODE_OPEN, CODE_CLOSE = "\x04", "\x05"
 CODE_MARK_RE = re.compile("\x04(\\d+)\x05")
+# A draft-marker note's arrows (with or without the emoji variation
+# selector), and the red its whole span is set in (practice: draft-marker).
+MARKER_ARROW_RE = re.compile("(\u27a1\ufe0f?|\u2b05\ufe0f?)")
+MARKER_RED = "FF0000"
 CODE_FONT, CODE_SIZE = "Courier New", 10
 CODE_SPANS = []
 
@@ -715,6 +724,7 @@ def add_inline(paragraph, lines, soft_wraps):
                     or line.endswith("  "))
             joined.append("\n" if hard else " ")
     link = None  # the w:hyperlink element runs go into, inside a web link
+    in_marker = False  # inside a ➡️ ... ⬅️ draft note: set in red
     for run_text, bold, italic in parse_inline("".join(joined)):
         for n, chunk in enumerate(run_text.split("\n")):
             if n:
@@ -731,12 +741,24 @@ def add_inline(paragraph, lines, soft_wraps):
                         r.font.size = Pt(CODE_SIZE)
                         r.bold = bold
                         r.italic = italic
+                        if in_marker:
+                            r.font.color.rgb = RGBColor.from_string(MARKER_RED)
                         if link is not None:
                             link.append(r._r)
                     elif link is None:
-                        r = paragraph.add_run(bit)
-                        r.bold = bold
-                        r.italic = italic
+                        for seg in MARKER_ARROW_RE.split(bit):
+                            if not seg:
+                                continue
+                            opens = seg.startswith("\u27a1")
+                            if opens:
+                                in_marker = True
+                            r = paragraph.add_run(seg)
+                            r.bold = bold
+                            r.italic = italic
+                            if in_marker:
+                                r.font.color.rgb = RGBColor.from_string(MARKER_RED)
+                            if seg.startswith("\u2b05"):
+                                in_marker = False
                     else:
                         link.append(hyperlink_run(bit, bold, italic))
                 if m is None:
