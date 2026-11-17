@@ -247,6 +247,23 @@ else
 fi
 rm -rf "$NONGIT"
 
+# G. the web-page filter this practice ships: a note goes red, arrows
+# included; a marker shown inside <code> or <pre> does not.
+if out="$(cd "$ROOT" && python3 - <<'PY' 2>&1
+import importlib.util
+spec = importlib.util.spec_from_file_location("f", "tools/doc_html_filters/draft_marker.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+got = m.filter('<p><strong>\u27a1\ufe0f LINK IT \u2b05\ufe0f</strong> <code>\u27a1\ufe0f X \u2b05\ufe0f</code></p><pre>\u27a1 Y \u2b05</pre>')
+assert got.count('class="draft-marker"') == 1, got
+assert '<span class="draft-marker">\u27a1\ufe0f LINK IT \u2b05\ufe0f</span>' in got, got
+assert "#FF0000" in m.CSS, m.CSS
+PY
+)"; then
+  pass "G. the shipped web filter sets a note red and leaves code alone"
+else
+  fail "G. the shipped web filter: $out"
+fi
+
 # B. the real, current, unplanted repo -- last, so a fixture that leaked
 # state into $ROOT would show up here.
 if out="$(cd "$ROOT" && python3 tools/checks/check_draft_marker.py 2>&1)"; then
