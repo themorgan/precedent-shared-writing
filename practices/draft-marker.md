@@ -8,6 +8,7 @@ occasion:    "leaving a placeholder or fill-in-later note mid-draft"
 gates:       []
 index_clause: "wrap a draft placeholder in ➡️ TEXT ⬅️: bold, all caps, red when rendered"
 checked_by:  tools/checks/check_draft_marker.py
+ships:       ["tools/doc_html_filters/draft_marker.py"]
 defines:     []
 status:      active
 supersedes:  []
