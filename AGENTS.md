@@ -14,7 +14,7 @@ own**, and a repo may declare several shared sets — see
 
 <!-- Regenerate with: python3 tools/build_views.py -- do not hand-edit this block; `python3 tools/build_views.py --check` exits non-zero on drift. Source: practices/ -- edit the practice file, never this block. -->
 
-## Resident block (~149 of 2000 token budget, 2 of 20 practices)
+## Resident block (~149 of 2000 token budget, 2 of 19 practices)
 
 **default-register.** **The register of a reply belongs to its reader.** Where the person you are working with has declared their own -- their individual practice set is where they do it -- that declaration governs and this rule steps aside. **Where none resolves, write to a reader who is not technical**, because on this team they generally are not; `## Detail` says what that means in full.
 
@@ -43,8 +43,6 @@ When naming a branch in anything written:
   name-the-branch — name it literally, never a role-word like 'the base branch'
 When naming a file, branch, doc or anything with a destination, in a doc, reply, PR or commit:
   rule-links — link it on first use; files as GitHub links, branches to tree view; docs by name
-When starting a catch-all notes file, or renaming a legacy BRAINSTORM, NOTES or IDEAS file:
-  assorted-notes — one ASSORTED_NOTES.md for ideas never cited elsewhere; listing it is fine
 When writing a document an outside reader will see (a declared output path):
   deliverables-carry-no-process — no attribution stamps, practice slugs or convention notes in an output document
 
