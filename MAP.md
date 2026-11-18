@@ -10,11 +10,10 @@ This repository's map of the practice catalogue in force here and the engine's o
 
 ## The practice catalogue
 
-`practices/` holds 20 practice files (2 resident, 18 on-demand). One file per practice.
+`practices/` holds 19 practice files (2 resident, 17 on-demand). One file per practice.
 
 | Practice | Tier | Occasion / scope |
 |---|---|---|
-| [assorted-notes](practices/assorted-notes.md) | on-demand | starting a catch-all notes file, or renaming a legacy BRAINSTORM, NOTES or IDEAS file |
 | [brainstorm-citations](practices/brainstorm-citations.md) | on-demand | citing support for a claim in a formal document |
 | [create-word-doc](practices/create-word-doc.md) | on-demand | building a Word (.docx) document for someone to download |
 | [dated-download-names](practices/dated-download-names.md) | on-demand | handing a person a document to download |
@@ -37,10 +36,11 @@ This repository's map of the practice catalogue in force here and the engine's o
 
 ## Withdrawn practices
 
-7 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
+8 practice file(s) here are **not in force** and are left out of every table above. **The files are kept on purpose** -- a withdrawn rule and the argument against it are worth re-reading, and `retired` is not a synonym for deleted (that is `decommission-deletes-files`, and it is about mechanisms, not rules). Read one in full with `python3 tools/precedent_show.py SLUG`.
 
 | Practice | Status | Now in force at | Why it was withdrawn |
 |---|---|---|---|
+| [assorted-notes](practices/assorted-notes.md) | deduplicated | `assorted-notes-is-deleted` — in another source; `python3 tools/precedent_show.py assorted-notes-is-deleted` | 2026-11-18: deduplicated to the ladder set's `assorted-notes-is-deleted` (approved by Morgan F). |
 | [branch-links](practices/branch-links.md) | deduplicated | [rule-links](practices/rule-links.md) | **Merged into rule-links, 2026-10-01**, in the reduction pass Morgan approved that day ("Question 3 - all are great, approved", strength: decided). rule-links carries its rule that a branch named anywhere is linked to its tree view on the host the repo lives on, a branch in another repo included. |
 | [content-subdirs](practices/content-subdirs.md) | retired | — (nowhere) | **Retired 2026-09-29** (Morgan: *"Let's eliminate that one also"*, of this rule, beside the retired `content-directory`). |
 | [curly-quotes](practices/curly-quotes.md) | deduplicated | [curly-quotes](practices/curly-quotes.md) | Raised by Morgan, 2026-09-18, in a private repo, in the same thread that produced two practices local to that repo (on glossing Hebrew terms, and on fixing typos without resolving an ambiguity), asking for a third standing practice specifically about converting straight quotes to curly ones. |
@@ -141,6 +141,7 @@ This repository's map of the practice catalogue in force here and the engine's o
 | [tools/precedent_whats_new.py](tools/precedent_whats_new.py) | The mechanics behind "What's new?": which finished days on main a project's running log lacks, what changed on each, today so far, and marking the log current -- the entries themselves are the session's to write |
 | [tools/precedent_which_repo.py](tools/precedent_which_repo.py) | Names the repo an engine tool reads, and warns when it is run from inside a different one -- engine tools read their own file's repo, never the current directory |
 | [tools/qualified_mention.py](tools/qualified_mention.py) | Whether a line's mention of a path names another repository's file. |
+| [tools/reply_refusals.py](tools/reply_refusals.py) | How often the reply gate refuses a turn, per session and per requirement -- read from the ledger the stop hook keeps |
 | [tools/repo_attach_gate.py](tools/repo_attach_gate.py) | Refuses a sweep of repository attaches the person did not ask for |
 | [tools/session_load_trend.py](tools/session_load_trend.py) | How much room every always-loaded surface has left and how fast it is going -- headroom, the hand-written/generated split, and the growth rate; its headroom_notice() is what the merge and push gates print |
 | [tools/set_words.py](tools/set_words.py) | The one matcher for a practice set's own words -- the ones a set declares in its precedent-source.json `owned_words`, which belong in that set and nowhere a person who does not bring it reads -- used by the check that holds every other set to them and by the tests that hold engine output to the same (spec/ENFORCEMENT_LIVES_WITH_ITS_PRACTICE_PLAN.md part 3) |

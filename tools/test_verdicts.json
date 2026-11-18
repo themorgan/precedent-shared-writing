@@ -1,13 +1,5 @@
 {
  "verdicts": {
-  "tools/checks/tests/test_assorted_notes.sh": {
-   "verdict": "keep",
-   "importance": "low",
-   "why": "assorted-notes is active but advisory (a link-placement convention). Cheapened 2026-10-31: fixture git runs with the global commit hooks off (core.hooksPath=/dev/null), which were most of its 13 fixture commits' cost; same cases and failure words, and it still fails against a check that never fires. 17.4 s -> 5.3 s in the review's measurement; 9.4 s -> 5.5 s in this pass's.",
-   "date": "2026-10-31",
-   "by": "agent",
-   "seconds": 5.5
-  },
   "tools/checks/tests/test_create_word_doc.sh": {
    "verdict": "keep",
    "importance": "medium",
