@@ -21,7 +21,7 @@ source_practice_number: null
 A document in one of a repo's declared `output_paths` is written **for its reader**. It carries no record of the process that produced it:
 
 - **No attribution stamps.** Not `(Morgan, 2026-09-08)`, not `Morgan, 2026-09-07` closing a sentence, not "per Morgan" attached to a decision. Who decided a thing, and when, is what git history and the practice layer are for.
-- **No practice-slug citations.** Not `` (`assorted-notes`) ``, not a link into `practices/` or `process/`. A slug means nothing to a reader outside the project and reads as a leaked internal reference.
+- **No practice-slug citations.** Not `` (`draft-marker`) ``, not a link into `practices/` or `process/`. A slug means nothing to a reader outside the project and reads as a leaked internal reference.
 - **No notes about the repo's own conventions.** "Both are derived files -- regenerate them when a major change lands, don't edit them in place" is an instruction to a maintainer, addressed to somebody who does not have the repo.
 
 **Three exemptions, and they are narrow.** The `<!-- Last updated ... -->` comment a repo's file-header rule requires is invisible in every rendering, so it stays. A `doc-recipes/` directory is exempt outright: a recipe's whole job is to state the rules for one file, and it is never shipped. And a section the repo lists under `unpublished_sections` in `precedent.json` is exempt, because that repo's own build cuts it before the document is sent. That list is the one place the cut is declared: whatever builds the sent page reads it too, so the check and the build can never disagree about what a reader sees.

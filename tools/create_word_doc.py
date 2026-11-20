@@ -95,8 +95,9 @@ document built by hand.
 YAML front matter at the top of the file is left out. A "---" line is a
 thin grey rule. A pipe table (a "| a | b |" row over a "|---|" row) is a
 real Word table, its header row bold and shaded and repeated on each page,
-every cell read like a paragraph. A "- " line indented under a list item is
-a bullet nested under it, and a numbered list keeps counting after it. A
+every cell read like a paragraph. A "- " or "1. " line indented under a list
+item -- two spaces are enough, as on GitHub -- starts a list nested under it,
+up to three levels deep, and a numbered list keeps counting after it. A
 link to a heading in the same document, [Section](#section), jumps to it.
 
 A line holding only an image, ![alt text](path), puts the picture itself
@@ -425,11 +426,23 @@ def style_headings(doc):
     return out
 
 
-def style_contents(doc, section=None):
-    """Word's own contents styles, "TOC 1" for a Part and "TOC 2" for a
-    chapter, set so the list reads as a contents page at a glance
-    (practice: create-word-doc, the contents page): a Part bold with a
-    little space above it, its chapters indented under it, everything
+# practice: create-word-doc -- how much further in each contents level sits
+# than the one above it: a chapter under its Part, a sub-section under its
+# chapter (Morgan, 2026-11-20: "indented accordingly, including sub-sections").
+CONTENTS_STEP = 0.3
+# The levels the contents page lists unless --contents-levels says otherwise:
+# Parts, their sections, and the sub-sections under those (Morgan,
+# 2026-11-20: "The table of contents should reflect and be indented
+# accordingly, including sub-sections and sub-sub-sections").
+CONTENTS_LEVELS = 3
+
+
+def style_contents(doc, section=None, levels=2):
+    """Word's own contents styles, "TOC 1" for a Part, "TOC 2" for a
+    chapter, "TOC 3" for a sub-section and so on to `levels`, set so the
+    list reads as a contents page at a glance (practice: create-word-doc,
+    the contents page): a Part bold with a little space above it, each
+    level below it indented one step (CONTENTS_STEP) further, everything
     single-spaced -- body text's 1.3 line spacing turned a contents list
     into an unbroken column nobody recognized (Morgan, 2026-10-05). Both
     carry a dotted right-aligned tab at the text's right edge, so when a
@@ -438,13 +451,13 @@ def style_contents(doc, section=None):
     the footer's sans-serif face (FOOTER_FONT) and underlined, so it reads
     as a link -- which it is -- rather than as more text (Morgan,
     2026-10-05). Word rewrites the list with these same styles on that
-    update, so it keeps the look. Returns (toc1, toc2)."""
+    update, so it keeps the look. Returns the styles, TOC 1 first."""
     from docx.enum.style import WD_STYLE_TYPE
     from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
     section = section or doc.sections[0]
     width = section.page_width - section.left_margin - section.right_margin
     out = []
-    for level in (1, 2):
+    for level in range(1, levels + 1):
         # Word knows its contents styles by the id "TOC1" and the internal
         # name "toc 1", and only a built-in style -- not a custom one of the
         # same look -- is what Update Field rewrites the list with.
@@ -459,7 +472,7 @@ def style_contents(doc, section=None):
         style.next_paragraph_style = style
         pf = style.paragraph_format
         pf.line_spacing = 1.0
-        pf.left_indent = Inches(0 if level == 1 else 0.3)
+        pf.left_indent = Inches(CONTENTS_STEP * (level - 1))
         pf.space_before = Pt(8 if level == 1 else 0)
         pf.space_after = Pt(2)
         style.font.bold = level == 1
@@ -505,11 +518,31 @@ def style_list_bullet(doc):
     return style_list(doc, "List Bullet")
 
 
+# practice: create-word-doc -- how deep a list nests: an item, a list under
+# it, and a list under that, Word's own List Bullet / List Number 2 and 3.
+# Deeper lines stay at the third level rather than running into the text.
+LIST_LEVELS = 3
+
+
+def list_style_name(kind, level):
+    """Word's built-in style for a list item: "List Bullet" or "List
+    Number", with " 2" or " 3" for a list nested one or two levels down."""
+    base = "List Number" if kind == "number" else "List Bullet"
+    return base if level == 0 else f"{base} {level + 1}"
+
+
 def style_list_nested(doc):
-    """Word's built-in "List Bullet 2" for a bullet under a list item: its
-    bullet sits under the item's text, LIST_HANG further in, and its own
-    text LIST_HANG past that. Returns the style."""
-    return style_list(doc, "List Bullet 2", indent=LIST_INDENT + LIST_HANG)
+    """Word's built-in "List Bullet 2"/"3" and "List Number 2"/"3" for a
+    list under a list item: each level's bullet or number sits under the
+    text of the item above it, LIST_HANG further in, and its own text
+    LIST_HANG past that. Returns the "List Bullet 2" style."""
+    out = None
+    for level in range(1, LIST_LEVELS):
+        for kind in ("bullet", "number"):
+            style = style_list(doc, list_style_name(kind, level),
+                               indent=LIST_INDENT + level * LIST_HANG)
+            out = out or style
+    return out
 
 
 def style_list_number(doc):
@@ -952,31 +985,74 @@ def add_table(doc, rows, soft_wraps):
 
 
 def list_items(block, marker_re):
-    """A list's items as [level, text] pairs, or None when the block is not
-    a list whose first line matches `marker_re`. Level 0 is the list
-    itself; an indented "- " line under an item is a bullet nested under
-    it, level 1 (practice: create-word-doc: it was being run into the item's
-    own text). Any other indented line continues the item before it."""
+    """A list's items as [level, kind, text] triples, or None when the
+    block is not a list whose first line matches `marker_re`. Level 0 is
+    the list itself; a "- " or "1. " line indented under an item starts a
+    list nested under it, level 1, and one indented under that, level 2
+    (LIST_LEVELS), the way GitHub reads it -- two spaces are enough
+    (practice: create-word-doc: a numbered list under a bullet was being
+    run into the bullet's text, and a third level flattened into the
+    second). `kind` is "bullet" or "number". Any other indented line
+    continues the item before it."""
     if not marker_re.match(block[0]):
         return None
     indent = lambda l: len(l) - len(l.lstrip())  # noqa: E731
     base = indent(block[0])
     items = []
+    stack = []  # the indent of each open level's marker, outermost first
     for line in block:
-        if marker_re.match(line) and indent(line) <= base:
-            items.append([0, marker_re.sub("", line).strip()])
-        elif BULLET_RE.match(line) and indent(line) > base:
-            items.append([1, BULLET_RE.sub("", line).strip()])
-        elif indent(line) > base or line[:1].isspace():
-            items[-1][1] += " " + line.strip()
+        n = indent(line)
+        if marker_re.match(line) and n <= base:
+            stack = [base]
+            items.append([0, "number" if marker_re is NUMBER_RE else "bullet",
+                          marker_re.sub("", line).strip()])
+        elif n > base and (BULLET_RE.match(line) or NUMBER_RE.match(line)):
+            while len(stack) > 1 and n < stack[-1]:
+                stack.pop()
+            if n > stack[-1]:
+                stack.append(n)
+            kind = "bullet" if BULLET_RE.match(line) else "number"
+            items.append([min(len(stack) - 1, LIST_LEVELS - 1), kind,
+                          (BULLET_RE if kind == "bullet" else NUMBER_RE)
+                          .sub("", line).strip()])
+        elif n > base or line[:1].isspace():
+            items[-1][2] += " " + line.strip()
         else:
             return None
     return items
 
 
+def add_list(doc, items, soft_wraps, num_id=None, start=1):
+    """Write a list's [level, kind, text] items (list_items()) in Word's
+    own list styles, and return (paragraphs, top-level numId). Every
+    numbered list nested under an item counts from 1 on its own; the top
+    level of a numbered list counts from `start` on `num_id`, a fresh
+    count when that is None, and carries on past anything nested in it."""
+    made = []
+    counts = {}  # level -> the numId of the numbered run open at that level
+    if num_id is not None:
+        counts[0] = num_id
+    for level, kind, text in items:
+        for deeper in [k for k in counts if k > level]:
+            del counts[deeper]  # a nested list ends where its parent's next item starts
+        name = list_style_name(kind, level)
+        p = doc.add_paragraph(style=name)
+        if kind == "number":
+            if level not in counts:
+                counts[level] = restart_numbering(
+                    doc, p, start if level == 0 else 1, style_name=name)
+            set_num_id(p, counts[level])
+        elif level in counts and level:
+            del counts[level]  # a bullet between two numbered runs splits them
+        add_inline(p, [text], soft_wraps)
+        made.append(p)
+    tighten_nesting(made, items)
+    return made, counts.get(0)
+
+
 def bullet_items(block):
-    """A "- " list's [level, text] items, or None when the block is not a
-    list. See list_items()."""
+    """A "- " list's [level, kind, text] items, or None when the block is
+    not a list. See list_items()."""
     return list_items(block, BULLET_RE)
 
 
@@ -984,7 +1060,7 @@ def tighten_nesting(paragraphs, items):
     """No gap where a list steps into or out of a nested bullet: Word drops
     the space between two items of one style by itself, but not between a
     numbered item and the bullet under it."""
-    for p, (level, _), nxt in zip(paragraphs, items, items[1:]):
+    for p, (level, *_), nxt in zip(paragraphs, items, items[1:]):
         if nxt[0] != level:
             p.paragraph_format.space_after = Pt(0)
             p.paragraph_format.space_before = Pt(0)
@@ -1022,7 +1098,7 @@ def paragraph_space_after(doc):
 
 
 def numbered_items(block):
-    """A "1. " list's (start, [level, text] items), or None when the block
+    """A "1. " list's (start, [level, kind, text] items), or None when the block
     is not one. Nesting and wrapping work as in list_items(): a bullet
     under a numbered item nests under it, and the numbering carries on
     after it."""
@@ -1033,12 +1109,12 @@ def numbered_items(block):
     return int(m.group(1)), items
 
 
-def restart_numbering(doc, paragraph, start):
+def restart_numbering(doc, paragraph, start, style_name="List Number"):
     """Give a numbered list its own count, starting at `start`, so a second
     list in the document starts again rather than carrying on from the
     first. Called on the list's first paragraph; the caller puts the rest on
     the same numId."""
-    style = doc.styles["List Number"]
+    style = doc.styles[style_name]
     num_id = style.element.pPr.numPr.numId.val
     numbering = doc.part.numbering_part.element
     abstract_id = numbering.num_having_numId(num_id).abstractNumId.val
@@ -1185,16 +1261,18 @@ def add_field(paragraph, instr, cached_text="1"):
     run._r.append(end)
 
 
-def add_contents(doc):
+def add_contents(doc, levels=CONTENTS_LEVELS):
     """Word's own table of contents, on a page of its own just before the
     first Heading 1 (practice: create-word-doc, the contents page).
 
     A "Contents" paragraph in the "TOC Heading" style -- it looks like a
     Heading 1 but stays out of the contents and the Navigation Pane, where a
-    Heading 1 would list itself. Then a TOC field (TOC \\o "1-2" \\h \\z \\u)
-    whose cached result is the finished list: each Heading 1 and Heading 2,
-    as a link that jumps to a bookmark on the heading itself, in Word's own
-    "TOC 1" and "TOC 2" styles as style_contents() sets them.
+    Heading 1 would list itself. Then a TOC field (TOC \\o "1-N" \\h \\z \\u,
+    N being `levels`, three unless asked) whose cached result is the
+    finished list: each heading from Heading 1 down to Heading N, as a link
+    that jumps to a bookmark on the heading itself, in Word's own "TOC 1",
+    "TOC 2", "TOC 3" ... styles as style_contents() sets them, each level
+    indented a step further than the one above.
 
     The document never asks Word to update its fields when it opens (no
     updateFields setting): that is the "This document contains fields that
@@ -1209,8 +1287,8 @@ def add_contents(doc):
     if first_part is None:
         raise SystemExit("create_word_doc: --contents needs a Heading 1 (a "
                          "`## ` heading) to put the contents page before")
-    headings = [p for p in doc.paragraphs
-                if p.style.name in ("Heading 1", "Heading 2")]
+    wanted = {f"Heading {n}": n for n in range(1, levels + 1)}
+    headings = [p for p in doc.paragraphs if p.style.name in wanted]
 
     # A bookmark around each heading's text, named the way Word names its
     # own (_Toc...), so updating the field later finds the same targets.
@@ -1239,17 +1317,17 @@ def add_contents(doc):
 
     # The field opens in the first entry's paragraph and closes in the last,
     # so its cached result is the list of headings itself.
-    toc1, toc2 = style_contents(doc)
+    tocs = style_contents(doc, levels=levels)
     paras = []
     for h, name in zip(headings, names):
         p = first_part.insert_paragraph_before(
-            style=toc2 if h.style.name == "Heading 2" else toc1)
+            style=tocs[wanted[h.style.name] - 1])
         paras.append((p, h.text, name))
     first = paras[0][0]
     field_char(first, "begin")
     instr = OxmlElement("w:instrText")
     instr.set(qn("xml:space"), "preserve")
-    instr.text = ' TOC \\o "1-2" \\h \\z \\u '
+    instr.text = f' TOC \\o "1-{levels}" \\h \\z \\u '
     first.add_run()._r.append(instr)
     field_char(first, "separate")
     for p, text, name in paras:
@@ -1337,6 +1415,7 @@ def heading_levels(blocks):
 
 
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
+              contents_levels=CONTENTS_LEVELS,
               section_breaks=True, header_image=None, soft_wraps=False,
               header_on_first_page=False, footer_label=None):
     text = strip_front_matter(strip_comments(
@@ -1493,22 +1572,13 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
             # item's own paragraph between them, keeps its count: "3." after
             # item 2's second paragraph is item 3 of the same list.
             num_id = prev_count[0] if prev_count and prev_count[1] == start else None
-            made = []
-            for level, item in items:
-                if level:
-                    # A bullet under a numbered item; the numbering carries
-                    # on after it, since the items share one count.
-                    p = doc.add_paragraph(style="List Bullet 2")
-                else:
-                    p = doc.add_paragraph(style="List Number")
-                    if num_id is None:
-                        num_id = restart_numbering(doc, p, start)
-                    set_num_id(p, num_id)
-                add_inline(p, [item], soft_wraps)
-                made.append(p)
-            tighten_nesting(made, items)
+            # A list nested under a numbered item sits under it, and the
+            # numbering carries on after it, since the top items share one
+            # count (add_list).
+            made, num_id = add_list(doc, items, soft_wraps, num_id, start)
+            p = made[-1]
             end_list(doc, p)
-            open_count = (num_id, start + sum(1 for level, _ in items if not level))
+            open_count = (num_id, start + sum(1 for level, *_ in items if not level))
             in_list = True
             last_para = p
             last_was_heading = False
@@ -1530,13 +1600,8 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         items = bullet_items(block)
         if items is not None:
             lead_into_list(doc, last_para)
-            made = []
-            for level, item in items:
-                p = doc.add_paragraph(
-                    style="List Bullet 2" if level else "List Bullet")
-                add_inline(p, [item], soft_wraps)
-                made.append(p)
-            tighten_nesting(made, items)
+            made, _ = add_list(doc, items, soft_wraps)
+            p = made[-1]
             end_list(doc, p)
             in_list = True
             last_para = p
@@ -1587,7 +1652,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         add_header_image(section, header_image, first_page=header_on_first_page)
 
     if contents:
-        add_contents(doc)
+        add_contents(doc, levels=contents_levels)
 
     # practice: create-word-doc -- an asterisk placed like emphasis that
     # nothing closed is almost always a typo in the source; say where, never
@@ -1623,7 +1688,8 @@ def derive_short_name(manuscript_path):
 BUILD_MARK = "create_word_doc.py build: "
 # Recorded options: argparse destination -> how it is stored.
 RECORDED_PATHS = ("manuscript", "header_image")
-RECORDED_VALUES = ("short_name", "date", "footer_label", "breaks_off_because")
+RECORDED_VALUES = ("short_name", "date", "footer_label", "breaks_off_because",
+                   "contents_levels")
 RECORDED_FLAGS = ("no_footer", "contents", "no_section_breaks", "soft_wraps",
                   "header_on_first_page")
 
@@ -1730,8 +1796,17 @@ def main():
     ap.add_argument(
         "--contents",
         action="store_true",
-        help="add Word's own table of contents (Parts and chapters) on a page "
-             "of its own before the first Part",
+        help="add Word's own table of contents (Parts, chapters and the "
+             "sub-sections under them) on a page of its own before the first Part",
+    )
+    ap.add_argument(
+        "--contents-levels",
+        type=int,
+        default=None,
+        metavar="N",
+        help=f"how many heading levels the contents page lists, 1-9 (default "
+             f"{CONTENTS_LEVELS}: Heading 1, 2 and 3 -- with \"# Part\" headings, "
+             f"the Parts, their sections and their sub-sections)",
     )
     ap.add_argument(
         "--no-section-breaks",
@@ -1791,6 +1866,11 @@ def main():
                  "unless the person asked for this document's sections to flow "
                  "on (practice: create-word-doc)")
 
+    if args.contents_levels is not None and not 1 <= args.contents_levels <= 9:
+        ap.error("--contents-levels takes a number from 1 to 9")
+    if args.contents_levels is not None and not args.contents:
+        ap.error("--contents-levels needs --contents")
+
     if not args.manuscript.is_file():
         sys.exit(f"error: {args.manuscript} does not exist")
 
@@ -1809,6 +1889,7 @@ def main():
         sys.exit(f"error: {args.header_image} does not exist")
     doc = build_doc(args.manuscript, short_name, not args.no_footer, date_str,
                     contents=args.contents,
+                    contents_levels=args.contents_levels or CONTENTS_LEVELS,
                     section_breaks=not args.no_section_breaks,
                     soft_wraps=args.soft_wraps,
                     header_image=args.header_image,
