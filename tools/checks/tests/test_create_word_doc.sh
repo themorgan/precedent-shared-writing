@@ -90,18 +90,25 @@ echo "ok: a > block becomes an indented, upright Quote-style block quotation"
 
 # 4. --contents: Word's own table of contents on a page of its own before the
 #    first Heading 1 -- a "Contents" paragraph in "TOC Heading", a TOC field
-#    whose cached result lists the Heading 1 and 2 texts as links to
-#    bookmarks on the headings, and the page break in a paragraph of its own
-#    after the field. Never w:updateFields: that setting makes Word ask
+#    whose cached result lists the Heading 1, 2 and 3 texts as links to
+#    bookmarks on the headings -- Heading 3 in "TOC 3", indented a step past
+#    "TOC 2" (Morgan, 2026-11-20: "including sub-sections") -- and the page
+#    break in a paragraph of its own after the field. --contents-levels N
+#    lists N levels instead. Never w:updateFields: that setting makes Word ask
 #    "Do you want to update the fields in this document?" on opening
 #    (Morgan, 2026-10-05). And the default build carries none of it.
-printf '# Sample\n\nA preface.\n\n## Part I\n### One\nText.\n\n## Part II\n### Two\nMore.\n' \
+printf '# Sample\n\nA preface.\n\n## Part I\n### One\nText.\n\n#### Sub\nMore.\n\n##### Deep\nDeeper.\n\n## Part II\n### Two\nMore.\n' \
   > "$SCRATCH/book-sample/MANUSCRIPT.md"
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
   --out "$SCRATCH/out/Contents.docx" --date 2026-01-01 --contents > /dev/null
 python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Contents2.docx" --date 2026-01-01 --contents --contents-levels 2 > /dev/null
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/Contents4.docx" --date 2026-01-01 --contents --contents-levels 4 > /dev/null
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/MANUSCRIPT.md" \
   --out "$SCRATCH/out/Plain.docx" --date 2026-01-01 > /dev/null
-if ! OUT="$(python3 - "$SCRATCH/out/Contents.docx" "$SCRATCH/out/Plain.docx" <<'PY' 2>&1
+if ! OUT="$(python3 - "$SCRATCH/out/Contents.docx" "$SCRATCH/out/Plain.docx" \
+    "$SCRATCH/out/Contents2.docx" "$SCRATCH/out/Contents4.docx" <<'PY' 2>&1
 import re, sys, zipfile
 import docx
 
@@ -113,10 +120,28 @@ names = [(s, t) for s, t, _ in paras]
 first_h1 = next(i for i, (s, _t) in enumerate(names) if s == "Heading 1")
 head = names.index(("TOC Heading", "Contents"))
 assert head < first_h1, "Contents is not before the first Heading 1"
+def contents(paras):
+    names = [(s, t) for s, t, _ in paras]
+    first_h1 = next(i for i, (s, _t) in enumerate(names) if s == "Heading 1")
+    head = names.index(("TOC Heading", "Contents"))
+    return [(s, t) for s, t, _x in paras[head + 1:first_h1 - 1]], paras[head + 1][2]
+
 entries = [t for _s, t, _x in paras[head + 1:first_h1 - 1]]
-assert entries == ["Part I", "One", "Part II", "Two"], f"cached entries: {entries}"
+assert entries == ["Part I", "One", "Sub", "Part II", "Two"], f"cached entries: {entries}"
+# Word's own contents styles: id "TOC1", internal name "toc 1".
+assert [s.lower() for s, _t, _x in paras[head + 1:first_h1 - 1]] == \
+    ["toc 1", "toc 2", "toc 3", "toc 1", "toc 2"], "entries not in TOC 1/2/3"
 assert 'w:fldCharType="begin"' in paras[head + 1][2], "field does not open in the first entry"
-assert 'TOC \\o "1-2" \\h \\z \\u' in paras[head + 1][2], "TOC instruction missing"
+assert 'TOC \\o "1-3" \\h \\z \\u' in paras[head + 1][2], "TOC instruction missing"
+styles = docx.Document(sys.argv[1]).styles
+by_id = {st.style_id: st for st in styles}
+indents = [by_id[f"TOC{n}"].paragraph_format.left_indent or 0 for n in (1, 2, 3)]
+assert indents[0] < indents[1] < indents[2], f"each level is not indented further: {indents}"
+two, instr2 = contents(body(sys.argv[3]))
+assert [t for _s, t in two] == ["Part I", "One", "Part II", "Two"], f"--contents-levels 2: {two}"
+assert 'TOC \\o "1-2"' in instr2, "--contents-levels 2: TOC instruction"
+four, instr4 = contents(body(sys.argv[4]))
+assert ("deep", "toc 4") in [(t.lower(), s.lower()) for s, t in four] and 'TOC \\o "1-4"' in instr4, f"--contents-levels 4: {four}"
 assert 'w:fldCharType="end"' in paras[first_h1 - 2][2], "field does not close in the last entry"
 brk = paras[first_h1 - 1]
 assert brk[1] == "" and 'w:type="page"' in brk[2] and "fldChar" not in brk[2], \
@@ -127,7 +152,7 @@ for path in sys.argv[1:]:
 xml = "".join(x for _s, _t, x in paras)
 anchors = re.findall(r'w:hyperlink [^>]*w:anchor="([^"]+)"', xml)
 marks = re.findall(r'w:bookmarkStart [^>]*w:name="([^"]+)"', xml)
-assert len(anchors) == 4 and sorted(anchors) == sorted(marks), (anchors, marks)
+assert len(anchors) == 5 and sorted(anchors) == sorted(marks), (anchors, marks)
 plain = body(sys.argv[2])
 assert not any(s == "TOC Heading" for s, _t, _x in plain), "the default build has a contents page"
 PY
@@ -135,7 +160,7 @@ PY
   echo "FAIL: --contents did not build Word's contents page as specified: $OUT" >&2
   exit 1
 fi
-echo "ok: --contents puts Word's own TOC, linked to the headings, on its own page; no update-fields prompt"
+echo "ok: --contents puts Word's own TOC, three levels deep and indented, linked to the headings, on its own page; no update-fields prompt"
 
 # 4b. With --contents, a contents list written by hand -- a "Contents"
 #     heading over nothing but in-page links, and the "---" after it -- is
@@ -705,6 +730,58 @@ PY
   exit 1
 fi
 echo "ok: front matter, rules, tables, nested bullets, # Parts, heading emphasis and in-page links"
+
+# 17b. A list nested under an item, two spaces in, the way GitHub reads it
+#      (2026-11-20: BestPractice's doc_html.py ran such lists into their
+#      parent's text). A bullet under a bullet, a third level under that, and
+#      a numbered list under a bullet -- which counts from 1 on its own and
+#      was being run into the bullet's text -- each sit a level deeper, in
+#      Word's own List Bullet / List Number 2 and 3; a numbered list under a
+#      numbered item keeps the outer count going past it.
+mkdir -p "$SCRATCH/nest"
+cat > "$SCRATCH/nest/nest.md" <<'MD'
+# Nesting
+
+Intro.
+
+- a
+  - b
+    - c
+- d
+  1. d one
+  2. d two
+- e
+  1. e one
+
+1. x
+   1. x one
+2. y
+MD
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/nest/nest.md" \
+  --out "$SCRATCH/out/Nest.docx" --no-footer > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/Nest.docx" <<'PY' 2>&1
+import sys, docx
+paras = docx.Document(sys.argv[1]).paragraphs
+got = [(p.style.name, p.text) for p in paras if p.style.name.startswith("List")]
+want = [("List Bullet", "a"), ("List Bullet 2", "b"), ("List Bullet 3", "c"),
+        ("List Bullet", "d"), ("List Number 2", "d one"), ("List Number 2", "d two"),
+        ("List Bullet", "e"), ("List Number 2", "e one"),
+        ("List Number", "x"), ("List Number 2", "x one"), ("List Number", "y")]
+assert got == want, f"nesting: {got}"
+ids = {p.text: p._p.pPr.numPr.numId.val for p in paras
+       if p.style.name.startswith("List Number")}
+assert ids["d one"] == ids["d two"], "a nested numbered list does not share one count"
+assert ids["e one"] != ids["d one"], "the second nested numbered list carries on the first's count"
+assert ids["x"] == ids["y"], "the outer count does not carry on past its nested list"
+styles = docx.Document(sys.argv[1]).styles
+ind = [styles[n].paragraph_format.left_indent for n in ("List Bullet", "List Bullet 2", "List Bullet 3")]
+assert ind[0] < ind[1] < ind[2], f"each level is not indented further: {ind}"
+PY
+)"; then
+  echo "FAIL: a nested list did not nest the way GitHub reads it: $OUT" >&2
+  exit 1
+fi
+echo "ok: lists nest two spaces in, three levels deep, numbered under bulleted and back"
 
 # 18. Each heading level has its own look (Morgan, 2026-11-11: "Your Header
 #     2 and Header 3 are almost identical, including the same color"):
