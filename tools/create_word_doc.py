@@ -1261,7 +1261,7 @@ def add_field(paragraph, instr, cached_text="1"):
     run._r.append(end)
 
 
-def add_contents(doc, levels=CONTENTS_LEVELS):
+def add_contents(doc, levels=CONTENTS_LEVELS, page_numbers=False):
     """Word's own table of contents, on a page of its own just before the
     first Heading 1 (practice: create-word-doc, the contents page).
 
@@ -1277,11 +1277,14 @@ def add_contents(doc, levels=CONTENTS_LEVELS):
     The document never asks Word to update its fields when it opens (no
     updateFields setting): that is the "This document contains fields that
     may refer to other files" prompt, and a document sent to someone must
-    open without it (Morgan, 2026-10-05). So the list carries no page
-    numbers -- only Word knows where its pages break -- and a reader who
-    wants them right-clicks the list and picks Update Field. The page break
-    after the list is a paragraph of its own: updating the field rewrites
-    everything inside it, and a break there would go too."""
+    open without it (Morgan, 2026-10-05). So by default the list carries no
+    page numbers, and a reader who wants them right-clicks the list and
+    picks Update Field. With `page_numbers`, each entry ends in a tab and a
+    PAGEREF field to its heading's bookmark, holding PAGE_PLACEHOLDER until
+    number_contents() renders the saved file and writes the real page in
+    (Morgan, 2026-11-20: "add the page numbers (and keep it updated)").
+    The page break after the list is a paragraph of its own: updating the
+    field rewrites everything inside it, and a break there would go too."""
     first_part = next((p for p in doc.paragraphs
                        if p.style.name == "Heading 1"), None)
     if first_part is None:
@@ -1340,9 +1343,170 @@ def add_contents(doc, levels=CONTENTS_LEVELS):
         t.text = text
         run.append(t)
         link.append(run)
+        if page_numbers:
+            add_page_ref(link, name)
         p._p.append(link)
     field_char(paras[-1][0], "end")
     first_part.insert_paragraph_before().add_run().add_break(WD_BREAK.PAGE)
+
+
+# practice: create-word-doc -- what a contents entry's page number holds
+# until number_contents() has rendered the file: three digits, as wide as any
+# real page number this builder will meet, so filling it in never makes an
+# entry wrap onto a second line and push the pages after it along.
+PAGE_PLACEHOLDER = "000"
+
+
+def add_page_ref(link, bookmark):
+    """End a contents entry's link with a tab -- the dotted one its TOC
+    style sets at the right margin -- and a PAGEREF field to `bookmark`,
+    showing PAGE_PLACEHOLDER. Neither run is underlined: an underlined dot
+    leader reads as a rule, not as a row of dots."""
+    def run(child=None, text=None):
+        r = OxmlElement("w:r")
+        rpr = OxmlElement("w:rPr")
+        u = OxmlElement("w:u")
+        u.set(qn("w:val"), "none")
+        rpr.append(u)
+        r.append(rpr)
+        if child is not None:
+            r.append(child)
+        if text is not None:
+            t = OxmlElement("w:t")
+            t.set(qn("xml:space"), "preserve")
+            t.text = text
+            r.append(t)
+        link.append(r)
+
+    def fld(kind):
+        el = OxmlElement("w:fldChar")
+        el.set(qn("w:fldCharType"), kind)
+        return el
+
+    run(OxmlElement("w:tab"))
+    run(fld("begin"))
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = f" PAGEREF {bookmark} \\h "
+    run(instr)
+    run(fld("separate"))
+    run(text=PAGE_PLACEHOLDER)
+    run(fld("end"))
+
+
+def _contents_entries(doc):
+    """Each contents entry carrying a page number, as (its title, the w:t
+    element that shows the number), in order."""
+    out = []
+    for p in doc.paragraphs:
+        if not p.style.style_id.startswith("TOC") or p.style.style_id == "TOCHeading":
+            continue
+        for link in p._p.iter(qn("w:hyperlink")):
+            title, number, seen_ref, seen_sep = [], None, False, False
+            for el in link.iter():
+                if el.tag == qn("w:instrText") and "PAGEREF" in (el.text or ""):
+                    seen_ref = True
+                elif el.tag == qn("w:fldChar") and seen_ref and \
+                        el.get(qn("w:fldCharType")) == "separate":
+                    seen_sep = True
+                elif el.tag == qn("w:t"):
+                    if seen_sep and number is None:
+                        number = el
+                    elif not seen_ref:
+                        title.append(el.text or "")
+            if number is not None:
+                out.append(("".join(title), number))
+    return out
+
+
+def _norm(text):
+    import unicodedata
+    text = unicodedata.normalize("NFKC", text).replace("\u00ad", "")
+    return re.sub(r"[ \t\u00a0]+", " ", text)
+
+
+def _rendered_pages(docx_path):
+    """The text of each page of `docx_path` as LibreOffice lays it out,
+    through a PDF -- pdftotext separates the pages with form feeds."""
+    import shutil
+    import tempfile
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice or not shutil.which("pdftotext"):
+        raise SystemExit(
+            "create_word_doc: --page-numbers needs LibreOffice (soffice) and "
+            "pdftotext (poppler-utils) to find the page each heading lands on")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = pathlib.Path(tmp)
+        subprocess.run(
+            [soffice, f"-env:UserInstallation=file://{tmp}/profile",
+             "--headless", "--convert-to", "pdf", "--outdir", str(tmp),
+             str(docx_path)],
+            check=True, capture_output=True, timeout=300)
+        pdf = tmp / (pathlib.Path(docx_path).stem + ".pdf")
+        if not pdf.is_file():
+            raise SystemExit(f"create_word_doc: LibreOffice made no PDF of {docx_path}")
+        text = subprocess.run(["pdftotext", "-enc", "UTF-8", str(pdf), "-"],
+                              check=True, capture_output=True, timeout=120).stdout
+    return [_norm(page) for page in text.decode("utf-8").split("\f")]
+
+
+def _heading_pages(titles, pages):
+    """The 1-based page each title starts on. The contents list itself is
+    found first -- each title somewhere in a line, in order -- and the
+    search for the headings starts on the page after it, where each title
+    must fill whole lines of its own (a heading is a paragraph of its own;
+    the same words inside a sentence are not it)."""
+    def words(title):
+        return r"\s+".join(re.escape(w) for w in _norm(title).split())
+
+    page = 0
+    for title in titles:
+        pat = re.compile(words(title))
+        while page < len(pages) and not pat.search(pages[page]):
+            page += 1
+        if page == len(pages):
+            raise SystemExit(f"create_word_doc: contents entry {title!r} is "
+                             "not on any rendered page")
+    page += 1
+    out = []
+    for title in titles:
+        pat = re.compile(r"(?:^|\n) ?" + words(title) + r" ?(?:\n|$)")
+        while page < len(pages) and not pat.search(pages[page]):
+            page += 1
+        if page == len(pages):
+            raise SystemExit(f"create_word_doc: heading {title!r} was not "
+                             "found on any page after the contents list")
+        out.append(page + 1)
+    return out
+
+
+def number_contents(docx_path, tries=3):
+    """Write each contents entry's page number into the saved file at
+    `docx_path` (practice: create-word-doc, the contents page). The file
+    must open without asking Word to update its fields, so Word cannot
+    work the numbers out itself: LibreOffice renders the file instead
+    (Times New Roman and Arial have exact-width stand-ins there), the page
+    each heading starts on is read off the render, and the numbers go into
+    the PAGEREF fields' shown results. It renders again with the numbers
+    in, and stops when a render agrees with the numbers it shows. Word
+    breaks pages its own way, so a long section can come out a page off in
+    Word; right-click the list and Update Field puts it right. Returns the
+    numbers."""
+    for _ in range(tries):
+        doc = Document(str(docx_path))
+        entries = _contents_entries(doc)
+        if not entries:
+            raise SystemExit("create_word_doc: --page-numbers found no "
+                             "contents entries to number")
+        found = [str(n) for n in _heading_pages([t for t, _ in entries],
+                                                _rendered_pages(docx_path))]
+        if found == [el.text for _, el in entries]:
+            return found
+        for (_, el), n in zip(entries, found):
+            el.text = n
+        doc.save(str(docx_path))
+    raise SystemExit(f"create_word_doc: the contents page numbers did not "
+                     f"settle after {tries} renders")
 
 
 def add_image(doc, image_path, alt=""):
@@ -1415,7 +1579,7 @@ def heading_levels(blocks):
 
 
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
-              contents_levels=CONTENTS_LEVELS,
+              contents_levels=CONTENTS_LEVELS, page_numbers=False,
               section_breaks=True, header_image=None, soft_wraps=False,
               header_on_first_page=False, footer_label=None):
     text = strip_front_matter(strip_comments(
@@ -1652,7 +1816,7 @@ def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
         add_header_image(section, header_image, first_page=header_on_first_page)
 
     if contents:
-        add_contents(doc, levels=contents_levels)
+        add_contents(doc, levels=contents_levels, page_numbers=page_numbers)
 
     # practice: create-word-doc -- an asterisk placed like emphasis that
     # nothing closed is almost always a typo in the source; say where, never
@@ -1690,8 +1854,8 @@ BUILD_MARK = "create_word_doc.py build: "
 RECORDED_PATHS = ("manuscript", "header_image")
 RECORDED_VALUES = ("short_name", "date", "footer_label", "breaks_off_because",
                    "contents_levels")
-RECORDED_FLAGS = ("no_footer", "contents", "no_section_breaks", "soft_wraps",
-                  "header_on_first_page")
+RECORDED_FLAGS = ("no_footer", "contents", "page_numbers", "no_section_breaks",
+                  "soft_wraps", "header_on_first_page")
 
 
 def repo_root(start):
@@ -1809,6 +1973,12 @@ def main():
              f"the Parts, their sections and their sub-sections)",
     )
     ap.add_argument(
+        "--page-numbers",
+        action="store_true",
+        help="give each contents entry its page number, read off a "
+             "LibreOffice render of the finished file; needs --contents",
+    )
+    ap.add_argument(
         "--no-section-breaks",
         action="store_true",
         help="let sections flow on instead of starting each ## and ### on a new page; "
@@ -1870,6 +2040,8 @@ def main():
         ap.error("--contents-levels takes a number from 1 to 9")
     if args.contents_levels is not None and not args.contents:
         ap.error("--contents-levels needs --contents")
+    if args.page_numbers and not args.contents:
+        ap.error("--page-numbers needs --contents")
 
     if not args.manuscript.is_file():
         sys.exit(f"error: {args.manuscript} does not exist")
@@ -1890,6 +2062,7 @@ def main():
     doc = build_doc(args.manuscript, short_name, not args.no_footer, date_str,
                     contents=args.contents,
                     contents_levels=args.contents_levels or CONTENTS_LEVELS,
+                    page_numbers=args.page_numbers,
                     section_breaks=not args.no_section_breaks,
                     soft_wraps=args.soft_wraps,
                     header_image=args.header_image,
@@ -1903,6 +2076,9 @@ def main():
                                 sort_keys=True))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(args.out)
+    if args.page_numbers:
+        pages = number_contents(args.out)
+        print(f"numbered {len(pages)} contents entries, pages {pages[0]}-{pages[-1]}")
     print(f"wrote {args.out}")
 
 
