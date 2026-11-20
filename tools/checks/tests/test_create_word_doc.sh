@@ -191,6 +191,37 @@ PY
 fi
 echo "ok: --contents drops a hand-made contents list; without it, the list stays"
 
+# 4c. --page-numbers gives each contents entry the page its heading starts
+#     on, read off a LibreOffice render, behind the TOC style's dotted tab,
+#     in a PAGEREF field Word can update (Morgan, 2026-11-20: "add the page
+#     numbers (and keep it updated)"). "One" is also a line of text on page
+#     5; the entry must still say 3. Still no update-fields prompt.
+if command -v soffice > /dev/null && command -v pdftotext > /dev/null; then
+  printf '# Sample\n\nA preface.\n\n## Part I\n### One\nText that says One in a sentence.\n\n### Two\nMore.\n\n## Part II\n### Three\nOne\n' \
+    > "$SCRATCH/book-sample/NUMBERED.md"
+  python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-sample/NUMBERED.md" \
+    --out "$SCRATCH/out/Numbered.docx" --date 2026-01-01 --contents --page-numbers > /dev/null
+  if ! OUT="$(python3 - "$SCRATCH/out/Numbered.docx" <<'PY' 2>&1
+import re, sys, zipfile
+import docx
+d = docx.Document(sys.argv[1])
+rows = [(p.text, p._p.xml) for p in d.paragraphs if p.style.style_id[:3] == "TOC"
+        and p.style.style_id != "TOCHeading"]
+got = [t for t, _x in rows]
+assert got == ["Part I\t3", "One\t3", "Two\t4", "Part II\t5", "Three\t5"], got
+for _t, x in rows:
+    assert re.search(r"PAGEREF _Toc\d+ \\h", x), "no PAGEREF field in an entry"
+assert "updateFields" not in zipfile.ZipFile(sys.argv[1]).read("word/settings.xml").decode()
+PY
+)"; then
+    echo "FAIL: --page-numbers did not number the contents entries right: $OUT" >&2
+    exit 1
+  fi
+  echo "ok: --page-numbers numbers each contents entry with its heading's page"
+else
+  echo "skip: --page-numbers test (no LibreOffice or pdftotext here)"
+fi
+
 # 5. A heading straight after the title shares the title's page (Morgan,
 #    2026-10-05: a blurbs file's cover held only the logo and the title);
 #    later headings still break. --no-section-breaks drops every break.
