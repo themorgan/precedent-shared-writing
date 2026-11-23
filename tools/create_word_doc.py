@@ -53,6 +53,11 @@ A draft note -- **➡️ TEXT OF THE NOTE ⬅️**, the marker for what the pers
 still has to fill in or do -- comes out in bright red (MARKER_RED), arrows
 included, so it stands out on the page (practice: draft-marker; Morgan,
 2026-11-13: "in a bright color, like red text ... so it easily stands out").
+`--marker-comments` also attaches each note to itself as a Word comment
+with the same text, so a reader working through the file in Word finds
+every gap in the comments pane (Morgan, 2026-11-23: "all the lines in red
+where this needs to be completed, ALSO make those MS Word comments with the
+same text").
 
 `--soft-wraps` reads a source wrapped at a fixed width the way Markdown
 does: a paragraph's lines join with a space, and only a line ending in a
@@ -275,6 +280,10 @@ CODE_MARK_RE = re.compile("\x04(\\d+)\x05")
 # selector), and the red its whole span is set in (practice: draft-marker).
 MARKER_ARROW_RE = re.compile("(\u27a1\ufe0f?|\u2b05\ufe0f?)")
 MARKER_RED = "FF0000"
+# Who a draft note's Word comment is from, under --marker-comments; None
+# leaves the notes as red text only.
+MARKER_COMMENT_AUTHOR = None
+MARKER_COMMENT_AUTHOR_DEFAULT = "Draft note"
 CODE_FONT, CODE_SIZE = "Courier New", 10
 CODE_SPANS = []
 
@@ -758,6 +767,7 @@ def add_inline(paragraph, lines, soft_wraps):
             joined.append("\n" if hard else " ")
     link = None  # the w:hyperlink element runs go into, inside a web link
     in_marker = False  # inside a ➡️ ... ⬅️ draft note: set in red
+    marker_runs = []  # that note's runs, for its Word comment
     for run_text, bold, italic in parse_inline("".join(joined)):
         for n, chunk in enumerate(run_text.split("\n")):
             if n:
@@ -776,6 +786,7 @@ def add_inline(paragraph, lines, soft_wraps):
                         r.italic = italic
                         if in_marker:
                             r.font.color.rgb = RGBColor.from_string(MARKER_RED)
+                            marker_runs.append(r)
                         if link is not None:
                             link.append(r._r)
                     elif link is None:
@@ -790,8 +801,11 @@ def add_inline(paragraph, lines, soft_wraps):
                             r.italic = italic
                             if in_marker:
                                 r.font.color.rgb = RGBColor.from_string(MARKER_RED)
+                                marker_runs.append(r)
                             if seg.startswith("\u2b05"):
                                 in_marker = False
+                                add_marker_comment(paragraph, marker_runs)
+                                marker_runs = []
                     else:
                         link.append(hyperlink_run(bit, bold, italic))
                 if m is None:
@@ -809,6 +823,17 @@ def add_inline(paragraph, lines, soft_wraps):
                         link.set(qn("r:id"), paragraph.part.relate_to(
                             m.group(1), RT.HYPERLINK, is_external=True))
                     paragraph._p.append(link)
+
+
+def add_marker_comment(paragraph, runs):
+    """Under --marker-comments, attach a draft note to itself as a Word
+    comment carrying the note's own text, arrows dropped."""
+    if MARKER_COMMENT_AUTHOR is None or not runs:
+        return
+    text = MARKER_ARROW_RE.sub("", "".join(r.text for r in runs)).strip()
+    if text:
+        paragraph.part.document.add_comment(
+            runs, text=text, author=MARKER_COMMENT_AUTHOR, initials="DN")
 
 
 def hyperlink_run(text, bold, italic):
@@ -1581,7 +1606,10 @@ def heading_levels(blocks):
 def build_doc(manuscript_path, short_name, add_footer, date_str, contents=False,
               contents_levels=CONTENTS_LEVELS, page_numbers=False,
               section_breaks=True, header_image=None, soft_wraps=False,
-              header_on_first_page=False, footer_label=None):
+              header_on_first_page=False, footer_label=None,
+              marker_comments=False):
+    global MARKER_COMMENT_AUTHOR
+    MARKER_COMMENT_AUTHOR = MARKER_COMMENT_AUTHOR_DEFAULT if marker_comments else None
     text = strip_front_matter(strip_comments(
         manuscript_path.read_text(encoding="utf-8")))
     if contents:
@@ -1855,7 +1883,7 @@ RECORDED_PATHS = ("manuscript", "header_image")
 RECORDED_VALUES = ("short_name", "date", "footer_label", "breaks_off_because",
                    "contents_levels")
 RECORDED_FLAGS = ("no_footer", "contents", "page_numbers", "no_section_breaks",
-                  "soft_wraps", "header_on_first_page")
+                  "soft_wraps", "header_on_first_page", "marker_comments")
 
 
 def repo_root(start):
@@ -2017,6 +2045,12 @@ def main():
         help='the footer\'s second line, before " - <date>" (default: '
              '"CONFIDENTIAL - DRAFT BOOK: <SHORT NAME>")',
     )
+    ap.add_argument(
+        "--marker-comments",
+        action="store_true",
+        help="also attach each red draft note (➡️ ... ⬅️) to itself as a Word "
+             "comment with the same text",
+    )
     args = ap.parse_args()
     if args.rebuild is not None:
         if not args.rebuild.is_file():
@@ -2067,7 +2101,8 @@ def main():
                     soft_wraps=args.soft_wraps,
                     header_image=args.header_image,
                     header_on_first_page=args.header_on_first_page,
-                    footer_label=args.footer_label)
+                    footer_label=args.footer_label,
+                    marker_comments=args.marker_comments)
     # Set on the element itself: python-docx refuses any core property over
     # 255 characters, a cap of its own -- the file format has none -- and a
     # record with two repository paths and a footer label passes it.

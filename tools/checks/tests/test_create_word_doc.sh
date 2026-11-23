@@ -870,3 +870,23 @@ PY
   exit 1
 fi
 echo "ok: a draft-marker note is red, arrows included, in text and tables; nothing around it is"
+
+# --marker-comments also makes each draft-marker note a Word comment with the
+# note's own text, in text and in a table cell; without the flag there are
+# none (Morgan, 2026-11-23).
+python3 "$SET_ROOT/tools/create_word_doc.py" "$SCRATCH/book-marker/MANUSCRIPT.md" \
+  --out "$SCRATCH/out/MarkerComments.docx" --date 2026-01-01 --marker-comments > /dev/null
+if ! OUT="$(python3 - "$SCRATCH/out/MarkerComments.docx" "$SCRATCH/out/Marker.docx" <<'PY' 2>&1
+import sys
+import docx
+d = docx.Document(sys.argv[1])
+texts = sorted(c.text for c in d.comments)
+assert texts == ["LINK THE DECK", "WHO RUNS IT"], f"comments: {texts}"
+plain = docx.Document(sys.argv[2])
+assert len(list(plain.comments)) == 0, "comments made without --marker-comments"
+PY
+)"; then
+  echo "FAIL: --marker-comments did not make one Word comment per note: $OUT" >&2
+  exit 1
+fi
+echo "ok: --marker-comments makes each draft note a Word comment with its own text, and nothing without the flag"
